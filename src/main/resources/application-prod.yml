@@ -1,0 +1,38 @@
+# =============================================================================
+# Profil prod — aucune valeur par défaut pour les paramètres critiques :
+# l'application refuse de démarrer si une variable obligatoire manque.
+# Variables requises : GESTSTOCK_DB_URL, GESTSTOCK_DB_USERNAME, GESTSTOCK_DB_PASSWORD, GESTSTOCK_JWT_SECRET,
+#                      GESTSTOCK_CORS_ALLOWED_ORIGINS
+# =============================================================================
+
+spring:
+  datasource:
+    url: ${GESTSTOCK_DB_URL}
+    username: ${GESTSTOCK_DB_USERNAME}
+    password: ${GESTSTOCK_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${GESTSTOCK_DB_POOL_SIZE:20}
+
+server:
+  # Derrière un reverse proxy (HTTPS terminé en amont).
+  forward-headers-strategy: framework
+
+# Documentation API non exposée en production.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+geststock:
+  cors:
+    allowed-origins: ${GESTSTOCK_CORS_ALLOWED_ORIGINS}
+  security:
+    jwt:
+      # Obligatoire : le démarrage échoue sans GESTSTOCK_JWT_SECRET (>= 32 octets).
+      secret: ${GESTSTOCK_JWT_SECRET}
+
+logging:
+  level:
+    root: INFO
+    com.geststock: INFO

@@ -1,0 +1,26 @@
+# =============================================================================
+# Profil test — tests d'intégration (activé par @ActiveProfiles("test"))
+#
+# Base de données :
+#  - Docker disponible : conteneur PostgreSQL Testcontainers (ces valeurs sont ignorées) ;
+#  - sinon : base externe dédiée, par défaut jdbc:postgresql://localhost:5432/geststock_test.
+#    ATTENTION : cette base doit être réservée aux tests.
+# =============================================================================
+
+spring:
+  datasource:
+    url: ${GESTSTOCK_TEST_DB_URL:jdbc:postgresql://localhost:5432/geststock_test}
+    username: ${GESTSTOCK_TEST_DB_USERNAME:postgres}
+    password: ${GESTSTOCK_TEST_DB_PASSWORD:12345678}
+#    username: ${GESTSTOCK_TEST_DB_USERNAME:geststock}
+#    password: ${GESTSTOCK_TEST_DB_PASSWORD:}
+
+geststock:
+  cors:
+    allowed-origins: http://localhost:4200
+  security:
+    jwt:
+      # Clé publique de test, sans valeur hors des tests automatisés.
+      secret: test-only-signing-key-not-for-production-0123456789
+    login:
+      max-failed-attempts: 3

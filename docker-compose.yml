@@ -1,0 +1,25 @@
+# PostgreSQL local pour GestStock (alternative à une installation native).
+# Usage : docker compose up -d
+# La base geststock est créée au premier démarrage ; Flyway crée les tables
+# au lancement de l'application. Les tests utilisent Testcontainers (rien à lancer).
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: geststock-postgres
+    environment:
+      POSTGRES_DB: geststock
+      POSTGRES_USER: geststock
+      POSTGRES_PASSWORD: ${GESTSTOCK_DB_PASSWORD:?Definir GESTSTOCK_DB_PASSWORD}
+      TZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - geststock-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geststock -d geststock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  geststock-pgdata:

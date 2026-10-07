@@ -1,0 +1,26 @@
+# =============================================================================
+# Profil dev — poste de développement (profil par défaut)
+# Base attendue : jdbc:postgresql://localhost:5432/geststock (voir README.md)
+# =============================================================================
+
+spring:
+  flyway:
+    # Schéma + données de démonstration (dev uniquement).
+    locations: classpath:db/migration,classpath:db/seed/dev
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+geststock:
+  cors:
+    allowed-origins: ${GESTSTOCK_CORS_ALLOWED_ORIGINS:http://localhost:4200}
+  security:
+    jwt:
+      # Sans GESTSTOCK_JWT_SECRET : clé aléatoire à chaque démarrage (sessions perdues).
+      allow-ephemeral-secret: true
+
+logging:
+  level:
+    com.geststock: DEBUG

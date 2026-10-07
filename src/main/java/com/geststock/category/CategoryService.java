@@ -1,0 +1,122 @@
+package com.geststock.category;
+
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import com.geststock.category.dto.CategoryRequest;
+import com.geststock.category.dto.CategoryResponse;
+import com.geststock.common.api.ActiveStatus;
+import com.geststock.common.api.PageQuery;
+import com.geststock.common.api.SortWhitelist;
+import com.geststock.exception.BusinessRuleException;
+import com.geststock.exception.ConflictException;
+import com.geststock.exception.ErrorCode;
+import com.geststock.exception.NotFoundException;
+
+/** Catégories de produits (API publique du module {@code category}). */
+@Service
+@Transactional(readOnly = true)
+public class CategoryService {
+
+	static final SortWhitelist SORTS = new SortWhitelist(Map.of("name", "name", "createdAt", "createdAt"),
+			Sort.by("name"));
+
+	private final CategoryRepository repository;
+
+	CategoryService(CategoryRepository repository) {
+		this.repository = repository;
+	}
+
+	public Page<CategoryResponse> search(String text, ActiveStatus status, PageQuery query) {
+		Specification<Category> spec = Specification.unrestricted();
+		if (StringUtils.hasText(text)) {
+			String pattern = "%" + text.trim().toLowerCase(Locale.ROOT) + "%";
+			spec = spec.and((root, q, cb) -> cb.like(cb.lower(root.get("name")), pattern));
+		}
+		Boolean active = (status != null ? status : ActiveStatus.ACTIVE).asActiveFlag();
+		if (active != null) {
+			spec = spec.and((root, q, cb) -> cb.equal(root.get("active"), active));
+		}
+		return this.repository.findAll(spec, query.toPageable(SORTS)).map(CategoryService::toResponse);
+	}
+
+	public CategoryResponse get(UUID id) {
+		return toResponse(load(id));
+	}
+
+	@Transactional
+	public CategoryResponse create(CategoryRequest request) {
+		String name = request.name().trim();
+		requireUniqueName(name, null);
+		return toResponse(this.repository.saveAndFlush(new Category(name, blankToNull(request.description()))));
+	}
+
+	@Transactional
+	public CategoryResponse update(UUID id, CategoryRequest request) {
+		Category category = load(id);
+		String name = request.name().trim();
+		requireUniqueName(name, id);
+		category.update(name, blankToNull(request.description()));
+		return toResponse(this.repository.saveAndFlush(category));
+	}
+
+	/**
+	 * Active ou désactive. Une catégorie désactivée reste attachée à ses produits mais ne peut
+	 * plus être choisie pour un autre produit.
+	 */
+	@Transactional
+	public CategoryResponse setActive(UUID id, boolean active) {
+		Category category = load(id);
+		if (active) {
+			category.activate();
+		}
+		else {
+			category.deactivate();
+		}
+		return toResponse(this.repository.saveAndFlush(category));
+	}
+
+	/**
+	 * Catégorie à rattacher à un produit (module {@code product}).
+	 *
+	 * @param requireActive {@code false} quand le produit la porte déjà : elle reste valable même désactivée
+	 */
+	public Category getForAssignment(UUID id, boolean requireActive) {
+		Category category = load(id);
+		if (requireActive && !category.isActive()) {
+			throw new BusinessRuleException(ErrorCode.CATEGORY_INACTIVE, ErrorCode.CATEGORY_INACTIVE.defaultMessage());
+		}
+		return category;
+	}
+
+	private Category load(UUID id) {
+		return this.repository.findById(id)
+			.orElseThrow(() -> new NotFoundException(ErrorCode.CATEGORY_NOT_FOUND,
+					ErrorCode.CATEGORY_NOT_FOUND.defaultMessage()));
+	}
+
+	private void requireUniqueName(String name, UUID excludedId) {
+		if (this.repository.existsByNameIgnoringCase(name, excludedId)) {
+			throw new ConflictException(ErrorCode.CATEGORY_NAME_ALREADY_USED,
+					ErrorCode.CATEGORY_NAME_ALREADY_USED.defaultMessage());
+		}
+	}
+
+	static CategoryResponse toResponse(Category category) {
+		return new CategoryResponse(category.getId(), category.getName(), category.getDescription(), category.isActive(),
+				category.getCreatedAt(), category.getUpdatedAt());
+	}
+
+	private static String blankToNull(String value) {
+		return StringUtils.hasText(value) ? value.trim() : null;
+	}
+
+}

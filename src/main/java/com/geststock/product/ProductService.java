@@ -1,0 +1,199 @@
+package com.geststock.product;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import com.geststock.brand.Brand;
+import com.geststock.brand.BrandService;
+import com.geststock.category.Category;
+import com.geststock.category.CategoryService;
+import com.geststock.common.api.PageQuery;
+import com.geststock.common.api.SortWhitelist;
+import com.geststock.exception.ConflictException;
+import com.geststock.exception.ErrorCode;
+import com.geststock.exception.NotFoundException;
+import com.geststock.product.dto.ProductFilter;
+import com.geststock.product.dto.ProductRequest;
+import com.geststock.product.dto.ProductResponse;
+
+/**
+ * Catalogue produits (API publique du module {@code product}).
+ *
+ * <p>Règles :
+ * <ul>
+ * <li>référence (SKU) unique sans tenir compte de la casse ; code-barres unique s'il existe ;</li>
+ * <li>catégorie obligatoire ; catégorie et marque doivent être actives pour être choisies ;</li>
+ * <li>désactivation plutôt que suppression (historique des ventes et mouvements préservé) ;</li>
+ * <li><b>le stock n'est jamais lu ni écrit dans le produit</b> : il est affiché depuis le
+ * module stock via {@link ProductStockReader}.</li>
+ * </ul>
+ */
+@Service
+@Transactional(readOnly = true)
+public class ProductService {
+
+	static final SortWhitelist SORTS = new SortWhitelist(Map.of(
+			"sku", "sku",
+			"name", "name",
+			"categoryName", "category.name",
+			"purchasePrice", "purchasePrice",
+			"retailPrice", "retailPrice",
+			"wholesalePrice", "wholesalePrice",
+			"createdAt", "createdAt",
+			"updatedAt", "updatedAt"), Sort.by("name"));
+
+	private final ProductRepository repository;
+
+	private final CategoryService categories;
+
+	private final BrandService brands;
+
+	private final ObjectProvider<ProductStockReader> stockReader;
+
+	ProductService(ProductRepository repository, CategoryService categories, BrandService brands,
+			ObjectProvider<ProductStockReader> stockReader) {
+		this.repository = repository;
+		this.categories = categories;
+		this.brands = brands;
+		this.stockReader = stockReader;
+	}
+
+	public Page<ProductResponse> search(ProductFilter filter, PageQuery query, UUID warehouseId) {
+		Page<Product> page = this.repository.findAll(ProductSpecifications.matching(filter), query.toPageable(SORTS));
+		Map<UUID, Integer> stock = stockOf(page.getContent(), warehouseId);
+		return page.map(product -> toResponse(product, stock));
+	}
+
+	public ProductResponse get(UUID id, UUID warehouseId) {
+		Product product = load(id);
+		return toResponse(product, stockOf(List.of(product), warehouseId));
+	}
+
+	@Transactional
+	public ProductResponse create(ProductRequest request, UUID warehouseId) {
+		String sku = request.sku().trim();
+		String barcode = blankToNull(request.barcode());
+		requireUniqueIdentifiers(sku, barcode, null);
+
+		Category category = this.categories.getForAssignment(request.categoryId(), true);
+		Product product = new Product(sku, request.name().trim(), category);
+		apply(product, request, sku, barcode, true);
+		Product saved = this.repository.saveAndFlush(product);
+		return toResponse(saved, stockOf(List.of(saved), warehouseId));
+	}
+
+	@Transactional
+	public ProductResponse update(UUID id, ProductRequest request, UUID warehouseId) {
+		Product product = load(id);
+		String sku = request.sku().trim();
+		String barcode = blankToNull(request.barcode());
+		requireUniqueIdentifiers(sku, barcode, id);
+		apply(product, request, sku, barcode, false);
+		Product saved = this.repository.saveAndFlush(product);
+		return toResponse(saved, stockOf(List.of(saved), warehouseId));
+	}
+
+	/**
+	 * Désactive (« supprime ») ou réactive. Un produit désactivé disparaît des listes et ne
+	 * pourra plus être vendu ni commandé, mais reste lisible dans l'historique.
+	 */
+	@Transactional
+	public ProductResponse setActive(UUID id, boolean active, UUID warehouseId) {
+		Product product = load(id);
+		if (active) {
+			product.activate();
+		}
+		else {
+			product.deactivate();
+		}
+		Product saved = this.repository.saveAndFlush(product);
+		return toResponse(saved, stockOf(List.of(saved), warehouseId));
+	}
+
+	/**
+	 * Produits existants (actifs ou non) parmi les identifiants demandés, pour les autres
+	 * modules. Les identifiants inconnus sont absents du résultat.
+	 */
+	public Map<UUID, ProductSnapshot> snapshots(Collection<UUID> ids) {
+		if (ids.isEmpty()) {
+			return Map.of();
+		}
+		return this.repository.findAllById(ids).stream()
+			.collect(Collectors.toUnmodifiableMap(Product::getId, ProductSnapshot::of));
+	}
+
+	// --- Outils -------------------------------------------------------------------------
+
+	/**
+	 * Applique la requête. Catégorie et marque doivent être actives si elles changent ; un
+	 * produit peut conserver une catégorie ou une marque désactivée depuis.
+	 */
+	private void apply(Product product, ProductRequest request, String sku, String barcode, boolean creation) {
+		boolean categoryChanged = creation || !product.getCategory().getId().equals(request.categoryId());
+		Category category = categoryChanged ? this.categories.getForAssignment(request.categoryId(), true)
+				: product.getCategory();
+
+		Brand brand = null;
+		if (request.brandId() != null) {
+			boolean brandChanged = creation || product.getBrand() == null
+					|| !product.getBrand().getId().equals(request.brandId());
+			brand = brandChanged ? this.brands.getForAssignment(request.brandId(), true) : product.getBrand();
+		}
+
+		product.identify(sku, barcode);
+		product.describe(request.name().trim(), blankToNull(request.description()),
+				request.unit() != null ? request.unit() : ProductUnit.UNIT);
+		product.classify(category, brand, request.supplierId());
+		product.reprice(request.purchasePrice(), request.retailPrice(), request.wholesalePrice());
+		product.setStockThresholds(request.alertThreshold(), request.maxStockLevel());
+	}
+
+	private void requireUniqueIdentifiers(String sku, String barcode, UUID excludedId) {
+		if (this.repository.existsBySkuIgnoringCase(sku, excludedId)) {
+			throw new ConflictException(ErrorCode.SKU_ALREADY_USED, ErrorCode.SKU_ALREADY_USED.defaultMessage());
+		}
+		if (barcode != null && this.repository.existsByBarcode(barcode, excludedId)) {
+			throw new ConflictException(ErrorCode.BARCODE_ALREADY_USED, ErrorCode.BARCODE_ALREADY_USED.defaultMessage());
+		}
+	}
+
+	private Product load(UUID id) {
+		return this.repository.findById(id)
+			.orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, ErrorCode.PRODUCT_NOT_FOUND.defaultMessage()));
+	}
+
+	/** Quantités lues auprès du module stock ; 0 tant qu'il n'est pas disponible. */
+	private Map<UUID, Integer> stockOf(List<Product> products, UUID warehouseId) {
+		ProductStockReader reader = this.stockReader.getIfAvailable();
+		if (reader == null || products.isEmpty()) {
+			return Map.of();
+		}
+		return reader.quantities(products.stream().map(Product::getId).toList(), warehouseId);
+	}
+
+	private static ProductResponse toResponse(Product product, Map<UUID, Integer> stock) {
+		Category category = product.getCategory();
+		Brand brand = product.getBrand();
+		return new ProductResponse(product.getId(), product.getSku(), product.getBarcode(), product.getName(),
+				product.getDescription(), category.getId(), category.getName(), brand != null ? brand.getId() : null,
+				brand != null ? brand.getName() : null, product.getDefaultSupplierId(), product.getUnit(),
+				product.getPurchasePrice(), product.getRetailPrice(), product.getWholesalePrice(),
+				product.getAlertThreshold(), product.getMaxStockLevel(), stock.getOrDefault(product.getId(), 0),
+				product.isActive(), product.getCreatedAt(), product.getUpdatedAt());
+	}
+
+	private static String blankToNull(String value) {
+		return StringUtils.hasText(value) ? value.trim() : null;
+	}
+
+}
