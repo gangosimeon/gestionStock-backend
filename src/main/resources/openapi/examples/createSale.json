@@ -1,0 +1,62 @@
+{
+  "request" : {
+    "paymentMethod" : "CASH",
+    "items" : [ {
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "quantity" : 2,
+      "discountPercent" : 10
+    }, {
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "quantity" : 1
+    } ]
+  },
+  "response" : {
+    "id" : "01a12716-427f-79ff-a10c-7292164927d5",
+    "number" : "VTE-2026-000577",
+    "type" : "RETAIL",
+    "status" : "COMPLETED",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "customerId" : null,
+    "customerName" : null,
+    "items" : [ {
+      "id" : "01a12716-42e1-7fcb-aa22-bb02cc7e4be4",
+      "lineNumber" : 1,
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "productSku" : "MON-RB-3025",
+      "productName" : "Ray-Ban Aviator RB3025",
+      "quantity" : 2,
+      "unitPrice" : 95000.0,
+      "discountPercent" : 10.0,
+      "discountAmount" : 19000.0,
+      "lineTotal" : 171000.0,
+      "purchasePrice" : 44000.0,
+      "stockMovementId" : "01a12716-42d2-7cc3-8c3d-3a7f9d655c2c"
+    }, {
+      "id" : "01a12716-42e3-700d-8c40-58481c998bd2",
+      "lineNumber" : 2,
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "productSku" : "LEN-ACU-30",
+      "productName" : "Acuvue Oasys (boîte de 6)",
+      "quantity" : 1,
+      "unitPrice" : 18000.0,
+      "discountPercent" : 0.0,
+      "discountAmount" : 0.0,
+      "lineTotal" : 18000.0,
+      "purchasePrice" : 9000.0,
+      "stockMovementId" : "01a12716-42dc-7f26-880e-30c1141f06c8"
+    } ],
+    "paymentMethod" : "CASH",
+    "subtotal" : 208000.0,
+    "discountTotal" : 19000.0,
+    "total" : 189000.0,
+    "paidAmount" : 189000.0,
+    "creditAmount" : 0.0,
+    "costTotal" : 97000.0,
+    "profit" : 92000.0,
+    "note" : null,
+    "createdAt" : "2026-10-10T18:32:12.680146900Z",
+    "createdByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+    "cancelledAt" : null,
+    "cancellationReason" : null
+  }
+}

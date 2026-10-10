@@ -327,6 +327,41 @@ class CashApiIT {
 	}
 
 	@Test
+	void aSupervisorOnlySeesTheDrawersOfTheWarehousesHeMaySee() throws Exception {
+		UUID depot = this.jdbc.queryForObject(
+				"insert into warehouse (code, name, type) values ('ZZ-CAI', 'Dépôt caisse', 'WAREHOUSE') returning id",
+				UUID.class);
+		// Caisse de Bruno ouverte au dépôt (Bruno a accès à tous les dépôts).
+		String session = idOf(this.mvc.perform(post("/api/cash-register/open").with(admin(this.bruno))
+			.header("X-Warehouse-Id", depot).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"openingBalance\": 1000}")));
+
+		// Superviseur (cash:read) sans warehouse:all : limité au magasin principal.
+		RequestPostProcessor localSupervisor = actor(this.alice, Permissions.CASH_READ, Permissions.WAREHOUSE_READ);
+		this.mvc.perform(get("/api/cash-register/sessions/{id}", session).with(localSupervisor))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("CASH_SESSION_NOT_FOUND"));
+		this.mvc.perform(get("/api/cash-register/sessions/{id}/operations", session).with(localSupervisor))
+			.andExpect(status().isNotFound());
+
+		RequestPostProcessor globalSupervisor = actor(this.alice, Permissions.CASH_READ, Permissions.WAREHOUSE_READ,
+				Permissions.WAREHOUSE_ALL);
+		this.mvc.perform(get("/api/cash-register/sessions/{id}", session).with(globalSupervisor))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.openedByUserId").value(this.bruno.toString()));
+		// Filtres de l'historique : statut et période d'ouverture.
+		this.mvc.perform(get("/api/cash-register/sessions").with(globalSupervisor).header("X-Warehouse-Id", depot)
+			.param("status", "OPEN"))
+			.andExpect(jsonPath("$.total").value(1));
+		this.mvc.perform(get("/api/cash-register/sessions").with(globalSupervisor).header("X-Warehouse-Id", depot)
+			.param("status", "CLOSED"))
+			.andExpect(jsonPath("$.total").value(0));
+		this.mvc.perform(get("/api/cash-register/sessions").with(globalSupervisor).header("X-Warehouse-Id", depot)
+			.param("from", "2000-01-01T00:00:00Z").param("to", "2001-01-01T00:00:00Z"))
+			.andExpect(jsonPath("$.total").value(0));
+	}
+
+	@Test
 	void requestsAreValidatedAndPermissionsEnforced() throws Exception {
 		open(this.alice, "{\"openingBalance\": -1}").andExpect(status().isBadRequest());
 		open(this.alice, "{}").andExpect(status().isBadRequest());

@@ -12,7 +12,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springdoc.core.annotations.ParameterObject;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -71,6 +73,7 @@ class SupplierController {
 	}
 
 	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CREATE", entityType = "SUPPLIER", idParam = "")
 	@RequiresPermission(Permissions.SUPPLIER_CREATE)
 	@Operation(summary = "Créer un fournisseur", description = "Code généré (FOU-0001) s'il n'est pas fourni.")

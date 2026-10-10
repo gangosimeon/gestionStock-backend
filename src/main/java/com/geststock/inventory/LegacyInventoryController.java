@@ -11,7 +11,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springdoc.core.annotations.ParameterObject;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,6 +69,7 @@ class LegacyInventoryController {
 	}
 
 	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CREATE", entityType = "INVENTORY_SESSION", idParam = "")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Inventaire en une fois (contrat front)",

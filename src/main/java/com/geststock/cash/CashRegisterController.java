@@ -12,8 +12,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springdoc.core.annotations.ParameterObject;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -110,6 +112,7 @@ class CashRegisterController {
 	}
 
 	@PostMapping("/open")
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "OPEN", entityType = "CASH_SESSION", idParam = "")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Ouvrir ma caisse", description = "Dans le dépôt courant ; une seule caisse ouverte par utilisateur.")
@@ -120,6 +123,7 @@ class CashRegisterController {
 	}
 
 	@PostMapping("/operations")
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CASH_OPERATION", entityType = "CASH_ENTRY", idParam = "")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Apport ou sortie d'espèces",
@@ -131,6 +135,7 @@ class CashRegisterController {
 	}
 
 	@PostMapping("/operations/{id}/reversal")
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CORRECTION", entityType = "CASH_ENTRY")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Corriger un apport ou une sortie",

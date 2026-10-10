@@ -41,7 +41,8 @@ class AuditFailureInterceptor implements HandlerInterceptor, WebMvcConfigurer {
 
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
-		registry.addInterceptor(this).addPathPatterns("/api/**");
+		// En premier : il doit voir aussi les refus du contrôle anticipé des permissions.
+		registry.addInterceptor(this).addPathPatterns("/api/**").order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
 	}
 
 	@Override

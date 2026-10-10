@@ -68,6 +68,22 @@ class PurchaseOrderTest {
 	}
 
 	@Test
+	void aBackdatedReceiptDoesNotMoveTheLastReceiptDateBackwards() {
+		PurchaseOrder order = order();
+		PurchaseOrderLine frames = order.addLine(UUID.randomUUID(), "MON-1", "Monture", 10, new BigDecimal("1000"));
+
+		frames.receive(3);
+		order.recordReceipt(frames.amountOf(3), T0);
+		// Bon de livraison saisi en retard, daté de la veille.
+		frames.receive(2);
+		order.recordReceipt(frames.amountOf(2), T0.minusSeconds(86_400));
+
+		assertThat(order.getLastReceiptAt()).as("dernière réception = la plus récente").isEqualTo(T0);
+		assertThat(order.getReceivedAmount()).as("la valeur reçue, elle, s'additionne").isEqualByComparingTo("5000");
+		assertThat(order.getStatus()).isEqualTo(PurchaseOrderStatus.PARTIALLY_RECEIVED);
+	}
+
+	@Test
 	void aLineCannotReceiveMoreThanItsRemainder() {
 		PurchaseOrderLine line = order().addLine(UUID.randomUUID(), "MON-1", "Monture", 2, BigDecimal.ONE);
 		line.receive(2);

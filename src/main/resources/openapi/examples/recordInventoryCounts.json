@@ -1,0 +1,45 @@
+{
+  "request" : {
+    "counts" : [ {
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "countedQuantity" : 13,
+      "note" : "Une boîte abîmée"
+    } ]
+  },
+  "response" : {
+    "id" : "01a12716-4ad6-7aa3-9942-587d49e5d9f9",
+    "number" : "INV-2026-000128",
+    "status" : "COUNTING",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "scope" : "SELECTION",
+    "categoryId" : null,
+    "note" : "Inventaire tournant",
+    "createdAt" : "2026-10-10T18:32:14.813200Z",
+    "createdByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+    "startedAt" : "2026-10-10T18:32:14.915007Z",
+    "submittedAt" : null,
+    "submittedByUserId" : null,
+    "validatedAt" : null,
+    "validatedByUserId" : null,
+    "validationComment" : null,
+    "cancelledAt" : null,
+    "cancellationReason" : null,
+    "itemsCount" : 1,
+    "countedCount" : 1,
+    "totalDifference" : -1,
+    "lines" : [ {
+      "id" : "01a12716-4ade-732a-8399-bfd229186bcf",
+      "lineNumber" : 1,
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "productSku" : "LEN-ACU-30",
+      "productName" : "Acuvue Oasys (boîte de 6)",
+      "systemQuantity" : 14,
+      "physicalQuantity" : 13,
+      "difference" : -1,
+      "countedAt" : "2026-10-10T18:32:14.989859Z",
+      "countedByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+      "note" : "Une boîte abîmée",
+      "stockMovementId" : null
+    } ]
+  }
+}

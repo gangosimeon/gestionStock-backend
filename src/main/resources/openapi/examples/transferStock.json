@@ -1,0 +1,55 @@
+{
+  "request" : {
+    "fromWarehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "toWarehouseId" : "01a12716-3f28-7966-ad8c-56e381066674",
+    "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+    "quantity" : 4,
+    "note" : "Réassort dépôt"
+  },
+  "response" : {
+    "ok" : true,
+    "transferId" : "f3f92d6d-5d92-4b50-963a-3d7f97124752",
+    "out" : {
+      "id" : "01a12716-3fc8-76ca-96ce-6f06bd8df428",
+      "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "productSku" : "LEN-ACU-30",
+      "productName" : "Acuvue Oasys (boîte de 6)",
+      "quantity" : -4,
+      "type" : "TRANSFER_OUT",
+      "reason" : "ADJUSTMENT",
+      "note" : "Réassort dépôt",
+      "unitCost" : 9000.0,
+      "balanceAfter" : 15,
+      "sourceType" : "TRANSFER",
+      "sourceId" : "f3f92d6d-5d92-4b50-963a-3d7f97124752",
+      "sourceReference" : null,
+      "correlationId" : "f3f92d6d-5d92-4b50-963a-3d7f97124752",
+      "reversalOfId" : null,
+      "createdAt" : "2026-10-10T18:32:11.976424400Z",
+      "createdByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+      "createdByUsername" : "marie.k"
+    },
+    "in" : {
+      "id" : "01a12716-3fe4-7973-9d78-ce3286cdaf77",
+      "warehouseId" : "01a12716-3f28-7966-ad8c-56e381066674",
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "productSku" : "LEN-ACU-30",
+      "productName" : "Acuvue Oasys (boîte de 6)",
+      "quantity" : 4,
+      "type" : "TRANSFER_IN",
+      "reason" : "ADJUSTMENT",
+      "note" : "Réassort dépôt",
+      "unitCost" : 9000.0,
+      "balanceAfter" : 4,
+      "sourceType" : "TRANSFER",
+      "sourceId" : "f3f92d6d-5d92-4b50-963a-3d7f97124752",
+      "sourceReference" : null,
+      "correlationId" : "f3f92d6d-5d92-4b50-963a-3d7f97124752",
+      "reversalOfId" : null,
+      "createdAt" : "2026-10-10T18:32:11.976424400Z",
+      "createdByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+      "createdByUsername" : "marie.k"
+    }
+  }
+}

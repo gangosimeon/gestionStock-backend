@@ -1,0 +1,35 @@
+{
+  "request" : {
+    "sku" : "MON-RB-3025",
+    "barcode" : "8053672000001",
+    "name" : "Ray-Ban Aviator RB3025",
+    "categoryId" : "71ab82ab-1c70-449a-abd5-5d100b9fdb26",
+    "purchasePrice" : 45000,
+    "retailPrice" : 95000,
+    "wholesalePrice" : 80000,
+    "alertThreshold" : 2,
+    "maxStockLevel" : 20
+  },
+  "response" : {
+    "id" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+    "sku" : "MON-RB-3025",
+    "barcode" : "8053672000001",
+    "name" : "Ray-Ban Aviator RB3025",
+    "description" : null,
+    "categoryId" : "71ab82ab-1c70-449a-abd5-5d100b9fdb26",
+    "categoryName" : "Montures",
+    "brandId" : null,
+    "brandName" : null,
+    "supplierId" : null,
+    "unit" : "UNIT",
+    "purchasePrice" : 45000,
+    "retailPrice" : 95000,
+    "wholesalePrice" : 80000,
+    "alertThreshold" : 2,
+    "maxStockLevel" : 20,
+    "stockQuantity" : 0,
+    "active" : true,
+    "createdAt" : "2026-10-10T18:32:09.994201400Z",
+    "updatedAt" : "2026-10-10T18:32:09.994201400Z"
+  }
+}

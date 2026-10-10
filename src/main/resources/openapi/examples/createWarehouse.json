@@ -1,0 +1,20 @@
+{
+  "request" : {
+    "name" : "Dépôt Cocody",
+    "type" : "WAREHOUSE",
+    "address" : "Cocody Riviera 2",
+    "phone" : "+225 27 22 00 00 00"
+  },
+  "response" : {
+    "id" : "01a12716-3f28-7966-ad8c-56e381066674",
+    "code" : "DEP-03",
+    "name" : "Dépôt Cocody",
+    "type" : "WAREHOUSE",
+    "address" : "Cocody Riviera 2",
+    "phone" : "+225 27 22 00 00 00",
+    "main" : false,
+    "active" : true,
+    "createdAt" : "2026-10-10T18:32:11.826129200Z",
+    "updatedAt" : "2026-10-10T18:32:11.826129200Z"
+  }
+}

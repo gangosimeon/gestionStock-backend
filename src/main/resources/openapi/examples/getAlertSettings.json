@@ -1,0 +1,13 @@
+{
+  "response" : {
+    "defaultMinStock" : 0,
+    "lowStockMarginPercent" : 50,
+    "dormantStockDays" : 90,
+    "purchaseOverdueGraceDays" : 0,
+    "defaultPaymentTermsDays" : 30,
+    "creditLimitWarningPercent" : 90,
+    "cashSessionMaxOpenHours" : 24,
+    "cashDifferenceTolerance" : 1000.0,
+    "cashDifferenceLookbackDays" : 7
+  }
+}

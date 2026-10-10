@@ -1,0 +1,59 @@
+{
+  "request" : {
+    "supplierId" : "01a12716-39fd-7041-87d3-86c1e46370ee",
+    "supplierReference" : "ESS-PO-1182",
+    "lines" : [ {
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "quantity" : 10,
+      "unitPurchasePrice" : 44000
+    }, {
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "quantity" : 20
+    } ]
+  },
+  "response" : {
+    "id" : "01a12716-3af7-758c-bfee-376638046fdb",
+    "number" : "CMD-2026-000233",
+    "supplierId" : "01a12716-39fd-7041-87d3-86c1e46370ee",
+    "supplierName" : "Essilor Côte d'Ivoire",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "status" : "PENDING",
+    "documentStatus" : "ORDERED",
+    "expectedDeliveryDate" : "2026-10-17",
+    "supplierReference" : "ESS-PO-1182",
+    "note" : null,
+    "lines" : [ {
+      "id" : "01a12716-3b08-7a09-bfd2-1a3e5fffd6fb",
+      "lineNumber" : 1,
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "productSku" : "MON-RB-3025",
+      "productName" : "Ray-Ban Aviator RB3025",
+      "quantity" : 10,
+      "receivedQuantity" : 0,
+      "remainingQuantity" : 10,
+      "unitPurchasePrice" : 44000.0,
+      "lineTotal" : 440000.0
+    }, {
+      "id" : "01a12716-3b0f-7c06-a944-b6724231e055",
+      "lineNumber" : 2,
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "productSku" : "LEN-ACU-30",
+      "productName" : "Acuvue Oasys (boîte de 6)",
+      "quantity" : 20,
+      "receivedQuantity" : 0,
+      "remainingQuantity" : 20,
+      "unitPurchasePrice" : 9000.0,
+      "lineTotal" : 180000.0
+    } ],
+    "totalAmount" : 620000.0,
+    "receivedAmount" : 0.0,
+    "paidAmount" : 0.0,
+    "createdAt" : "2026-10-10T18:32:10.756102700Z",
+    "createdByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+    "deliveredAt" : null,
+    "lastReceiptAt" : null,
+    "closedAt" : null,
+    "closeReason" : null,
+    "updatedAt" : "2026-10-10T18:32:10.756102700Z"
+  }
+}

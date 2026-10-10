@@ -1,0 +1,57 @@
+{
+  "response" : {
+    "items" : [ {
+      "id" : "01a12716-4839-74da-84e6-f33c8bb7d921",
+      "number" : "VTE-2026-000579",
+      "createdAt" : "2026-10-10T18:32:14.137303Z",
+      "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+      "warehouseName" : "Magasin Plateau",
+      "customerId" : null,
+      "customerName" : null,
+      "sellerId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+      "sellerName" : "Marie Kouassi",
+      "status" : "CANCELLED",
+      "paymentMethod" : "CASH",
+      "total" : 18000.0,
+      "cost" : 9000.0,
+      "profit" : 9000.0,
+      "paidAmount" : 18000.0,
+      "creditAmount" : 0.0,
+      "returnedAmount" : 0.0,
+      "netAmount" : 18000.0
+    }, {
+      "id" : "01a12716-4540-7898-b79c-2cf2390303f2",
+      "number" : "VTE-2026-000578",
+      "createdAt" : "2026-10-10T18:32:13.384131Z",
+      "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+      "warehouseName" : "Magasin Plateau",
+      "customerId" : "01a12716-412a-7551-b06f-6cbafdd77dd2",
+      "customerName" : "Clinique Les Lauriers",
+      "sellerId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+      "sellerName" : "Marie Kouassi",
+      "status" : "COMPLETED",
+      "paymentMethod" : "MOBILE_MONEY",
+      "total" : 95000.0,
+      "cost" : 44000.0,
+      "profit" : 51000.0,
+      "paidAmount" : 20000.0,
+      "creditAmount" : 75000.0,
+      "returnedAmount" : 0.0,
+      "netAmount" : 95000.0
+    } ],
+    "total" : 3,
+    "page" : 0,
+    "size" : 2,
+    "totalPages" : 2,
+    "summary" : {
+      "completedCount" : 2,
+      "cancelledCount" : 1,
+      "total" : 284000.0,
+      "cost" : 141000.0,
+      "profit" : 143000.0,
+      "returnedAmount" : 85500.0,
+      "netSales" : 198500.0,
+      "creditAmount" : 75000.0
+    }
+  }
+}

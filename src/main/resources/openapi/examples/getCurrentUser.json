@@ -1,0 +1,22 @@
+{
+  "response" : {
+    "id" : "01a12716-3041-7061-ae53-03daa5c665d1",
+    "username" : "awa.t",
+    "firstName" : "Awa",
+    "lastName" : "Traoré",
+    "fullName" : "Awa Traoré",
+    "email" : "awa.t@optique.ci",
+    "phone" : "+225 07 00 00 00 01",
+    "roles" : [ "CAISSIER" ],
+    "role" : "EMPLOYEE",
+    "isActive" : true,
+    "hasPassword" : true,
+    "mustChangePassword" : true,
+    "defaultWarehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "warehouseIds" : [ "f323929c-2fa8-41e1-b7c3-f38e47f7a446" ],
+    "lastLoginAt" : "2026-10-10T18:32:09.278666800Z",
+    "createdAt" : "2026-10-10T18:32:08.043758600Z",
+    "updatedAt" : "2026-10-10T18:32:08.043758600Z",
+    "permissions" : [ "appointment:manage", "appointment:read" ]
+  }
+}

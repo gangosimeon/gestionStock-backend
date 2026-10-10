@@ -1,0 +1,29 @@
+{
+  "request" : {
+    "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+    "quantity" : -1,
+    "reason" : "LOSS",
+    "note" : "Verre rayé en vitrine"
+  },
+  "response" : {
+    "id" : "01a12716-3e66-7a3d-9cca-7b0f6217868e",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+    "productSku" : "LEN-ACU-30",
+    "productName" : "Acuvue Oasys (boîte de 6)",
+    "quantity" : -1,
+    "type" : "LOSS",
+    "reason" : "LOSS",
+    "note" : "Verre rayé en vitrine",
+    "unitCost" : 9000.0,
+    "balanceAfter" : 19,
+    "sourceType" : "MANUAL",
+    "sourceId" : null,
+    "sourceReference" : null,
+    "correlationId" : null,
+    "reversalOfId" : null,
+    "createdAt" : "2026-10-10T18:32:11.622639900Z",
+    "createdByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+    "createdByUsername" : "marie.k"
+  }
+}

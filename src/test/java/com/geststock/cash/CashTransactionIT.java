@@ -106,6 +106,38 @@ class CashTransactionIT {
 	}
 
 	@Test
+	void aDocumentIsEncashedOnceEvenWhenRetriedConcurrently() throws Exception {
+		open(this.cashier, "0");
+		UUID sale = UUID.randomUUID();
+		List<Callable<ErrorCode>> attempts = new ArrayList<>();
+		for (int i = 0; i < 5; i++) {
+			attempts.add(() -> {
+				try {
+					this.transactions.executeWithoutResult(status -> as(this.cashier,
+							() -> this.cash.recordSaleReceipt(this.warehouse, sale, "VTE-IT-000001",
+									new BigDecimal("30000"), PaymentMethod.CASH, null)));
+					return null;
+				}
+				catch (ApiException ex) {
+					return ex.getCode();
+				}
+			});
+		}
+
+		List<ErrorCode> outcomes = runConcurrently(attempts);
+
+		assertThat(outcomes).filteredOn(java.util.Objects::isNull).as("un seul encaissement").hasSize(1);
+		assertThat(outcomes).filteredOn(java.util.Objects::nonNull)
+			.containsOnly(ErrorCode.CASH_ENTRY_ALREADY_RECORDED);
+		assertThat(this.jdbc.queryForObject("select count(*) from cash_entry where source_id = ?", Integer.class, sale))
+			.isEqualTo(1);
+		assertThat(this.jdbc.queryForObject("""
+				select coalesce(sum(amount), 0) from cash_entry where session_id in
+				    (select id from cash_session where warehouse_id = ?)""", BigDecimal.class, this.warehouse))
+			.isEqualByComparingTo("30000");
+	}
+
+	@Test
 	void concurrentCashOutsNeverExceedTheDrawer() throws Exception {
 		open(this.cashier, "10000");
 

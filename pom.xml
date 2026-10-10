@@ -17,6 +17,14 @@
 	<properties>
 		<java.version>21</java.version>
 		<springdoc.version>3.1.1</springdoc.version>
+		<!--
+			Correctifs de sécurité en avance sur Spring Boot 4.1.1 (audit du 2026-10-10, docs/security-audit.md) :
+			Jackson (GHSA-cxp5-3px4-pw24, GHSA-q4xh-88c3-wmh7, GHSA-wv8q-qhhj-9h54, GHSA-7hhh-6rmp-j9qf, GHSA-p6pp-m3f8-5c89…)
+			et Tomcat (GHSA-gcx9-497g-6cp6…). À retirer dès qu'une version de Spring Boot embarque ces versions.
+		-->
+		<jackson-bom.version>3.1.7</jackson-bom.version>
+		<jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+		<tomcat.version>11.0.26</tomcat.version>
 	</properties>
 
 	<dependencies>
@@ -146,5 +154,67 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+			Couverture de code (mesure seulement, aucun seuil) : ./mvnw verify -Pcoverage
+			Rapport fusionné tests unitaires + intégration : target/site/jacoco-merged/index.html
+		-->
+		<profile>
+			<id>coverage</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.jacoco</groupId>
+						<artifactId>jacoco-maven-plugin</artifactId>
+						<version>0.8.13</version>
+						<executions>
+							<execution>
+								<id>agent-unit</id>
+								<goals>
+									<goal>prepare-agent</goal>
+								</goals>
+							</execution>
+							<execution>
+								<id>agent-integration</id>
+								<goals>
+									<goal>prepare-agent-integration</goal>
+								</goals>
+							</execution>
+							<execution>
+								<id>merge</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>merge</goal>
+								</goals>
+								<configuration>
+									<fileSets>
+										<fileSet>
+											<directory>${project.build.directory}</directory>
+											<includes>
+												<include>jacoco*.exec</include>
+											</includes>
+										</fileSet>
+									</fileSets>
+									<destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+								</configuration>
+							</execution>
+							<execution>
+								<id>report</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>report</goal>
+								</goals>
+								<configuration>
+									<dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+									<outputDirectory>${project.build.directory}/site/jacoco-merged</outputDirectory>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 
 </project>

@@ -91,6 +91,56 @@ class CatalogReferenceApiIT {
 
 	@Test
 	@WithPermissions(all = true)
+	void aDeactivatedBrandStaysOnItsProductsButCannotBeAssignedAnymore() throws Exception {
+		String brand = idOf(create("/api/brands", "{\"name\": \"Silhouette Test\"}"));
+		this.mvc.perform(put("/api/brands/{id}", brand).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"name\": \"Silhouette Titan\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.name").value("Silhouette Titan"));
+		String frames = idOf(this.mvc.perform(get("/api/categories").param("q", "Montures"))
+			.andExpect(status().isOk()), "items");
+		String product = idOf(create("/api/products", productBody("BRD-1", frames, brand)));
+
+		this.mvc.perform(patch("/api/brands/{id}/active", brand).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"active\": false}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.active").value(false));
+		// Hors des listes par défaut, visible avec status=ALL.
+		this.mvc.perform(get("/api/brands").param("q", "Silhouette"))
+			.andExpect(jsonPath("$.items[*].id", not(hasItem(brand))));
+		this.mvc.perform(get("/api/brands").param("q", "Silhouette").param("status", "ALL"))
+			.andExpect(jsonPath("$.items[*].id", hasItem(brand)));
+
+		// Plus attribuable à un nouveau produit…
+		create("/api/products", productBody("BRD-2", frames, brand))
+			.andExpect(status().isUnprocessableContent())
+			.andExpect(jsonPath("$.code").value("BRAND_INACTIVE"));
+		// … mais le produit qui la porte déjà reste modifiable sans en changer.
+		this.mvc.perform(put("/api/products/{id}", product).contentType(MediaType.APPLICATION_JSON)
+			.content(productBody("BRD-1", frames, brand).replace("Produit BRD-1", "Produit BRD-1 modifié")))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.name").value("Produit BRD-1 modifié"));
+
+		this.mvc.perform(patch("/api/brands/{id}/active", brand).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"active\": true}"))
+			.andExpect(status().isOk());
+		create("/api/products", productBody("BRD-2", frames, brand)).andExpect(status().isCreated());
+	}
+
+	private static String productBody(String sku, String categoryId, String brandId) {
+		return """
+				{"sku": "%s", "name": "Produit %s", "categoryId": "%s", "brandId": "%s", "purchasePrice": 1000,
+				 "retailPrice": 2000, "wholesalePrice": 1800, "alertThreshold": 1}""".formatted(sku, sku, categoryId, brandId);
+	}
+
+	private static String idOf(ResultActions result, String listField) throws Exception {
+		String body = result.andReturn().getResponse().getContentAsString();
+		int start = body.indexOf("\"" + listField + "\":[{\"id\":\"") + listField.length() + 11;
+		return body.substring(start, body.indexOf('"', start));
+	}
+
+	@Test
+	@WithPermissions(all = true)
 	void validatesInput() throws Exception {
 		create("/api/categories", "{\"name\": \"  \"}")
 			.andExpect(status().isBadRequest())

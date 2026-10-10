@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,11 +70,13 @@ class AuthController {
 			description = "Le refresh token présenté est révoqué et remplacé. Le réutiliser ensuite ferme toutes les sessions de la même connexion.")
 	@ApiResponse(responseCode = "401", description = "INVALID_REFRESH_TOKEN",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	AuthResponse refresh(@Valid @RequestBody RefreshRequest request, HttpServletRequest http) {
 		return this.service.refresh(request.refreshToken(), ClientInfo.from(http));
 	}
 
 	@PostMapping("/logout")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
 	@SecurityRequirements
 	@Operation(summary = "Se déconnecter", description = "Révoque le refresh token fourni. Toujours 204.")
 	@ApiResponse(responseCode = "204", description = "Session fermée")
@@ -85,6 +88,7 @@ class AuthController {
 	@GetMapping("/me")
 	@PreAuthorize("isAuthenticated()")
 	@Operation(summary = "Utilisateur connecté et permissions effectives")
+	@ApiResponse(responseCode = "200", description = "OK")
 	MeResponse me(@AuthenticationPrincipal CurrentUser user) {
 		return this.service.me(user);
 	}
@@ -95,6 +99,7 @@ class AuthController {
 	@Operation(summary = "Changer son mot de passe", description = "Ferme toutes les sessions puis renvoie une nouvelle session.")
 	@ApiResponse(responseCode = "400", description = "CURRENT_PASSWORD_INVALID ou PASSWORD_POLICY_VIOLATION",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	AuthResponse changePassword(@AuthenticationPrincipal CurrentUser user, @Valid @RequestBody ChangePasswordRequest request,
 			HttpServletRequest http) {
 		return this.service.changePassword(user, request.currentPassword(), request.newPassword(), ClientInfo.from(http));
@@ -108,6 +113,7 @@ class AuthController {
 	@PostMapping("/forgot-password")
 	@SecurityRequirements
 	@Operation(summary = "Mot de passe oublié", description = "Toujours 202, que le compte existe ou non.")
+	@ApiResponse(responseCode = "202", description = "Demande prise en compte (réponse identique que le compte existe ou non)")
 	ResponseEntity<Map<String, String>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
 		log.info("Demande de réinitialisation de mot de passe reçue.");
 		return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("message",

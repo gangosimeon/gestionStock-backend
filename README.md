@@ -60,13 +60,20 @@ export GESTSTOCK_DB_PASSWORD='MOT_DE_PASSE_CHOISI'
 
 Lancement depuis un IDE : plutôt qu'une variable d'environnement, le mot de passe peut être placé dans
 `config/application-dev.yml` (`spring.datasource.password`), lu automatiquement par Spring Boot depuis le
-dossier du projet. Ce dossier est exclu de Git (`.gitignore`).
+dossier du projet. Ce dossier est exclu de Git (`.gitignore`). Même principe pour les tests :
+`config/application-test.yml` (ou `GESTSTOCK_TEST_DB_PASSWORD`) ; aucun mot de passe dans les fichiers versionnés.
 
 | URL | Rôle |
 |---|---|
 | http://localhost:8080/api/health | État de l'API et de la base (`UP` / `DOWN`) |
 | http://localhost:8080/swagger-ui.html | Documentation interactive (profils `dev` et `test`) |
 | http://localhost:8080/v3/api-docs | Contrat OpenAPI (JSON) |
+
+Contrat OpenAPI 3.0 complet : routes, paramètres, DTO avec règles de validation, réponses et erreurs
+(`ApiError`, catalogue des codes), authentification Bearer, permission de chaque opération
+(`x-permissions`), en-tête `X-Warehouse-Id`, exemples de requêtes et de réponses réels.
+Guide du développeur Angular (génération du client TypeScript, conventions) : [docs/api.md](docs/api.md) ;
+instantané : [docs/openapi.json](docs/openapi.json).
 | http://localhost:8080/actuator/health | Sonde de supervision |
 
 Jar exécutable : `./mvnw package -DskipTests` puis `java -jar target/geststock-backend-0.0.1-SNAPSHOT.jar`.
@@ -92,6 +99,10 @@ export GESTSTOCK_TEST_DB_PASSWORD='MOT_DE_PASSE_CHOISI'
 
 > La base `geststock_test` doit être **réservée aux tests**.
 
+Couverture (mesure seulement) : `./mvnw verify -Pcoverage` → `target/site/jacoco-merged/index.html`.
+Stratégie, styles de tests et règles métier couvertes par domaine : [docs/testing.md](docs/testing.md).
+Audit de sécurité (constats, preuves, corrections, points à valider) : [docs/security-audit.md](docs/security-audit.md).
+
 ## Profils
 
 | Profil | Activation | Particularités |
@@ -110,7 +121,7 @@ export GESTSTOCK_TEST_DB_PASSWORD='MOT_DE_PASSE_CHOISI'
 | `GESTSTOCK_DB_POOL_SIZE` | `10` (`20` en prod) | non | Taille du pool de connexions |
 | `GESTSTOCK_SERVER_PORT` | `8080` | non | Port HTTP |
 | `GESTSTOCK_CORS_ALLOWED_ORIGINS` | `http://localhost:4200` en dev, aucune sinon | oui | Origines autorisées, séparées par des virgules |
-| `GESTSTOCK_JWT_SECRET` | aucune (clé aléatoire en dev) | oui | Clé de signature des jetons, **32 octets minimum** |
+| `GESTSTOCK_JWT_SECRET` | aucune (clé aléatoire en dev) | oui | Clé de signature des jetons, **32 octets minimum**, aléatoire : `openssl rand -base64 48` |
 | `GESTSTOCK_ACCESS_TOKEN_TTL` | `15m` | non | Durée de vie d'un jeton d'accès |
 | `GESTSTOCK_REFRESH_TOKEN_TTL` | `7d` | non | Durée de vie d'un refresh token |
 | `GESTSTOCK_ADMIN_USERNAME` | *(vide)* | au 1er démarrage | Administrateur créé s'il n'en existe aucun |

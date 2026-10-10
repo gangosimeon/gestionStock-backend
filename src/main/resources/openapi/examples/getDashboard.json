@@ -1,0 +1,81 @@
+{
+  "response" : {
+    "generatedAt" : "2026-10-10T18:32:15.198988100Z",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "kpis" : {
+      "todaySalesTotal" : 198500.0,
+      "todayProfit" : 101500.0,
+      "stockTotal" : 17
+    },
+    "salesByDay" : [ {
+      "date" : "2026-09-27",
+      "count" : 0,
+      "grossSales" : 0.0,
+      "returns" : 0.0,
+      "total" : 0.0,
+      "profit" : 0.0
+    }, {
+      "date" : "2026-09-28",
+      "count" : 0,
+      "grossSales" : 0.0,
+      "returns" : 0.0,
+      "total" : 0.0,
+      "profit" : 0.0
+    } ],
+    "topProducts" : [ {
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "sku" : "MON-RB-3025",
+      "name" : "Ray-Ban Aviator RB3025",
+      "quantity" : 2,
+      "total" : 180500.0,
+      "profit" : 92500.0
+    }, {
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "sku" : "LEN-ACU-30",
+      "name" : "Acuvue Oasys (boîte de 6)",
+      "quantity" : 1,
+      "total" : 18000.0,
+      "profit" : 9000.0
+    } ],
+    "stockEvolution" : [ {
+      "date" : "2026-10-04",
+      "label" : "04/10",
+      "stockTotal" : 0
+    }, {
+      "date" : "2026-10-05",
+      "label" : "05/10",
+      "stockTotal" : 0
+    } ],
+    "today" : {
+      "generatedAt" : "2026-10-10T18:32:15.198988100Z",
+      "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+      "from" : "2026-10-10",
+      "to" : "2026-10-10",
+      "sales" : {
+        "count" : 2,
+        "grossSales" : 284000.0,
+        "returns" : 85500.0,
+        "netSales" : 198500.0,
+        "costOfSales" : 97000.0,
+        "grossProfit" : 101500.0,
+        "marginRate" : 51.1,
+        "averageBasket" : 142000.0,
+        "cancelledCount" : 1
+      },
+      "purchases" : {
+        "receiptsCount" : 1,
+        "receivedAmount" : 444000.0,
+        "ordersCount" : 1,
+        "orderedAmount" : 620000.0
+      },
+      "stock" : {
+        "units" : 17,
+        "value" : 293000.0,
+        "productsInStock" : 2,
+        "outOfStock" : 0,
+        "belowMinimum" : 0,
+        "lowStock" : 0
+      }
+    }
+  }
+}

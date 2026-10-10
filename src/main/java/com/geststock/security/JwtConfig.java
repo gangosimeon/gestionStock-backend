@@ -3,6 +3,8 @@ package com.geststock.security;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -14,6 +16,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
@@ -24,7 +28,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 /**
  * Signature et validation des jetons d'accès : HMAC-SHA256 avec une clé connue du seul
  * serveur. La validation vérifie la signature, l'algorithme (pas de {@code alg: none}),
- * l'émetteur et l'expiration (tolérance d'horloge de 30 secondes).
+ * l'émetteur, la présence et la validité de l'expiration et de la date d'émission (tolérance
+ * d'horloge de 30 secondes).
  */
 @Configuration(proxyBeanMethods = false)
 public class JwtConfig {
@@ -48,8 +53,12 @@ public class JwtConfig {
 	@Bean
 	JwtDecoder jwtDecoder(SecretKey jwtSigningKey, GestStockSecurityProperties properties) {
 		NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSigningKey).macAlgorithm(MacAlgorithm.HS256).build();
-		decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(new JwtTimestampValidator(CLOCK_SKEW),
-				new JwtIssuerValidator(properties.jwt().issuer())));
+		// exp et iat obligatoires : JwtTimestampValidator ne contrôle que les claims présents, et un
+		// jeton sans exp serait valable indéfiniment.
+		decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+				new JwtClaimValidator<Instant>(JwtClaimNames.EXP, Objects::nonNull),
+				new JwtClaimValidator<Instant>(JwtClaimNames.IAT, Objects::nonNull),
+				new JwtTimestampValidator(CLOCK_SKEW), new JwtIssuerValidator(properties.jwt().issuer())));
 		return decoder;
 	}
 

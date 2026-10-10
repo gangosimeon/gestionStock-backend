@@ -15,7 +15,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springdoc.core.annotations.ParameterObject;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -67,6 +69,7 @@ class UserController {
 	@Operation(summary = "Lister les utilisateurs",
 			description = "Sans page ni size, renvoie toute la liste (compatibilité front, plafond 5 000). "
 					+ "Tris : username, lastName, firstName, fullName, email, createdAt, lastLoginAt.")
+	@ApiResponse(responseCode = "200", description = "OK")
 	ResponseEntity<PageResponse<UserResponse>> list(@ParameterObject UserFilter filter,
 			@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
 			@Parameter(description = "champ,asc|desc (répétable)") @RequestParam(required = false) List<String> sort) {
@@ -78,11 +81,13 @@ class UserController {
 	@Operation(summary = "Consulter un utilisateur")
 	@ApiResponse(responseCode = "404", description = "Utilisateur introuvable",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	UserResponse get(@PathVariable UUID id) {
 		return this.service.get(id);
 	}
 
 	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CREATE", entityType = "USER", idParam = "")
 	@Operation(summary = "Créer un utilisateur")
 	@ApiResponse(responseCode = "201", description = "Utilisateur créé")
@@ -100,6 +105,7 @@ class UserController {
 	@Operation(summary = "Modifier un utilisateur")
 	@ApiResponse(responseCode = "409", description = "Identifiant ou email déjà utilisé, dernier administrateur",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	UserResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateUserRequest request) {
 		return this.service.update(id, request);
 	}
@@ -111,6 +117,7 @@ class UserController {
 					+ "permission que vous ne possédez pas.")
 	@ApiResponse(responseCode = "409", description = "Retrait du rôle ADMIN au dernier administrateur",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	UserResponse assignRoles(@PathVariable UUID id, @Valid @RequestBody AssignRolesRequest request) {
 		return this.service.assignRoles(id, request.roles());
 	}
@@ -120,6 +127,7 @@ class UserController {
 	@Operation(summary = "Activer ou désactiver un compte")
 	@ApiResponse(responseCode = "409", description = "Désactivation du dernier administrateur actif",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	UserResponse setActive(@PathVariable UUID id, @Valid @RequestBody SetUserActiveRequest request) {
 		return this.service.setActive(id, request.isActive());
 	}
@@ -128,12 +136,14 @@ class UserController {
 	@Audited(action = "DELETE", entityType = "USER")
 	@Operation(summary = "Supprimer un utilisateur (désactivation)",
 			description = "Le compte est désactivé, jamais effacé : l'historique conserve son auteur.")
+	@ApiResponse(responseCode = "200", description = "OK")
 	OkResponse delete(@PathVariable UUID id) {
 		this.service.delete(id);
 		return OkResponse.success();
 	}
 
 	@PutMapping("/{id}/password")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
 	@Audited(action = "PASSWORD_RESET", entityType = "USER")
 	@Operation(summary = "Attribuer un mot de passe",
 			description = "Mot de passe temporaire par défaut : l'utilisateur devra le changer à sa prochaine connexion.")

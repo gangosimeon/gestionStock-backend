@@ -43,8 +43,11 @@ public class BrandService {
 	public Page<BrandResponse> search(String text, ActiveStatus status, PageQuery query) {
 		Specification<Brand> spec = Specification.unrestricted();
 		if (StringUtils.hasText(text)) {
-			String pattern = "%" + text.trim().toLowerCase(Locale.ROOT) + "%";
-			spec = spec.and((root, q, cb) -> cb.like(cb.lower(root.get("name")), pattern));
+			// Jokers saisis (%, _) cherchés tels quels, comme dans les autres modules.
+			String escaped = text.trim().toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%")
+				.replace("_", "\\_");
+			String pattern = "%" + escaped + "%";
+			spec = spec.and((root, q, cb) -> cb.like(cb.lower(root.get("name")), pattern, '\\'));
 		}
 		Boolean active = (status != null ? status : ActiveStatus.ACTIVE).asActiveFlag();
 		if (active != null) {

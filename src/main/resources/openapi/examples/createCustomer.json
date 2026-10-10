@@ -1,0 +1,31 @@
+{
+  "request" : {
+    "name" : "Clinique Les Lauriers",
+    "type" : "COMPANY",
+    "phone" : "+225 07 11 22 33 44",
+    "email" : "compta@lauriers.ci",
+    "city" : "Abidjan",
+    "creditLimit" : 500000,
+    "paymentTermsDays" : 30
+  },
+  "response" : {
+    "id" : "01a12716-412a-7551-b06f-6cbafdd77dd2",
+    "code" : "CLI-000105",
+    "type" : "COMPANY",
+    "name" : "Clinique Les Lauriers",
+    "phone" : "+225 07 11 22 33 44",
+    "email" : "compta@lauriers.ci",
+    "address" : null,
+    "city" : "Abidjan",
+    "taxId" : null,
+    "priceCategory" : "RETAIL",
+    "creditLimit" : 500000.0,
+    "paymentTermsDays" : 30,
+    "note" : null,
+    "active" : true,
+    "balance" : 0.0,
+    "availableCredit" : 500000.0,
+    "createdAt" : "2026-10-10T18:32:12.337354800Z",
+    "updatedAt" : "2026-10-10T18:32:12.337354800Z"
+  }
+}

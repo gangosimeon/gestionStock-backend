@@ -75,6 +75,14 @@ public class WarehouseAccess {
 		return ids == null || ids.contains(warehouseId);
 	}
 
+	/**
+	 * Dépôts dont l'utilisateur courant peut consulter les données, ou {@code null} s'il les voit
+	 * tous ({@code warehouse:all}). Pour les listes qui ne dépendent pas du dépôt courant.
+	 */
+	public Set<UUID> visibleWarehouseIds() {
+		return accessibleIds(ActorWarehouseScope.current());
+	}
+
 	/** {@code true} si l'utilisateur courant voit tous les dépôts ({@code warehouse:all}). */
 	public boolean seesAllWarehouses() {
 		return ActorWarehouseScope.current().allWarehouses();

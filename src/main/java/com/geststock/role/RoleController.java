@@ -11,8 +11,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -52,6 +54,7 @@ class RoleController {
 	@GetMapping
 	@PreAuthorize("hasAnyAuthority('" + Permissions.ROLE_MANAGE + "', '" + Permissions.USER_MANAGE + "')")
 	@Operation(summary = "Lister les rôles et leurs permissions")
+	@ApiResponse(responseCode = "200", description = "OK")
 	PageResponse<RoleResponse> list() {
 		return PageResponse.unpaged(this.service.list());
 	}
@@ -59,11 +62,13 @@ class RoleController {
 	@GetMapping("/{id}")
 	@PreAuthorize("hasAnyAuthority('" + Permissions.ROLE_MANAGE + "', '" + Permissions.USER_MANAGE + "')")
 	@Operation(summary = "Consulter un rôle")
+	@ApiResponse(responseCode = "200", description = "OK")
 	RoleResponse get(@PathVariable UUID id) {
 		return this.service.get(id);
 	}
 
 	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CREATE", entityType = "ROLE", idParam = "")
 	@RequiresPermission(Permissions.ROLE_MANAGE)
 	@Operation(summary = "Créer un rôle personnalisé")
@@ -81,6 +86,7 @@ class RoleController {
 	@Operation(summary = "Modifier un rôle et ses permissions", description = "Le rôle ADMIN n'est pas modifiable.")
 	@ApiResponse(responseCode = "409", description = "Rôle ADMIN",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	RoleResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateRoleRequest request) {
 		return this.service.update(id, request);
 	}
@@ -91,6 +97,7 @@ class RoleController {
 	@Operation(summary = "Supprimer un rôle personnalisé", description = "Refusé pour un rôle système ou encore attribué.")
 	@ApiResponse(responseCode = "409", description = "Rôle système ou attribué",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	@ApiResponse(responseCode = "200", description = "OK")
 	OkResponse delete(@PathVariable UUID id) {
 		this.service.delete(id);
 		return OkResponse.success();

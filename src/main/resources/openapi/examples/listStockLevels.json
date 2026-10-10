@@ -1,0 +1,25 @@
+{
+  "response" : {
+    "items" : [ {
+      "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+      "productId" : "01a12716-38bb-7649-959e-c5b6105a115f",
+      "productSku" : "LEN-ACU-30",
+      "productName" : "Acuvue Oasys (boîte de 6)",
+      "quantity" : 15,
+      "lastMovementId" : "01a12716-3fc8-76ca-96ce-6f06bd8df428",
+      "updatedAt" : "2026-10-10T18:32:11.976424400Z"
+    }, {
+      "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "productSku" : "MON-RB-3025",
+      "productName" : "Ray-Ban Aviator RB3025",
+      "quantity" : 6,
+      "lastMovementId" : "01a12716-3cb4-7588-b2b4-0d5d2f98a913",
+      "updatedAt" : "2026-10-10T18:32:11.185785900Z"
+    } ],
+    "total" : 2,
+    "page" : 0,
+    "size" : 2,
+    "totalPages" : 1
+  }
+}

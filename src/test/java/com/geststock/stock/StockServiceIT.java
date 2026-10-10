@@ -269,6 +269,29 @@ class StockServiceIT {
 					ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.SAME_WAREHOUSE_TRANSFER));
 	}
 
+	@Test
+	void aTransferMovesAPositiveQuantityAndAManualMovementOnlyItsOwnSource() {
+		apply(RECEIPT, this.depot, this.frame, 5);
+		for (int quantity : new int[] { 0, -2 }) {
+			assertThatThrownBy(() -> runAs(this.actor,
+					() -> this.stock.transfer(this.depot, this.store, this.frame, quantity, null)))
+				.as("transfert de %d", quantity)
+				.isInstanceOfSatisfying(ApiException.class,
+						ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.INVALID_STOCK_QUANTITY));
+		}
+		assertThat(this.fixtures.level(this.depot, this.frame)).isEqualTo(5);
+		assertThat(this.fixtures.level(this.store, this.frame)).isZero();
+
+		// Un mouvement de pièce (vente…) ne passe pas par la saisie manuelle.
+		assertThatThrownBy(() -> runAs(this.actor, () -> this.stock.applyManualMovement(
+				StockMovementCommand.of(this.depot, this.frame, SALE, -1, StockSourceType.SALE, "Vente déguisée"))))
+			.isInstanceOf(IllegalArgumentException.class);
+		assertThatThrownBy(() -> runAs(this.actor, () -> this.stock.reverse(UUID.randomUUID(), "Inconnu")))
+			.isInstanceOfSatisfying(ApiException.class,
+					ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.STOCK_MOVEMENT_NOT_FOUND));
+		assertThat(this.fixtures.movementCount(this.depot, this.frame)).isEqualTo(1);
+	}
+
 	// --- Annulations --------------------------------------------------------------------------
 
 	@Test

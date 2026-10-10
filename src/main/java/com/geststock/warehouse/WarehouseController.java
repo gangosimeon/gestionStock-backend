@@ -12,7 +12,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springdoc.core.annotations.ParameterObject;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -80,6 +82,7 @@ class WarehouseController {
 	}
 
 	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CREATE", entityType = "WAREHOUSE", idParam = "")
 	@RequiresPermission(Permissions.WAREHOUSE_MANAGE)
 	@Operation(summary = "Créer un dépôt", description = "Code généré si absent (MAG-nn / DEP-nn), type STORE par défaut.")

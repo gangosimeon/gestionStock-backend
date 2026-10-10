@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -247,6 +248,81 @@ class InventoryApiIT {
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("INVENTORY_NOT_FOUND"));
 		this.mvc.perform(get("/api/inventories").with(actor(Permissions.SALE_READ))).andExpect(status().isForbidden());
+	}
+
+	@Test
+	void theScopeIsEditableOnlyInDraftAndCountsMustMatchIt() throws Exception {
+		String id = selection(this.caseProduct);
+		// Brouillon : on ajoute et on retire des produits.
+		this.mvc.perform(post("/api/inventories/{id}/products", id).with(counter()).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"productIds\": [\"%s\"]}".formatted(this.cloth)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.itemsCount").value(2));
+		this.mvc.perform(delete("/api/inventories/{id}/products/{productId}", id, this.frame).with(counter()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVENTORY_PRODUCT_NOT_IN_SCOPE"));
+		this.mvc.perform(delete("/api/inventories/{id}/products/{productId}", id, this.caseProduct).with(counter()))
+			.andExpect(jsonPath("$.itemsCount").value(1));
+		this.mvc.perform(delete("/api/inventories/{id}/products/{productId}", id, this.cloth).with(counter()))
+			.andExpect(jsonPath("$.itemsCount").value(0));
+		// Un inventaire vide ne démarre pas.
+		action(counter(), id, "start")
+			.andExpect(status().isUnprocessableContent())
+			.andExpect(jsonPath("$.code").value("INVENTORY_EMPTY"));
+		this.mvc.perform(post("/api/inventories/{id}/products", id).with(counter()).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"productIds\": [\"%s\"]}".formatted(this.caseProduct)))
+			.andExpect(status().isOk());
+		action(counter(), id, "start").andExpect(status().isOk());
+
+		// Démarré : périmètre figé.
+		this.mvc.perform(post("/api/inventories/{id}/products", id).with(counter()).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"productIds\": [\"%s\"]}".formatted(this.cloth)))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("INVENTORY_INVALID_TRANSITION"));
+		this.mvc.perform(delete("/api/inventories/{id}/products/{productId}", id, this.caseProduct).with(counter()))
+			.andExpect(status().isConflict());
+
+		// Comptages : uniquement des produits du périmètre, chacun une fois par demande.
+		counts(counter(), id, this.frame, 3)
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVENTORY_PRODUCT_NOT_IN_SCOPE"));
+		this.mvc.perform(put("/api/inventories/{id}/counts", id).with(counter()).contentType(MediaType.APPLICATION_JSON)
+			.content("""
+					{"counts": [{"productId": "%s", "countedQuantity": 9}, {"productId": "%s", "countedQuantity": 8}]}"""
+				.formatted(this.caseProduct, this.caseProduct)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVENTORY_DUPLICATE_PRODUCT"));
+		counts(counter(), id, this.caseProduct, -1).andExpect(status().isBadRequest());
+
+		// Annulé avant validation : aucun effet sur le stock, plus aucune action possible.
+		counts(counter(), id, this.caseProduct, 2).andExpect(status().isOk());
+		action(counter(), id, "cancel", "{\"comment\": \"Comptage interrompu\"}")
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("CANCELLED"));
+		assertThat(level(this.caseProduct)).as("le comptage annulé ne touche pas le stock").isEqualTo(10);
+		action(counter(), id, "submit").andExpect(status().isConflict());
+		assertThat(this.jdbc.queryForObject("""
+				select count(*) from audit_log where entity_type = 'INVENTORY_SESSION' and entity_id = ? and status = 'SUCCESS'
+				  and action in ('ADD_PRODUCTS', 'REMOVE_PRODUCT', 'COUNT', 'CANCEL')""", Integer.class, id))
+			.as("modifications du périmètre, comptage et annulation tracés").isEqualTo(6);
+		checkDeferredConstraints();
+	}
+
+	@Test
+	void anInventoryOfAnInaccessibleWarehouseIsInvisible() throws Exception {
+		UUID depot = this.jdbc.queryForObject(
+				"insert into warehouse (code, name, type) values ('ZZ-INV', 'Dépôt inventaire', 'WAREHOUSE') returning id",
+				UUID.class);
+		String id = idOf(this.mvc.perform(post("/api/inventories").with(manager()).header("X-Warehouse-Id", depot)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"scope\": \"SELECTION\", \"productIds\": [\"%s\"]}".formatted(this.frame))));
+
+		// Compteur sans warehouse:all, rattaché par défaut au magasin principal.
+		this.mvc.perform(get("/api/inventories/{id}", id).with(counter()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("INVENTORY_NOT_FOUND"));
+		action(counter(), id, "start").andExpect(status().isNotFound());
+		this.mvc.perform(get("/api/inventories/{id}", id).with(manager())).andExpect(status().isOk());
 	}
 
 	// --- Outils ------------------------------------------------------------------------------------

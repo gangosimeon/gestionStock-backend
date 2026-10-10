@@ -12,7 +12,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springdoc.core.annotations.ParameterObject;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -89,6 +91,7 @@ class StockController {
 	}
 
 	@PostMapping("/movements")
+	@ResponseStatus(HttpStatus.CREATED)
 	@RequiresPermission(Permissions.STOCK_ADJUST)
 	@Audited(action = "CREATE", entityType = "STOCK_MOVEMENT", idParam = "")
 	@Operation(summary = "Saisir un mouvement manuel",
@@ -111,6 +114,7 @@ class StockController {
 	}
 
 	@PostMapping("/movements/{id}/reversal")
+	@ResponseStatus(HttpStatus.CREATED)
 	@RequiresPermission(Permissions.STOCK_ADJUST)
 	@Audited(action = "REVERSAL", entityType = "STOCK_MOVEMENT")
 	@Operation(summary = "Annuler un mouvement manuel",

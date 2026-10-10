@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.exception.ForbiddenOperationException;
+import com.geststock.warehouse.WarehouseAccess;
 import com.geststock.audit.AuditEvent;
 import com.geststock.audit.AuditService;
 import com.geststock.common.api.PageQuery;
@@ -67,6 +69,8 @@ public class UserService {
 
 	private final WarehouseService warehouseService;
 
+	private final WarehouseAccess warehouseAccess;
+
 	private final PasswordEncoder passwordEncoder;
 
 	private final PasswordPolicy passwordPolicy;
@@ -80,11 +84,12 @@ public class UserService {
 	private final Clock clock;
 
 	UserService(AppUserRepository repository, RoleService roleService, WarehouseService warehouseService,
-			PasswordEncoder passwordEncoder, PasswordPolicy passwordPolicy, UserMapper mapper,
+			WarehouseAccess warehouseAccess, PasswordEncoder passwordEncoder, PasswordPolicy passwordPolicy, UserMapper mapper,
 			ApplicationEventPublisher events, AuditService audit, Clock clock) {
 		this.repository = repository;
 		this.roleService = roleService;
 		this.warehouseService = warehouseService;
+		this.warehouseAccess = warehouseAccess;
 		this.passwordEncoder = passwordEncoder;
 		this.passwordPolicy = passwordPolicy;
 		this.mapper = mapper;
@@ -269,6 +274,8 @@ public class UserService {
 	 * toujours ajouté aux dépôts autorisés.
 	 */
 	private void applyWarehouses(AppUser user, UUID defaultWarehouseId, List<UUID> warehouseIds) {
+		requireAssignable(warehouseIds);
+		requireAssignable(defaultWarehouseId != null ? List.of(defaultWarehouseId) : null);
 		if (warehouseIds != null) {
 			user.replaceWarehouses(warehouseIds.isEmpty() ? Set.of() : this.warehouseService.findActiveByIds(warehouseIds));
 		}
@@ -279,6 +286,22 @@ public class UserService {
 				Collection<Warehouse> all = new LinkedHashSet<>(user.getWarehouses());
 				all.add(defaultWarehouse);
 				user.replaceWarehouses(all);
+			}
+		}
+	}
+
+	/**
+	 * Pas d'extension de périmètre par délégation : sans {@code warehouse:all}, on n'affecte que
+	 * des dépôts que l'on peut soi-même consulter.
+	 */
+	private void requireAssignable(List<UUID> warehouseIds) {
+		if (warehouseIds == null || this.warehouseAccess.seesAllWarehouses()) {
+			return;
+		}
+		for (UUID id : warehouseIds) {
+			if (!this.warehouseAccess.canSee(id)) {
+				throw new ForbiddenOperationException(ErrorCode.WAREHOUSE_ACCESS_DENIED,
+						ErrorCode.WAREHOUSE_ACCESS_DENIED.defaultMessage());
 			}
 		}
 	}

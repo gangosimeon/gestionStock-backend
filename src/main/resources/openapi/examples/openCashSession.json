@@ -1,0 +1,32 @@
+{
+  "request" : {
+    "openingBalance" : 50000,
+    "terminal" : "Caisse 1",
+    "note" : "Fond de caisse du matin"
+  },
+  "response" : {
+    "id" : "01a12716-41b3-7a3e-b3b4-6303373c3f12",
+    "number" : "CAI-2026-000466",
+    "status" : "OPEN",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "terminal" : "Caisse 1",
+    "openedAt" : "2026-10-10T18:32:12.467640300Z",
+    "openedByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+    "openingBalance" : 50000.0,
+    "openingNote" : "Fond de caisse du matin",
+    "closedAt" : null,
+    "closedByUserId" : null,
+    "countedCash" : null,
+    "cashSalesTotal" : 0.0,
+    "totalIn" : 0.0,
+    "totalOut" : 0.0,
+    "expectedCash" : 50000.0,
+    "difference" : 0.0,
+    "totalsByMethod" : {
+      "CASH" : 0.0,
+      "MOBILE_MONEY" : 0.0,
+      "BANK_TRANSFER" : 0.0
+    },
+    "closingNote" : null
+  }
+}

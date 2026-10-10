@@ -1,0 +1,10 @@
+{
+  "response" : {
+    "customerId" : "01a12716-412a-7551-b06f-6cbafdd77dd2",
+    "creditLimit" : 500000.0,
+    "balance" : 50000.0,
+    "availableCredit" : 450000.0,
+    "paymentTermsDays" : 30,
+    "active" : true
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "response" : {
+    "items" : [ {
+      "customerId" : "01a12716-412a-7551-b06f-6cbafdd77dd2",
+      "code" : "CLI-000105",
+      "name" : "Clinique Les Lauriers",
+      "active" : true,
+      "creditLimit" : 500000.0,
+      "paymentTermsDays" : 30,
+      "balance" : 50000.0,
+      "overdueAmount" : 0.0,
+      "oldestDueAt" : null,
+      "salesCount" : 1,
+      "salesAmount" : 95000.0,
+      "paymentsAmount" : 25000.0,
+      "lastSaleAt" : "2026-10-10T18:32:13.384131Z"
+    } ],
+    "total" : 1,
+    "page" : 0,
+    "size" : 20,
+    "totalPages" : 1,
+    "summary" : {
+      "customers" : 1,
+      "debtors" : 1,
+      "balance" : 50000.0,
+      "overdueAmount" : 0.0,
+      "salesAmount" : 95000.0,
+      "paymentsAmount" : 25000.0
+    }
+  }
+}

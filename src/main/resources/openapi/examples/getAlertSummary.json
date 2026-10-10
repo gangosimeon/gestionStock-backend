@@ -1,0 +1,50 @@
+{
+  "response" : {
+    "generatedAt" : "2026-10-10T18:32:15.508315400Z",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "total" : 1,
+    "stockAlertsCount" : 0,
+    "bySeverity" : {
+      "CRITICAL" : 0,
+      "WARNING" : 1,
+      "INFO" : 0
+    },
+    "byCategory" : {
+      "STOCK" : 0,
+      "PURCHASE" : 0,
+      "CUSTOMER" : 0,
+      "CASH" : 1,
+      "INVENTORY" : 0
+    },
+    "byType" : {
+      "OUT_OF_STOCK" : 0,
+      "BELOW_MINIMUM" : 0,
+      "LOW_STOCK" : 0,
+      "OVERSTOCK" : 0,
+      "INACTIVE_PRODUCT_IN_STOCK" : 0,
+      "DORMANT_STOCK" : 0,
+      "PURCHASE_ORDER_OVERDUE" : 0,
+      "CUSTOMER_PAYMENT_OVERDUE" : 0,
+      "CUSTOMER_CREDIT_LIMIT" : 0,
+      "CASH_SESSION_OPEN_TOO_LONG" : 0,
+      "CASH_DIFFERENCE" : 1,
+      "INVENTORY_AWAITING_VALIDATION" : 0
+    },
+    "top" : [ {
+      "id" : "CASH_DIFFERENCE:f323929c-2fa8-41e1-b7c3-f38e47f7a446:01a12716-41b3-7a3e-b3b4-6303373c3f12",
+      "type" : "CASH_DIFFERENCE",
+      "category" : "CASH",
+      "severity" : "WARNING",
+      "title" : "Écart de caisse",
+      "message" : "Caisse CAI-2026-000466 de Marie Kouassi clôturée avec un écart de +37 500 FCFA (tolérance 1 000).",
+      "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+      "warehouseName" : "Magasin Plateau",
+      "entityType" : "CASH_SESSION",
+      "entityId" : "01a12716-41b3-7a3e-b3b4-6303373c3f12",
+      "entityLabel" : "CAI-2026-000466 · Marie Kouassi",
+      "value" : 37500.0,
+      "threshold" : 1000.0,
+      "since" : "2026-10-10T18:32:14.728637Z"
+    } ]
+  }
+}

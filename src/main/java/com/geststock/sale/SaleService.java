@@ -168,10 +168,19 @@ public class SaleService {
 		return this.sales.findAll(spec, query.toPageable(SORTS)).map(SaleMapper::toResponse);
 	}
 
-	/** Ventes d'un client, tous dépôts confondus (sa dette est globale). */
+	/**
+	 * Ventes d'un client dans tous les dépôts que l'utilisateur peut consulter (tous avec
+	 * {@code warehouse:all}) : la dette du client est globale, mais les ventes d'un magasin restent
+	 * invisibles à qui n'y a pas accès.
+	 */
 	public Page<SaleResponse> customerSales(UUID customerId, PageQuery query) {
 		this.customers.getForAssignment(customerId, false);
-		return search(new SaleFilter(null, null, customerId, null, null, null, null), null, query);
+		java.util.Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
+		Specification<Sale> spec = (root, q, cb) -> cb.equal(root.get("customerId"), customerId);
+		if (visible != null) {
+			spec = spec.and((root, q, cb) -> visible.isEmpty() ? cb.disjunction() : root.get("warehouseId").in(visible));
+		}
+		return this.sales.findAll(spec, query.toPageable(SORTS)).map(SaleMapper::toResponse);
 	}
 
 	public SaleResponse get(UUID id) {

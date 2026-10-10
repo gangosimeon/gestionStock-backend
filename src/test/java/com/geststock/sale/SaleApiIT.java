@@ -358,6 +358,27 @@ class SaleApiIT {
 	}
 
 	@Test
+	void aCustomerSalesHistoryOnlyShowsTheWarehousesTheUserMaySee() throws Exception {
+		stockIn(this.depot, this.frame, 2);
+		String inStore = idOf(sell(manager(), """
+				{"customerId": "%s", "paymentMethod": "CASH", "items": [{"productId": "%s", "quantity": 1}]}"""
+			.formatted(this.customer, this.frame)));
+		String inDepot = idOf(sell(manager(), """
+				{"warehouseId": "%s", "customerId": "%s", "paidAmount": 0, "items": [{"productId": "%s", "quantity": 1}]}"""
+			.formatted(this.depot, this.customer, this.frame)));
+
+		// Caissier sans warehouse:all, rattaché au magasin principal : la vente du dépôt lui reste invisible.
+		RequestPostProcessor cashier = actor(Permissions.SALE_READ, Permissions.CUSTOMER_READ);
+		this.mvc.perform(get("/api/customers/{id}/sales", this.customer).with(cashier))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].id").value(inStore));
+		this.mvc.perform(get("/api/sales/{id}", inDepot).with(cashier)).andExpect(status().isNotFound());
+		this.mvc.perform(get("/api/customers/{id}/sales", this.customer).with(manager()))
+			.andExpect(jsonPath("$.total").value(2));
+	}
+
+	@Test
 	void aCashierSellsButCannotCancel() throws Exception {
 		RequestPostProcessor cashier = actor(Permissions.SALE_READ, Permissions.SALE_CREATE, Permissions.PRODUCT_READ,
 				Permissions.CUSTOMER_READ);

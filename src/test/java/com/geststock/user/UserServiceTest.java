@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import com.geststock.warehouse.WarehouseAccess;
 import com.geststock.audit.AuditService;
 import com.geststock.common.jpa.BaseEntity;
 import com.geststock.exception.ApiException;
@@ -63,11 +64,15 @@ class UserServiceTest {
 	@Mock
 	private ApplicationEventPublisher events;
 
+	@Mock
+	private WarehouseAccess warehouseAccess;
+
 	private UserService service;
 
 	@BeforeEach
 	void setUp() {
-		this.service = new UserService(this.repository, this.roleService, this.warehouseService, this.passwordEncoder,
+		this.service = new UserService(this.repository, this.roleService, this.warehouseService, this.warehouseAccess,
+				this.passwordEncoder,
 				new PasswordPolicy(), new UserMapper(), this.events, org.mockito.Mockito.mock(AuditService.class),
 				Clock.fixed(NOW, ZoneOffset.UTC));
 	}
@@ -111,6 +116,20 @@ class UserServiceTest {
 			.isInstanceOf(ApiException.class)
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.USERNAME_ALREADY_USED);
+		verify(this.repository, never()).saveAndFlush(any());
+	}
+
+	@Test
+	void aManagerWithoutWarehouseAllCannotGrantAWarehouseHeCannotSee() {
+		UUID foreign = UUID.randomUUID();
+		given(this.warehouseAccess.seesAllWarehouses()).willReturn(false);
+		given(this.warehouseAccess.canSee(foreign)).willReturn(false);
+		given(this.roleService.findAllByCodes(any())).willReturn(Set.of());
+
+		assertThatThrownBy(() -> this.service.create(new CreateUserRequest("awa.t", null, "Traoré", null, null, null,
+				"Optique2026!", List.of("CAISSIER"), null, null, List.of(foreign))))
+			.isInstanceOfSatisfying(ApiException.class,
+					ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.WAREHOUSE_ACCESS_DENIED));
 		verify(this.repository, never()).saveAndFlush(any());
 	}
 

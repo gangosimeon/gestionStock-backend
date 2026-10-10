@@ -5,15 +5,15 @@
 #  - Docker disponible : conteneur PostgreSQL Testcontainers (ces valeurs sont ignorées) ;
 #  - sinon : base externe dédiée, par défaut jdbc:postgresql://localhost:5432/geststock_test.
 #    ATTENTION : cette base doit être réservée aux tests.
+#  - mot de passe : variable GESTSTOCK_TEST_DB_PASSWORD, ou fichier local non versionné
+#    config/application-test.yml (spring.datasource.password). Jamais dans ce fichier.
 # =============================================================================
 
 spring:
   datasource:
     url: ${GESTSTOCK_TEST_DB_URL:jdbc:postgresql://localhost:5432/geststock_test}
     username: ${GESTSTOCK_TEST_DB_USERNAME:postgres}
-    password: ${GESTSTOCK_TEST_DB_PASSWORD:12345678}
-#    username: ${GESTSTOCK_TEST_DB_USERNAME:geststock}
-#    password: ${GESTSTOCK_TEST_DB_PASSWORD:}
+    password: ${GESTSTOCK_TEST_DB_PASSWORD:}
 
 geststock:
   cors:

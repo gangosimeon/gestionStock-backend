@@ -12,7 +12,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springdoc.core.annotations.ParameterObject;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -74,6 +76,7 @@ class ProductController {
 	}
 
 	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
 	@Audited(action = "CREATE", entityType = "PRODUCT", idParam = "")
 	@RequiresPermission(Permissions.PRODUCT_CREATE)
 	@Operation(summary = "Créer un produit", description = "Le stock initial ne se saisit pas ici : il s'enregistre par "

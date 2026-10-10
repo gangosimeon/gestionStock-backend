@@ -1,0 +1,36 @@
+{
+  "request" : {
+    "settlement" : "REFUND",
+    "reason" : "Monture trop large",
+    "items" : [ {
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "quantity" : 1,
+      "condition" : "RESELLABLE"
+    } ]
+  },
+  "response" : {
+    "id" : "01a12716-4712-7259-9794-e6ae0b26fa74",
+    "number" : "RET-2026-000116",
+    "saleId" : "01a12716-427f-79ff-a10c-7292164927d5",
+    "warehouseId" : "f323929c-2fa8-41e1-b7c3-f38e47f7a446",
+    "customerId" : null,
+    "settlement" : "REFUND",
+    "refundMethod" : "CASH",
+    "totalAmount" : 85500.0,
+    "reason" : "Monture trop large",
+    "createdAt" : "2026-10-10T18:32:13.841140300Z",
+    "createdByUserId" : "b3b6e141-6c8d-4f01-8215-48bf0cba7682",
+    "lines" : [ {
+      "id" : "01a12716-474f-7a00-b1ed-8064b9e9ccc3",
+      "lineNumber" : 1,
+      "saleLineId" : "01a12716-42e1-7fcb-aa22-bb02cc7e4be4",
+      "productId" : "01a12716-3800-72fa-ad1a-e541f1edf819",
+      "productSku" : "MON-RB-3025",
+      "productName" : "Ray-Ban Aviator RB3025",
+      "quantity" : 1,
+      "amount" : 85500.0,
+      "condition" : "RESELLABLE",
+      "stockMovementId" : "01a12716-4740-7f2b-ad1a-0eb354e8747e"
+    } ]
+  }
+}

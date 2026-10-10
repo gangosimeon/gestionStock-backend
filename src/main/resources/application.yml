@@ -81,9 +81,21 @@ management:
 springdoc:
   api-docs:
     path: /v3/api-docs
+    # OpenAPI 3.0 : format le mieux pris en charge par les générateurs de clients Angular.
+    version: openapi_3_0
   swagger-ui:
     path: /swagger-ui.html
+    # Jeton conservé entre deux rechargements ; opérations et tags triés ; durée des appels affichée.
+    persist-authorization: true
+    operations-sorter: alpha
+    tags-sorter: alpha
+    doc-expansion: none
+    display-request-duration: true
+    display-operation-id: true
   paths-to-match: /api/**
+  # Types explicites pour les générateurs de clients (au lieu de */*).
+  default-produces-media-type: application/json
+  default-consumes-media-type: application/json
   packages-to-scan: com.geststock
 
 # --- Paramètres applicatifs ---------------------------------------------------
