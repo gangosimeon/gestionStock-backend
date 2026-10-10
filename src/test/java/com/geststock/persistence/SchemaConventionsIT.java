@@ -52,9 +52,11 @@ class SchemaConventionsIT {
 
 	@Test
 	void foundationTablesExistAndNothingElse() {
-		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("app_user", "audit_log", "brand",
-				"category", "permission", "product", "refresh_token", "role", "role_permission", "stock_level",
-				"stock_movement", "user_role", "user_warehouse", "warehouse");
+		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("alert_setting", "app_user", "audit_log", "brand",
+				"cash_entry", "cash_session", "category", "customer", "customer_account_entry", "customer_return",
+				"customer_return_line", "goods_receipt", "goods_receipt_line", "inventory_line", "inventory_session", "permission", "product", "purchase_order",
+				"purchase_order_line", "refresh_token", "role", "role_permission", "sale", "sale_line", "stock_level",
+				"stock_movement", "supplier", "user_role", "user_warehouse", "warehouse");
 	}
 
 	@Test
@@ -164,8 +166,8 @@ class SchemaConventionsIT {
 				where table_schema = current_schema() and column_name = 'version'
 				  and table_name <> 'flyway_schema_history'
 				""", String.class);
-		assertThat(tablesWithVersion).containsExactlyInAnyOrder("app_user", "brand", "category", "permission", "product", "role",
-				"warehouse");
+		assertThat(tablesWithVersion).containsExactlyInAnyOrder("alert_setting", "app_user", "brand", "cash_session", "category", "customer", "inventory_session", "permission", "product",
+				"purchase_order", "role", "sale", "supplier", "warehouse");
 
 		for (String table : tablesWithVersion) {
 			List<String> columns = this.jdbc.queryForList("""
@@ -188,7 +190,7 @@ class SchemaConventionsIT {
 	void referenceDataIsLoaded() {
 		assertThat(this.jdbc.queryForList("select code from role where built_in order by code", String.class))
 			.containsExactly("ADMIN", "CAISSIER", "GESTIONNAIRE");
-		assertThat(this.jdbc.queryForObject("select count(*) from permission", Integer.class)).isEqualTo(45);
+		assertThat(this.jdbc.queryForObject("select count(*) from permission", Integer.class)).isEqualTo(47);
 
 		Map<String, Object> matrix = this.jdbc.queryForMap("""
 				select count(*) filter (where r.code = 'ADMIN') as admin,
@@ -196,7 +198,7 @@ class SchemaConventionsIT {
 				       count(*) filter (where r.code = 'CAISSIER') as caissier
 				from role_permission rp join role r on r.id = rp.role_id
 				""");
-		assertThat(matrix).containsEntry("admin", 45L).containsEntry("gestionnaire", 38L).containsEntry("caissier", 14L);
+		assertThat(matrix).containsEntry("admin", 47L).containsEntry("gestionnaire", 40L).containsEntry("caissier", 15L);
 
 		assertThat(this.jdbc.queryForObject("select name from warehouse where code = 'MAG-01'", String.class))
 			.isEqualTo("Magasin principal");

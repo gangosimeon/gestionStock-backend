@@ -70,17 +70,21 @@ class PermissionCatalogIT {
 	@Test
 	void builtInMatrixMatchesTheArchitecture() {
 		Set<String> manager = this.roles.permissionsOf(Set.of("GESTIONNAIRE"));
-		assertThat(manager).hasSize(38)
+		assertThat(manager).hasSize(39)
 			.contains(Permissions.PRODUCT_CREATE, Permissions.PRODUCT_UPDATE, Permissions.STOCK_ADJUST,
-					Permissions.PURCHASE_RECEIVE, Permissions.INVENTORY_VALIDATE, Permissions.SALE_CANCEL)
+					Permissions.PURCHASE_RECEIVE, Permissions.INVENTORY_VALIDATE, Permissions.SALE_CANCEL,
+					Permissions.CUSTOMER_CREDIT)
 			.doesNotContain(Permissions.PRODUCT_DELETE, Permissions.USER_MANAGE, Permissions.ROLE_MANAGE,
 					Permissions.AUDIT_READ);
 
 		Set<String> cashier = this.roles.permissionsOf(Set.of("CAISSIER"));
-		assertThat(cashier).hasSize(14)
-			.contains(Permissions.SALE_CREATE, Permissions.CASH_OPERATE, Permissions.CUSTOMER_PAY)
+		// supplier:read depuis V014 : l'écran Produits affiche le fournisseur habituel.
+		assertThat(cashier).hasSize(15)
+			.contains(Permissions.SALE_CREATE, Permissions.CASH_OPERATE, Permissions.CUSTOMER_PAY,
+					Permissions.SUPPLIER_READ)
 			.doesNotContain(Permissions.STOCK_ADJUST, Permissions.SALE_CANCEL, Permissions.CASH_READ,
-					Permissions.REPORT_READ);
+					Permissions.REPORT_READ, Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE,
+					Permissions.SUPPLIER_DELETE, Permissions.CUSTOMER_CREDIT);
 	}
 
 	@Test

@@ -49,6 +49,7 @@ public final class Permissions {
 	public static final String CUSTOMER_UPDATE = "customer:update";
 	public static final String CUSTOMER_DELETE = "customer:delete";
 	public static final String CUSTOMER_PAY = "customer:pay";
+	public static final String CUSTOMER_CREDIT = "customer:credit";
 	public static final String SALE_READ = "sale:read";
 	public static final String SALE_CREATE = "sale:create";
 	public static final String SALE_CANCEL = "sale:cancel";
@@ -65,6 +66,7 @@ public final class Permissions {
 
 	// Pilotage et administration
 	public static final String REPORT_READ = "report:read";
+	public static final String ALERT_CONFIGURE = "alert:configure";
 	public static final String USER_MANAGE = "user:manage";
 	public static final String ROLE_MANAGE = "role:manage";
 	public static final String AUDIT_READ = "audit:read";
@@ -74,9 +76,9 @@ public final class Permissions {
 			BRAND_MANAGE, WAREHOUSE_READ, WAREHOUSE_MANAGE, WAREHOUSE_ALL, STOCK_READ, STOCK_ADJUST, STOCK_TRANSFER,
 			INVENTORY_READ, INVENTORY_CREATE, INVENTORY_VALIDATE, SUPPLIER_READ, SUPPLIER_CREATE, SUPPLIER_UPDATE,
 			SUPPLIER_DELETE, PURCHASE_READ, PURCHASE_CREATE, PURCHASE_RECEIVE, PURCHASE_PAY, CUSTOMER_READ,
-			CUSTOMER_CREATE, CUSTOMER_UPDATE, CUSTOMER_DELETE, CUSTOMER_PAY, SALE_READ, SALE_CREATE, SALE_CANCEL,
-			RETURN_CREATE, CASH_READ, CASH_OPERATE, EXPENSE_READ, EXPENSE_CREATE, EXPENSE_DELETE, APPOINTMENT_READ,
-			APPOINTMENT_MANAGE, REPORT_READ, USER_MANAGE, ROLE_MANAGE, AUDIT_READ);
+			CUSTOMER_CREATE, CUSTOMER_UPDATE, CUSTOMER_DELETE, CUSTOMER_PAY, CUSTOMER_CREDIT, SALE_READ, SALE_CREATE,
+			SALE_CANCEL, RETURN_CREATE, CASH_READ, CASH_OPERATE, EXPENSE_READ, EXPENSE_CREATE, EXPENSE_DELETE,
+			APPOINTMENT_READ, APPOINTMENT_MANAGE, REPORT_READ, ALERT_CONFIGURE, USER_MANAGE, ROLE_MANAGE, AUDIT_READ);
 
 	private Permissions() {
 	}

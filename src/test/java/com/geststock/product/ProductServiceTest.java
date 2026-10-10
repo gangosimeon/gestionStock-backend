@@ -7,6 +7,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import jakarta.persistence.EntityManager;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,10 +26,12 @@ import com.geststock.category.CategoryService;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.jpa.BaseEntity;
 import com.geststock.exception.ApiException;
+import com.geststock.exception.BusinessRuleException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.product.dto.ProductFilter;
 import com.geststock.product.dto.ProductRequest;
 import com.geststock.product.dto.ProductResponse;
+import com.geststock.supplier.SupplierService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -52,10 +56,16 @@ class ProductServiceTest {
 	private BrandService brands;
 
 	@Mock
+	private SupplierService suppliers;
+
+	@Mock
 	private ObjectProvider<ProductStockReader> stockReaderProvider;
 
 	@Mock
 	private ProductStockReader stockReader;
+
+	@Mock
+	private EntityManager entityManager;
 
 	private ProductService service;
 
@@ -63,7 +73,8 @@ class ProductServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		this.service = new ProductService(this.repository, this.categories, this.brands, this.stockReaderProvider);
+		this.service = new ProductService(this.repository, this.categories, this.brands, this.suppliers,
+				this.stockReaderProvider, this.entityManager);
 		this.frames = withId(new Category("Montures", null));
 	}
 
@@ -122,8 +133,39 @@ class ProductServiceTest {
 		assertThat(product.getCategory()).isSameAs(this.frames);
 	}
 
+	@Test
+	void rejectsAnInactiveSupplierForANewProduct() {
+		UUID supplier = UUID.randomUUID();
+		given(this.categories.getForAssignment(this.frames.getId(), true)).willReturn(this.frames);
+		given(this.suppliers.getForAssignment(supplier, true))
+			.willThrow(new BusinessRuleException(ErrorCode.SUPPLIER_INACTIVE, "désactivé"));
+
+		assertThatThrownBy(() -> this.service.create(request("MON-3", null, supplier), WAREHOUSE))
+			.extracting(ex -> ((ApiException) ex).getCode())
+			.isEqualTo(ErrorCode.SUPPLIER_INACTIVE);
+		verify(this.repository, never()).saveAndFlush(any());
+	}
+
+	@Test
+	void keepsTheCurrentSupplierWithoutCheckingItAgain() {
+		UUID supplier = UUID.randomUUID();
+		Product product = withId(new Product("MON-1", "Monture", this.frames));
+		product.classify(this.frames, null, supplier);
+		given(this.repository.findById(product.getId())).willReturn(Optional.of(product));
+		given(this.repository.saveAndFlush(product)).willReturn(product);
+
+		this.service.update(product.getId(), request("MON-1", null, supplier), WAREHOUSE);
+
+		verify(this.suppliers, never()).getForAssignment(any(), eq(true));
+		assertThat(product.getDefaultSupplierId()).isEqualTo(supplier);
+	}
+
 	private ProductRequest request(String sku, String barcode) {
-		return new ProductRequest(sku, barcode, "Monture", null, this.frames.getId(), null, null, null,
+		return request(sku, barcode, null);
+	}
+
+	private ProductRequest request(String sku, String barcode, UUID supplierId) {
+		return new ProductRequest(sku, barcode, "Monture", null, this.frames.getId(), null, supplierId, null,
 				new BigDecimal("15000"), new BigDecimal("35000"), new BigDecimal("28000"), 3, null);
 	}
 

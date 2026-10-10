@@ -24,8 +24,9 @@ class RoleRepositoryIT {
 		assertThat(cashier.isBuiltIn()).isTrue();
 		assertThat(Hibernate.isInitialized(cashier.getPermissions())).as("chargé par l'EntityGraph").isTrue();
 		assertThat(cashier.getPermissions()).extracting(Permission::getCode)
-			.hasSize(14)
-			.contains("sale:create", "cash:operate", "customer:pay", "customer:create", "customer:update")
+			.hasSize(15)
+			.contains("sale:create", "cash:operate", "customer:pay", "customer:create", "customer:update",
+					"supplier:read")
 			.doesNotContain("stock:adjust", "user:manage", "audit:read", "sale:cancel");
 	}
 
@@ -33,7 +34,7 @@ class RoleRepositoryIT {
 	void adminRoleHasEveryPermission() {
 		Role admin = this.repository.findWithPermissionsByCode("ADMIN").orElseThrow();
 
-		assertThat(admin.getPermissions()).hasSize(45);
+		assertThat(admin.getPermissions()).hasSize(47);
 	}
 
 }

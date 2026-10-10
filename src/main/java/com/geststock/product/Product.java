@@ -48,7 +48,7 @@ public class Product extends AuditableEntity {
 	@JoinColumn(name = "brand_id")
 	private Brand brand;
 
-	/** Fournisseur habituel ; clé étrangère ajoutée avec le module fournisseur. */
+	/** Fournisseur habituel (module {@code supplier}, clé étrangère V014) ; facultatif. */
 	@Column(name = "default_supplier_id")
 	private UUID defaultSupplierId;
 
@@ -161,6 +161,11 @@ public class Product extends AuditableEntity {
 		this.purchasePrice = Objects.requireNonNull(newPurchasePrice, "purchasePrice");
 		this.retailPrice = Objects.requireNonNull(newRetailPrice, "retailPrice");
 		this.wholesalePrice = Objects.requireNonNull(newWholesalePrice, "wholesalePrice");
+	}
+
+	/** Dernier coût d'achat constaté à une réception fournisseur (prix d'achat de référence). */
+	public void recordPurchasePrice(BigDecimal newPurchasePrice) {
+		this.purchasePrice = Objects.requireNonNull(newPurchasePrice, "purchasePrice");
 	}
 
 	/** Seuils de suivi du stock (alerte, excédent) : des paramètres, pas une quantité. */

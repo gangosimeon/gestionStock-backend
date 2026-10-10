@@ -1,10 +1,15 @@
 package com.geststock.product;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
@@ -17,6 +22,7 @@ import com.geststock.brand.Brand;
 import com.geststock.brand.BrandService;
 import com.geststock.category.Category;
 import com.geststock.category.CategoryService;
+import com.geststock.common.api.ActiveStatus;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.exception.ConflictException;
@@ -25,6 +31,7 @@ import com.geststock.exception.NotFoundException;
 import com.geststock.product.dto.ProductFilter;
 import com.geststock.product.dto.ProductRequest;
 import com.geststock.product.dto.ProductResponse;
+import com.geststock.supplier.SupplierService;
 
 /**
  * Catalogue produits (API publique du module {@code product}).
@@ -32,7 +39,8 @@ import com.geststock.product.dto.ProductResponse;
  * <p>Règles :
  * <ul>
  * <li>référence (SKU) unique sans tenir compte de la casse ; code-barres unique s'il existe ;</li>
- * <li>catégorie obligatoire ; catégorie et marque doivent être actives pour être choisies ;</li>
+ * <li>catégorie obligatoire ; catégorie, marque et fournisseur habituel doivent être actifs pour
+ * être choisis ;</li>
  * <li>désactivation plutôt que suppression (historique des ventes et mouvements préservé) ;</li>
  * <li><b>le stock n'est jamais lu ni écrit dans le produit</b> : il est affiché depuis le
  * module stock via {@link ProductStockReader}.</li>
@@ -58,14 +66,20 @@ public class ProductService {
 
 	private final BrandService brands;
 
+	private final SupplierService suppliers;
+
 	private final ObjectProvider<ProductStockReader> stockReader;
 
+	private final EntityManager entityManager;
+
 	ProductService(ProductRepository repository, CategoryService categories, BrandService brands,
-			ObjectProvider<ProductStockReader> stockReader) {
+			SupplierService suppliers, ObjectProvider<ProductStockReader> stockReader, EntityManager entityManager) {
 		this.repository = repository;
 		this.categories = categories;
 		this.brands = brands;
+		this.suppliers = suppliers;
 		this.stockReader = stockReader;
+		this.entityManager = entityManager;
 	}
 
 	public Page<ProductResponse> search(ProductFilter filter, PageQuery query, UUID warehouseId) {
@@ -121,6 +135,38 @@ public class ProductService {
 	}
 
 	/**
+	 * Réception fournisseur (module achats) : le coût unitaire reçu devient le prix d'achat de
+	 * référence de chaque produit (dernier prix d'achat), dans la transaction de la réception.
+	 *
+	 * <p>Chaque produit est relu <b>sous verrou</b> ({@code SELECT … FOR UPDATE}), dans l'ordre
+	 * des identifiants : deux réceptions simultanées d'un même produit se sérialisent au lieu
+	 * d'échouer sur une version périmée, et ne peuvent pas s'interbloquer.
+	 *
+	 * @param unitCosts coût unitaire reçu par produit
+	 */
+	@Transactional
+	public void recordPurchasePrices(Map<UUID, BigDecimal> unitCosts) {
+		new TreeMap<>(unitCosts).forEach((productId, unitCost) -> {
+			Product product = load(productId);
+			this.entityManager.refresh(product, LockModeType.PESSIMISTIC_WRITE);
+			product.recordPurchasePrice(unitCost);
+		});
+	}
+
+	/**
+	 * Produits actifs, d'une catégorie ou de tout le catalogue, triés par référence : périmètre
+	 * d'un inventaire (module {@code inventory}).
+	 */
+	public List<ProductSnapshot> activeProducts(UUID categoryId) {
+		return this.repository
+			.findAll(ProductSpecifications.matching(new ProductFilter(null, categoryId, null, null, ActiveStatus.ACTIVE)),
+					Sort.by("sku"))
+			.stream()
+			.map(ProductSnapshot::of)
+			.toList();
+	}
+
+	/**
 	 * Produits existants (actifs ou non) parmi les identifiants demandés, pour les autres
 	 * modules. Les identifiants inconnus sont absents du résultat.
 	 */
@@ -135,8 +181,8 @@ public class ProductService {
 	// --- Outils -------------------------------------------------------------------------
 
 	/**
-	 * Applique la requête. Catégorie et marque doivent être actives si elles changent ; un
-	 * produit peut conserver une catégorie ou une marque désactivée depuis.
+	 * Applique la requête. Catégorie, marque et fournisseur doivent être actifs s'ils changent ;
+	 * un produit peut conserver une catégorie, une marque ou un fournisseur désactivé depuis.
 	 */
 	private void apply(Product product, ProductRequest request, String sku, String barcode, boolean creation) {
 		boolean categoryChanged = creation || !product.getCategory().getId().equals(request.categoryId());
@@ -150,10 +196,15 @@ public class ProductService {
 			brand = brandChanged ? this.brands.getForAssignment(request.brandId(), true) : product.getBrand();
 		}
 
+		UUID supplierId = request.supplierId();
+		if (supplierId != null && (creation || !supplierId.equals(product.getDefaultSupplierId()))) {
+			this.suppliers.getForAssignment(supplierId, true);
+		}
+
 		product.identify(sku, barcode);
 		product.describe(request.name().trim(), blankToNull(request.description()),
 				request.unit() != null ? request.unit() : ProductUnit.UNIT);
-		product.classify(category, brand, request.supplierId());
+		product.classify(category, brand, supplierId);
 		product.reprice(request.purchasePrice(), request.retailPrice(), request.wholesalePrice());
 		product.setStockThresholds(request.alertThreshold(), request.maxStockLevel());
 	}

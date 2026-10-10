@@ -20,7 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * (ajout seul, pas d'écriture directe), la purge désactive ces triggers le temps d'une
  * transaction : c'est réservé aux tests.
  */
-final class StockFixtures {
+public final class StockFixtures {
 
 	private final JdbcTemplate jdbc;
 
@@ -36,19 +36,19 @@ final class StockFixtures {
 
 	private int sequence;
 
-	StockFixtures(JdbcTemplate jdbc, TransactionTemplate transactions) {
+	public StockFixtures(JdbcTemplate jdbc, TransactionTemplate transactions) {
 		this.jdbc = jdbc;
 		this.transactions = transactions;
 	}
 
-	UUID warehouse(String label) {
+	public UUID warehouse(String label) {
 		UUID id = this.jdbc.queryForObject("insert into warehouse (code, name) values (?, ?) returning id", UUID.class,
 				"ST-" + this.run + "-" + (++this.sequence), "Stock test " + label + " " + this.run + "-" + this.sequence);
 		this.warehouses.add(id);
 		return id;
 	}
 
-	UUID product(String label, int purchasePrice) {
+	public UUID product(String label, int purchasePrice) {
 		UUID category = this.jdbc.queryForObject("select id from category where name = 'Montures'", UUID.class);
 		UUID id = this.jdbc.queryForObject("""
 				insert into product (sku, name, category_id, purchase_price, retail_price, wholesale_price)
@@ -58,7 +58,7 @@ final class StockFixtures {
 		return id;
 	}
 
-	UUID user(String label) {
+	public UUID user(String label) {
 		UUID id = this.jdbc.queryForObject("""
 				insert into app_user (username, last_name, must_change_password)
 				values (?, ?, false) returning id""", UUID.class, "stk" + this.run + "-" + (++this.sequence),
@@ -67,14 +67,14 @@ final class StockFixtures {
 		return id;
 	}
 
-	int level(UUID warehouseId, UUID productId) {
+	public int level(UUID warehouseId, UUID productId) {
 		List<Integer> quantities = this.jdbc.queryForList(
 				"select quantity from stock_level where warehouse_id = ? and product_id = ?", Integer.class, warehouseId,
 				productId);
 		return quantities.isEmpty() ? 0 : quantities.get(0);
 	}
 
-	int movementCount(UUID warehouseId, UUID productId) {
+	public int movementCount(UUID warehouseId, UUID productId) {
 		return this.jdbc.queryForObject("select count(*) from stock_movement where warehouse_id = ? and product_id = ?",
 				Integer.class, warehouseId, productId);
 	}
@@ -83,7 +83,7 @@ final class StockFixtures {
 	 * Invariant du stock sur les dépôts de test : pour chaque niveau, quantité = somme des
 	 * mouvements = solde du dernier mouvement. Renvoie les couples en défaut.
 	 */
-	List<String> invariantViolations() {
+	public List<String> invariantViolations() {
 		if (this.warehouses.isEmpty()) {
 			return List.of();
 		}
@@ -101,7 +101,7 @@ final class StockFixtures {
 	}
 
 	/** Exécute l'action au nom d'un utilisateur (son UUID est le nom de l'authentification). */
-	static <T> T runAs(UUID userId, Supplier<T> action) {
+	public static <T> T runAs(UUID userId, Supplier<T> action) {
 		SecurityContext previous = SecurityContextHolder.getContext();
 		try {
 			SecurityContext context = SecurityContextHolder.createEmptyContext();
@@ -114,12 +114,12 @@ final class StockFixtures {
 		}
 	}
 
-	static Authentication authentication(UUID userId, String... permissions) {
+	public static Authentication authentication(UUID userId, String... permissions) {
 		return UsernamePasswordAuthenticationToken.authenticated(userId.toString(), null,
 				java.util.Arrays.stream(permissions).map(SimpleGrantedAuthority::new).toList());
 	}
 
-	void purge() {
+	public void purge() {
 		if (this.warehouses.isEmpty() && this.products.isEmpty() && this.users.isEmpty()) {
 			return;
 		}

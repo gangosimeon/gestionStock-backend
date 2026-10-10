@@ -12,8 +12,10 @@ situé à la racine du dépôt.
 | Documentation API | springdoc-openapi 3 (Swagger UI) |
 | Tests | JUnit 5, Mockito, Spring Boot Test, Testcontainers |
 
-État actuel : **socle technique, persistance, utilisateurs (`/api/users`) et authentification
-JWT (`/api/auth`)**. Sans jeton valide, toute route protégée répond 401.
+État actuel : **socle technique, authentification JWT (`/api/auth`), utilisateurs, rôles et
+permissions, catalogue (catégories, marques, produits), fournisseurs, clients (compte client),
+dépôts, stock, achats (commandes, réceptions), ventes, caisse, inventaires, retours clients et corrections, alertes**. Sans
+jeton valide, toute route protégée répond 401.
 
 ## Installation
 
@@ -55,6 +57,10 @@ il n'y a aucun script de schéma à lancer à la main.
 export GESTSTOCK_DB_PASSWORD='MOT_DE_PASSE_CHOISI'
 ./mvnw spring-boot:run
 ```
+
+Lancement depuis un IDE : plutôt qu'une variable d'environnement, le mot de passe peut être placé dans
+`config/application-dev.yml` (`spring.datasource.password`), lu automatiquement par Spring Boot depuis le
+dossier du projet. Ce dossier est exclu de Git (`.gitignore`).
 
 | URL | Rôle |
 |---|---|
@@ -148,6 +154,42 @@ Principes :
 - Listes : `q` (recherche), `status=ACTIVE|INACTIVE|ALL` (actifs par défaut), `page`, `size`, `sort` ; produits filtrables par `categoryId`, `brandId`, `supplierId`.
 - `DELETE` désactive (jamais d'effacement) ; `PATCH /{id}/active {"active": true}` réactive.
 - **Le produit ne porte aucun stock.** `stockQuantity` est calculé à la lecture par le module stock (0 tant qu'il n'existe pas) ; s'il est envoyé à la création ou à la modification, il est ignoré.
+- Fournisseur habituel (`supplierId`) facultatif, clé étrangère vers `supplier` ; il doit être actif quand on le choisit, un produit garde un fournisseur désactivé depuis.
+
+## Fournisseurs
+
+| Endpoint | Permission | Rôle |
+|---|---|---|
+| `GET /api/suppliers` | `supplier:read` | Recherche `q` (code, nom, interlocuteur, email, téléphone), `status`, `page`, `size`, `sort` (`name`, `code`, `deliveryLeadTimeDays`, `createdAt`) |
+| `GET /api/suppliers/{id}` | `supplier:read` | Fiche, y compris désactivée |
+| `POST /api/suppliers` | `supplier:create` | Contrat front `{name, phone, email, address, deliveryLeadTimeDays}` → 201 |
+| `PUT /api/suppliers/{id}` | `supplier:update` | Modification (voir ci-dessous) |
+| `DELETE /api/suppliers/{id}`, `PATCH /{id}/active` | `supplier:delete` | Désactivation (`{ok: true}`) ou réactivation, jamais d'effacement |
+
+- Champs : `code` (unique, majuscules, généré `FOU-0001` par séquence s'il est absent), `name` (unique, casse ignorée), `contactName`, `phone`, `email`, `address`, `taxId` (NCC), `deliveryLeadTimeDays` et `paymentTermsDays` (0 à 365 jours, 0 = comptant), `note`, `active`.
+- `PUT` : les champs du front sont remplacés (absent = effacé) ; les champs que le front ne connaît pas encore (`code`, `contactName`, `taxId`, `paymentTermsDays`, `note`) sont **conservés s'ils sont absents**, effacés par une chaîne vide.
+- Rôles : `GESTIONNAIRE` crée et modifie, seul `ADMIN` désactive. `CAISSIER` lit (V014) : l'écran Produits charge la liste des fournisseurs.
+- **Achats** : les autres modules appellent `SupplierService.getForAssignment(id, requireActive)` et reçoivent un `SupplierSnapshot` (nom, délais de livraison et de paiement). Commandes, factures, paiements et grand livre (dettes) relèvent du module achats, qui servira aussi `/api/suppliers/{id}/purchases` et `/payments`.
+
+## Clients
+
+| Endpoint | Permission | Rôle |
+|---|---|---|
+| `GET /api/customers` | `customer:read` | Recherche `q` (code, nom, email, téléphone — chiffres seuls acceptés : `0510` trouve `+225 05 10 20 30`), `status`, `type`, `priceCategory`, `page`, `size`, `sort` (`name`, `code`, `creditLimit`, `createdAt`) |
+| `GET /api/customers/{id}` | `customer:read` | Fiche avec `balance` (solde dû) et `availableCredit` |
+| `POST /api/customers` | `customer:create` (+ `customer:credit` si `creditLimit` > 0) | Contrat front `{name, phone, email, creditLimit}` → 201 |
+| `PATCH /api/customers/{id}` (verbe du front), `PUT` | `customer:update` (+ `customer:credit` pour changer le plafond) | Modification |
+| `DELETE /api/customers/{id}`, `PATCH /{id}/active` | `customer:delete` | Désactivation (`{ok: true}`) ou réactivation |
+| `GET /api/customers/{id}/account`, `/account/entries` | `customer:read` | Plafond, solde dû, crédit disponible ; relevé paginé |
+
+- Champs : `code` (unique, généré `CLI-000001`), `type` (`INDIVIDUAL`, `COMPANY`), `name`, `phone`, `email`, `address`, `city`, `taxId` (NCC), `priceCategory` (`RETAIL`, `WHOLESALE` : tarif par défaut à la vente), `creditLimit` (≥ 0, 0 = aucun crédit), `paymentTermsDays` (0–365), `note`, `active`. Pas d'unicité sur le nom ni le téléphone (homonymes, téléphone familial).
+- Modification : `name`, `phone`, `email` remplacés ; `creditLimit` et les champs que le front ne connaît pas encore conservés s'ils sont absents (chaîne vide = effacé).
+- **Crédit** : accorder ou modifier un plafond exige `customer:credit` (`ADMIN`, `GESTIONNAIRE`), distincte de `customer:update` que détient le caissier (V016). Le caissier peut renvoyer le plafond inchangé.
+- **Compte client** (`customer_account_entry`, en ajout seul) : relevé des créances, pas une comptabilité. Seul `CustomerAccountService` l'écrit, sous verrou du client :
+  - `recordCreditSale` (ventes) : client actif, solde dû après écriture ≤ plafond (`422 CREDIT_LIMIT_EXCEEDED`) ;
+  - `recordCredit(PAYMENT | CREDIT_NOTE | SALE_CANCELLATION)` (paiements, retours, annulations) : montant ≤ solde dû, pas de trop-perçu (`422 AMOUNT_EXCEEDS_CUSTOMER_BALANCE`), possible sur un client désactivé ;
+  - une pièce n'est imputée qu'une fois (`uk_customer_account_entry_source`).
+- `/api/customers/{id}/sales` et `/payments` (contrat front) seront servis par les modules ventes et paiements, qui alimenteront le compte.
 
 ## Dépôts
 
@@ -194,6 +236,176 @@ Tout ou rien : un refus annule l'ensemble, et un module appelant (vente, achat�
 
 Pas de stock négatif : aucune règle métier ne l'autorise aujourd'hui (l'introduire exigerait de modifier `StockService` et la contrainte `ck_stock_level_quantity`).
 
+## Achats
+
+Workflow : **commande → réception(s) → stock**.
+
+```
+ORDERED ──réception partielle──► PARTIALLY_RECEIVED ──reste──► RECEIVED
+   │ (rien reçu)                        │
+   └──annulation──► CANCELLED           └──solde du reliquat──► CLOSED
+```
+
+| Endpoint | Permission | Rôle |
+|---|---|---|
+| `GET /api/purchases/orders` | `purchase:read` | Commandes du dépôt courant (`allWarehouses=true` avec `warehouse:all`) ; filtres `q`, `status`, `supplierId` ; pagination, tri |
+| `GET /api/purchases/orders/{id}`, `/{id}/receipts` | `purchase:read` | Commande ; ses réceptions avec le mouvement de stock de chaque ligne |
+| `POST /api/purchases/orders` | `purchase:create` | Contrat front `{supplierId, lines: [{productId, quantity, unitPurchasePrice}]}` → 201 |
+| `POST /api/purchases/orders/{id}/receive` | `purchase:receive` | `{}` (bouton du front) : tout le reste ; `lines: [{productId, quantity}]` : réception partielle |
+| `POST /api/purchases/orders/{id}/cancel`, `/close` | `purchase:create` | Annulation (rien reçu) ; solde du reliquat (reçue en partie) |
+| `GET /api/suppliers/{id}/purchases` | `purchase:read` | Historique d'achats du fournisseur : une entrée par réception |
+
+**Commande** (calculs serveur) : fournisseur et produits actifs, un produit par ligne, quantités entières > 0. Coût unitaire = `unitPurchasePrice` (≥ 0, 2 décimales) ou, à défaut, prix d'achat du produit ; totaux de ligne et de commande calculés par le serveur (les totaux envoyés sont ignorés). Livraison dans le dépôt courant (ou `warehouseId` accessible), prévue à aujourd'hui + délai du fournisseur. Numéro `CMD-AAAA-nnnnnn`.
+
+**Réception** (`GoodsReceiptService`, une seule transaction) : verrou de la commande, contrôle du reste à recevoir (pas de sur-réception, `422 RECEIPT_QUANTITY_EXCEEDS_REMAINING`), bon `REC-AAAA-nnnnnn`, **mouvements `RECEIPT` via `StockService`** dans le dépôt de la commande au coût de la commande, lignes reçues liées à leur mouvement, quantités reçues, statut, puis dernier prix d'achat des produits (RG-PUR-5). Tout ou rien.
+
+**Garde-fous PostgreSQL** (V015) : réceptions en ajout seul ; une ligne reçue doit désigner le mouvement `RECEIPT` exact qu'elle a produit (`fn_goods_receipt_line_guard`) ; contrainte différée au COMMIT : quantité reçue d'une ligne = somme de ses lignes reçues (`fn_purchase_receipt_consistency`). Marquer une commande reçue sans entrée en stock est refusé par la base.
+
+Contrat front : `status` vaut `PENDING` tant qu'une réception est possible, `DELIVERED` ensuite (`CANCELLED` si annulée) ; `documentStatus` donne le statut détaillé. `paidAmount` vaut 0 : facture (`/invoice`), paiements (`/pay`, `/api/suppliers/{id}/payments`) et coût moyen pondéré (décision I.9) viendront ensuite.
+
+## Ventes
+
+| Endpoint | Permission | Rôle |
+|---|---|---|
+| `GET /api/sales` | `sale:read` | Ventes du dépôt courant (`allWarehouses=true` avec `warehouse:all`) ; filtres `q` (numéro, client), `status`, `customerId`, `paymentMethod`, `from`, `to` ; pagination, tri |
+| `GET /api/sales/{id}` | `sale:read` | Vente et ses lignes (avec la sortie de stock de chacune) |
+| `POST /api/sales` | `sale:create` | `{type?, customerId?, warehouseId?, paymentMethod, paidAmount?, items: [{productId, quantity, discountPercent?}]}` → 201 |
+| `POST /api/sales/{id}/cancel` | `sale:cancel` | `{reason}` : remise en stock et annulation de la créance |
+| `GET /api/customers/{id}/sales` | `sale:read` | Ventes d'un client, tous dépôts |
+
+**Le client n'impose jamais un prix** : `unitPrice`, `purchasePrice`, `total`, `profit` envoyés sont ignorés. `SaleService.create`, en **une transaction** :
+
+1. produits relus (existants, actifs), prix du tarif (`RETAIL` = détail, `WHOLESALE` = gros ; par défaut le tarif du client) — `422 PRODUCT_PRICE_NOT_SET` si nul ;
+2. remise par ligne ≤ `geststock.sales.max-discount-percent` (20 % par défaut, `422 DISCOUNT_NOT_ALLOWED`) ; coût = prix d'achat de référence ; montants arrondis au centime ;
+3. règlement : 0 ≤ `paidAmount` ≤ total (total par défaut), mode de paiement requis si un montant est payé ; un reste dû exige un client (`422 CUSTOMER_REQUIRED_FOR_CREDIT`) ;
+4. vente `VTE-AAAA-nnnnnn` au nom de l'utilisateur connecté, dans le dépôt courant ou `warehouseId` accessible ;
+5. **sorties de stock `SALE` via `StockService`** (sous verrou, `422 STOCK_INSUFFICIENT`) ; lignes liées à leur sortie ;
+6. reste dû porté au compte du client (`CustomerAccountService`, plafond contrôlé sous verrou, `422 CREDIT_LIMIT_EXCEEDED`) ;
+7. trace `CREATE SALE` dans `audit_log` (`AuditService`, même transaction).
+
+Au moindre refus, rien n'est écrit (ni vente, ni stock, ni créance, ni audit). Annulation : `SALE_CANCELLATION` par ligne, créance annulée, trace `CANCEL` ; refusée (`409 SALE_CREDIT_ALREADY_SETTLED`) si le client a déjà réglé une partie du crédit (passer par un retour), ou si la vente a déjà des retours (`409 SALE_HAS_RETURNS`).
+
+**Garde-fous PostgreSQL** (V017) : montants figés, seule l'annulation est permise (`fn_sale_guard`) ; une ligne vendue désigne sa sortie de stock exacte (`fn_sale_line_guard`) ; au COMMIT (`fn_sale_consistency`) : totaux = lignes, crédit ⇒ créance, annulation ⇒ remise en stock et créance annulée ; reste dû ⇒ client (`ck_sale_credit_customer`).
+
+Une vente payée est encaissée dans la caisse ouverte du vendeur (`409 NO_OPEN_CASH_SESSION` sinon, vérifié avant toute écriture) ; l'annulation d'une vente payée rembourse depuis la caisse de l'utilisateur. À venir : TVA et règle définitive des remises (décision I.7).
+
+## Caisse
+
+Pas de caisse globale : **chaque utilisateur ouvre sa caisse** dans le dépôt courant (au plus une ouverte à la fois, poste facultatif). Chaque mouvement d'argent est une écriture **en ajout seul** portant : référence `OPC-AAAA-nnnnnn`, session, utilisateur, date, type, sens, moyen de paiement, montant et pièce d'origine.
+
+| Endpoint | Permission | Rôle |
+|---|---|---|
+| `GET /api/cash-register/current` | `cash:operate` | Ma caisse ouverte (corps `null` sinon) |
+| `POST /api/cash-register/open` | `cash:operate` | `{openingBalance, terminal?, note?}` → 201 |
+| `POST /api/cash-register/operations` | `cash:operate` | Apport `IN` / sortie `OUT` d'espèces `{type, amount, note?}` → 201 |
+| `POST /api/cash-register/operations/{id}/reversal` | `cash:operate` | Correction d'un apport ou d'une sortie de ma caisse ouverte `{reason}` → 201 |
+| `POST /api/cash-register/close` | `cash:operate` | `{countedCash, note?}` : attendu et écart figés |
+| `GET /api/cash-register/sessions`, `/sessions/{id}`, `/sessions/{id}/operations` | `cash:operate` (ses caisses) ou `cash:read` (toutes, filtre `cashierId`) | Historique paginé |
+| `GET /api/customers/{id}/payments` | `customer:read` | Règlements d'un client |
+| `POST /api/customers/{id}/payments` | `customer:pay` | `{amount, paymentMethod?}` : encaissé dans ma caisse, dette diminuée |
+
+| Type d'écriture | Sens | Origine |
+|---|---|---|
+| `SALE` | entrée | vente payée (tout moyen de paiement) |
+| `CUSTOMER_PAYMENT` | entrée | règlement de dette client (refusé au-delà de la dette) |
+| `CASH_IN` | entrée | apport manuel d'espèces |
+| `CORRECTION_IN` | entrée | correction d'une sortie manuelle (`CASH_OUT`) |
+| `SALE_REFUND` | sortie | annulation d'une vente payée |
+| `RETURN_REFUND` | sortie | remboursement d'un retour client |
+| `CORRECTION_OUT` | sortie | correction d'un apport manuel (`CASH_IN`) |
+| `CASH_OUT` | sortie | sortie manuelle d'espèces |
+
+- **Espèces attendues** = fond + entrées en espèces − sorties en espèces ; récapitulatif `cashSalesTotal`, `totalIn`, `totalOut`, `expectedCash` (contrat front) et `totalsByMethod` (rapprochement Mobile Money, virements).
+- Écritures sous verrou de la session : une sortie d'espèces ne dépasse jamais les espèces attendues (`422 CASH_INSUFFICIENT`) ; une vente s'encaisse dans une caisse ouverte dans son dépôt (`409 CASH_SESSION_OTHER_WAREHOUSE`) ; une pièce n'est encaissée qu'une fois.
+- Seul le titulaire écrit dans sa caisse et la clôture. Ouverture, clôture, apports, sorties et corrections sont tracés dans `audit_log`.
+- **Correction sans suppression** : une écriture erronée n'est jamais modifiée ni supprimée ; la contre-passation (même montant, sens inverse, motif obligatoire) se fait dans la caisse encore ouverte, une seule fois (`409 CASH_ENTRY_ALREADY_REVERSED`), et seulement pour les apports et sorties manuels (`409 CASH_ENTRY_NOT_REVERSIBLE` : une vente se corrige par annulation ou retour). Garde-fou `fn_cash_correction_guard` (V020).
+- **Garde-fous PostgreSQL** (V018) : écriture seulement dans une session ouverte et par son titulaire (`fn_cash_entry_guard`) ; session clôturée figée (`fn_cash_session_guard`) ; au COMMIT : vente payée ⇒ encaissement, vente payée annulée ⇒ remboursement (`fn_sale_cash_consistency`), règlement au compte client ⇔ encaissement (`fn_customer_payment_consistency`).
+
+## Inventaires
+
+```
+DRAFT ──start──► IN_PROGRESS ──1er comptage──► COUNTING ──submit──► VALIDATION ──validate──► COMPLETED
+                                                   ▲                    │
+                                                   └──────reopen────────┘          (cancel avant COMPLETED → CANCELLED)
+```
+
+| Endpoint | Permission | Rôle |
+|---|---|---|
+| `GET /api/inventories`, `/{id}` | `inventory:read` | Inventaires du dépôt courant (`allWarehouses=true` avec `warehouse:all`), filtres `status`, `from`, `to` |
+| `POST /api/inventories` | `inventory:create` | Brouillon : `scope` `FULL` (produits actifs), `CATEGORY` (`categoryId`) ou `SELECTION` (`productIds`) |
+| `POST /{id}/products`, `DELETE /{id}/products/{productId}` | `inventory:create` | Périmètre (brouillon uniquement) |
+| `POST /{id}/start` | `inventory:create` | Périmètre figé |
+| `PUT /{id}/counts` | `inventory:create` | `{counts: [{productId, countedQuantity, note?}]}` ; recomptage possible |
+| `POST /{id}/submit` | `inventory:create` | Comptage clos : tous les produits comptés (`422 INVENTORY_LINES_NOT_COUNTED`) |
+| `POST /{id}/reopen` | `inventory:validate` | Renvoi au comptage |
+| `POST /{id}/validate` | **`inventory:validate`** | Écarts appliqués au stock, inventaire terminé |
+| `POST /{id}/cancel` | `inventory:create` | Avant validation ; aucun effet sur le stock |
+| `GET/POST /api/inventory/sessions` (contrat front) | `inventory:read` / `inventory:create` | `POST {note, lines: [{productId, physicalQuantity}]}` : tout le workflow en une transaction ; validé seulement si l'utilisateur détient `inventory:validate` |
+
+- **Quantité théorique** relevée par le serveur dans le stock du dépôt au moment de chaque comptage ; écart = compté − théorique.
+- **Validation transactionnelle** : inventaire verrouillé, chaque écart non nul appliqué par `StockService` (mouvement `INVENTORY`, source l'inventaire) en un seul appel atomique, lignes liées à leur mouvement, inventaire terminé, audit. Au moindre refus (`422 STOCK_INSUFFICIENT` si le stock a baissé depuis le comptage), rien n'est appliqué : renvoyer au comptage.
+- L'ajustement applique **l'écart mesuré au comptage** : une vente faite entre le comptage et la validation n'est pas effacée.
+- Au plus **un inventaire ouvert par dépôt** (`409 INVENTORY_ALREADY_OPEN`).
+- **Garde-fous PostgreSQL** (V019) : transitions autorisées et inventaire terminé ou annulé figé (`fn_inventory_session_guard`) ; lignes ajoutées en brouillon, comptées en cours, liées à leur mouvement en validation (`fn_inventory_line_guard`) ; au COMMIT, un inventaire terminé a toutes ses lignes comptées et chaque écart son mouvement exact (`fn_inventory_consistency`).
+
+## Retours clients et corrections commerciales
+
+Une vente validée n'est **jamais supprimée ni modifiée** : elle se corrige par des opérations inverses, rattachées à elle et tracées.
+
+| Correction | Endpoint | Permission | Opérations inverses (une transaction) |
+|---|---|---|---|
+| Annulation totale | `POST /api/sales/{id}/cancel` `{reason}` | `sale:cancel` | Statut `CANCELLED` (vente conservée), remise en stock `SALE_CANCELLATION`, créance annulée, remboursement `SALE_REFUND` |
+| Retour (partiel ou total) | `POST /api/sales/{id}/returns` | `return:create` | Avoir `RET-AAAA-nnnnnn`, remise en stock `CUSTOMER_RETURN` des articles revendables, remboursement `RETURN_REFUND` ou avoir `CREDIT_NOTE` sur le compte client |
+| Erreur de caisse | `POST /api/cash-register/operations/{id}/reversal` `{reason}` | `cash:operate` | Contre-passation `CORRECTION_IN` / `CORRECTION_OUT` |
+
+Consultation (`sale:read`) : `GET /api/sales/{id}/returns`, `GET /api/returns` (dépôt courant, filtres `customerId`, `settlement`, `from`, `to`, `allWarehouses`), `GET /api/returns/{id}`.
+
+```json
+POST /api/sales/{id}/returns
+{"settlement": "REFUND", "refundMethod": "CASH", "reason": "Charnière cassée",
+ "items": [{"productId": "…", "quantity": 1, "condition": "DEFECTIVE"}]}
+```
+
+- **Montants calculés par le serveur** au prix net de la vente (remise comprise), au prorata ; le dernier article retourné d'une ligne reprend le reliquat (pas d'écart d'arrondi).
+- **Jamais plus que vendu**, retours précédents compris (`422 RETURN_QUANTITY_EXCEEDS_SOLD`) : la vente est verrouillée, deux retours simultanés se sérialisent.
+- `RESELLABLE` : remis en stock au coût de la vente ; `DEFECTIVE` : pas de remise en stock (aucune perte supplémentaire à saisir).
+- `REFUND` : depuis la caisse ouverte de l'utilisateur, moyen de la vente par défaut, plafonné à ce que le client a payé sur la vente (`422 RETURN_REFUND_EXCEEDS_PAID`). `ACCOUNT_CREDIT` : client obligatoire (`422 RETURN_CUSTOMER_REQUIRED`), avoir imputé sur sa dette, sans trop-perçu (`422 AMOUNT_EXCEEDS_CUSTOMER_BALANCE`).
+- Vente annulée : pas de retour (`409 SALE_NOT_RETURNABLE`) ; vente avec retours : plus d'annulation (`409 SALE_HAS_RETURNS`).
+- Au moindre refus, rien n'est écrit (ni avoir, ni stock, ni caisse, ni compte, ni audit). Trace `CREATE` / `CUSTOMER_RETURN` avec motif, montant et règlement.
+- **Garde-fous PostgreSQL** (V020) : avoirs et lignes en ajout seul ; une ligne reprend la ligne de vente (produit, coût) et sa remise en stock exacte (`fn_customer_return_line_guard`) ; au COMMIT (`fn_customer_return_consistency`) : total = lignes, cumul ≤ vendu, vente non annulée, remboursement en caisse ou avoir au compte du montant exact ; une vente avec retours ne passe plus `CANCELLED` (`fn_sale_return_guard`).
+- Non couvert : retours fournisseurs, avoir « porte-monnaie » (crédit au-delà de la dette), échange direct (retour + nouvelle vente).
+
+## Alertes
+
+Alertes **calculées à la demande** à partir des données existantes : aucune table d'alertes, aucune notification externe. Une alerte disparaît d'elle-même quand sa cause est réglée (réapprovisionnement, réception, règlement, clôture…).
+
+| Type | Domaine | Gravité | Condition |
+|---|---|---|---|
+| `OUT_OF_STOCK` | stock | CRITICAL | stock ≤ 0 (produit actif ; aussi un produit jamais approvisionné au magasin principal) — « Rupture » du front |
+| `BELOW_MINIMUM` | stock | WARNING | 0 < stock ≤ seuil minimum — « Stock faible » du front (`stock ≤ alertThreshold`) |
+| `LOW_STOCK` | stock | INFO | seuil < stock ≤ seuil + marge (`lowStockMarginPercent`, au moins 1 unité) |
+| `OVERSTOCK` | stock | INFO | stock > stock maximum du produit (`maxStockLevel`) |
+| `INACTIVE_PRODUCT_IN_STOCK` | stock | WARNING | produit désactivé dont il reste du stock (immobilisé, invendable) |
+| `DORMANT_STOCK` | stock | INFO | stock sans aucune sortie (vente, transfert) depuis `dormantStockDays` |
+| `PURCHASE_ORDER_OVERDUE` | achats | WARNING | commande non soldée après la date prévue + `purchaseOverdueGraceDays` |
+| `CUSTOMER_PAYMENT_OVERDUE` | clients | WARNING | créance échue : délai du client (ou `defaultPaymentTermsDays`) dépassé ; règlements imputés aux plus anciennes ventes |
+| `CUSTOMER_CREDIT_LIMIT` | clients | INFO, WARNING si atteint | dette ≥ `creditLimitWarningPercent` % du plafond |
+| `CASH_SESSION_OPEN_TOO_LONG` | caisse | WARNING | caisse ouverte depuis plus de `cashSessionMaxOpenHours` |
+| `CASH_DIFFERENCE` | caisse | WARNING | clôture des `cashDifferenceLookbackDays` derniers jours avec un écart > `cashDifferenceTolerance` |
+| `INVENTORY_AWAITING_VALIDATION` | inventaire | INFO | inventaire compté, en attente de validation |
+
+| Endpoint | Permission | Rôle |
+|---|---|---|
+| `GET /api/alerts` | un domaine surveillé (`stock:read`, `purchase:read`, `customer:read`, `cash:read`, `inventory:read`) | Alertes du dépôt courant (les alertes clients ne dépendent pas du dépôt), de la plus grave à la moins grave ; filtres `category`, `type`, `severity` (répétables), `allWarehouses` (avec `warehouse:all`), `page`/`size` |
+| `GET /api/alerts/summary` | idem | Tableau de bord : `total`, `stockAlertsCount` (ruptures + seuils atteints, le `DailyReport.stockAlertsCount` du front), compteurs `bySeverity`/`byCategory`/`byType` (à 0 compris), `top` (10 plus graves) |
+| `GET /api/alerts/settings` | idem | Seuils courants |
+| `PUT /api/alerts/settings` | **`alert:configure`** | Modification à chaud, tracée dans l'audit ; 0 désactive l'alerte concernée |
+
+- Chacun ne voit que les domaines qu'il peut consulter et les dépôts auxquels il a accès.
+- Alerte : `{id, type, category, severity, title, message, warehouseId, warehouseName, entityType, entityId, entityLabel, value, threshold, since}` ; `id` est une clé stable (`TYPE:dépôt:entité`), `message` une phrase prête à afficher.
+- **Seuils** : par produit (`alertThreshold` = seuil minimum, `maxStockLevel`), et globaux dans `alert_setting` (V021, valeurs par défaut : seuil minimum par défaut 0, marge 50 %, dormance 90 j, tolérance commandes 0 j, délai de paiement 30 j, plafond 90 %, caisse 24 h, écart 1 000 FCFA sur 7 j).
+- Non couvert (données absentes) : péremption et lots, notifications (e-mail, SMS, WhatsApp), accusé de lecture des alertes.
+
 ## Rôles et permissions (RBAC)
 
 Modèle : **utilisateur → rôles → permissions** `domaine:action`. Les permissions sont calculées
@@ -202,7 +414,7 @@ par le serveur à chaque requête ; un endpoint les exige avec
 
 | Endpoint | Permission | Rôle |
 |---|---|---|
-| `GET /api/permissions` | `role:manage` ou `user:manage` | Catalogue (45 permissions) |
+| `GET /api/permissions` | `role:manage` ou `user:manage` | Catalogue (47 permissions) |
 | `GET /api/roles`, `GET /api/roles/{id}` | `role:manage` ou `user:manage` | Rôles, permissions effectives, nombre d'utilisateurs |
 | `POST /api/roles` | `role:manage` | Créer un rôle personnalisé |
 | `PUT /api/roles/{id}` | `role:manage` | Modifier libellé et permissions |
@@ -263,6 +475,6 @@ src/main/java/com/geststock/
   common/      entités de base, enveloppes de réponse, santé, traceId
   exception/   codes d'erreur, exceptions, gestionnaire global
   audit/ user/ role/ permission/ warehouse/   entités fondamentales (V002–V006)
-  category/ brand/ product/ stock/ supplier/ purchase/ customer/ sale/
-  cash/ inventory/ returns/ expense/ appointment/ report/   modules à venir
+  category/ brand/ product/ supplier/ stock/ purchase/ customer/ sale/ cash/ inventory/ returns/ alert/   catalogue … alertes (V010–V021)
+  expense/ appointment/ report/   modules à venir
 ```

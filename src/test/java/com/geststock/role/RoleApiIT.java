@@ -43,14 +43,14 @@ class RoleApiIT {
 	void listsBuiltInRolesWithEffectivePermissions() throws Exception {
 		this.mvc.perform(get("/api/roles"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.items[?(@.code == 'ADMIN')].permissions[*]", hasSize(45)))
+			.andExpect(jsonPath("$.items[?(@.code == 'ADMIN')].permissions[*]", hasSize(47)))
 			.andExpect(jsonPath("$.items[?(@.code == 'ADMIN')].editable").value(false))
 			.andExpect(jsonPath("$.items[?(@.code == 'CAISSIER')].builtIn").value(true))
 			.andExpect(jsonPath("$.items[?(@.code == 'CAISSIER')].permissions[*]", hasItem("sale:create")));
 
 		this.mvc.perform(get("/api/permissions"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.total").value(45))
+			.andExpect(jsonPath("$.total").value(47))
 			.andExpect(jsonPath("$.items[?(@.code == 'product:create')].domain").value("product"));
 	}
 

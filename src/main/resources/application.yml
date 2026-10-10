@@ -107,6 +107,9 @@ geststock:
       # Créé au démarrage s'il n'existe aucun administrateur actif. Aucune valeur par défaut.
       username: ${GESTSTOCK_ADMIN_USERNAME:}
       password: ${GESTSTOCK_ADMIN_PASSWORD:}
+  sales:
+    # Remise maximale par ligne de vente, en %. Règle définitive à valider (décision I.7).
+    max-discount-percent: ${GESTSTOCK_SALES_MAX_DISCOUNT_PERCENT:20}
 
 logging:
   pattern:
