@@ -70,10 +70,10 @@ class PermissionCatalogIT {
 	@Test
 	void builtInMatrixMatchesTheArchitecture() {
 		Set<String> manager = this.roles.permissionsOf(Set.of("GESTIONNAIRE"));
-		assertThat(manager).hasSize(39)
+		assertThat(manager).hasSize(40)
 			.contains(Permissions.PRODUCT_CREATE, Permissions.PRODUCT_UPDATE, Permissions.STOCK_ADJUST,
 					Permissions.PURCHASE_RECEIVE, Permissions.INVENTORY_VALIDATE, Permissions.SALE_CANCEL,
-					Permissions.CUSTOMER_CREDIT)
+					Permissions.CUSTOMER_CREDIT, Permissions.ALERT_CONFIGURE)
 			.doesNotContain(Permissions.PRODUCT_DELETE, Permissions.USER_MANAGE, Permissions.ROLE_MANAGE,
 					Permissions.AUDIT_READ);
 
@@ -84,7 +84,7 @@ class PermissionCatalogIT {
 					Permissions.SUPPLIER_READ)
 			.doesNotContain(Permissions.STOCK_ADJUST, Permissions.SALE_CANCEL, Permissions.CASH_READ,
 					Permissions.REPORT_READ, Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE,
-					Permissions.SUPPLIER_DELETE, Permissions.CUSTOMER_CREDIT);
+					Permissions.SUPPLIER_DELETE, Permissions.CUSTOMER_CREDIT, Permissions.ALERT_CONFIGURE);
 	}
 
 	@Test

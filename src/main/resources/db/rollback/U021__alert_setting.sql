@@ -7,3 +7,5 @@ WHERE permission_id = (SELECT id FROM permission WHERE code = 'alert:configure')
 DELETE FROM permission WHERE code = 'alert:configure';
 
 DROP TABLE IF EXISTS alert_setting;
+
+DELETE FROM flyway_schema_history WHERE version = '021';
