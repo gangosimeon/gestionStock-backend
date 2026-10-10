@@ -17,6 +17,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.common.security.ActorIdentity;
 import com.geststock.exception.BusinessRuleException;
@@ -80,11 +82,13 @@ public class GoodsReceiptService {
 
 	private final EntityManager entityManager;
 
+	private final AuditService audit;
+
 	private final Clock clock;
 
 	GoodsReceiptService(PurchaseOrderService orders, PurchaseOrderRepository orderRepository,
 			GoodsReceiptRepository receipts, StockService stock, ProductService products,
-			WarehouseAccess warehouseAccess, EntityManager entityManager, Clock clock) {
+			WarehouseAccess warehouseAccess, EntityManager entityManager, AuditService audit, Clock clock) {
 		this.orders = orders;
 		this.orderRepository = orderRepository;
 		this.receipts = receipts;
@@ -92,6 +96,7 @@ public class GoodsReceiptService {
 		this.products = products;
 		this.warehouseAccess = warehouseAccess;
 		this.entityManager = entityManager;
+		this.audit = audit;
 		this.clock = clock;
 	}
 
@@ -112,6 +117,8 @@ public class GoodsReceiptService {
 		}
 		this.warehouseAccess.requireAccessible(order.getWarehouseId());
 
+		PurchaseOrderStatus statusBefore = order.getStatus();
+		BigDecimal receivedBefore = order.getReceivedAmount();
 		Map<PurchaseOrderLine, Integer> plan = plan(order, request);
 		int totalQuantity = plan.values().stream().mapToInt(Integer::intValue).sum();
 		BigDecimal totalAmount = plan.entrySet().stream()
@@ -148,6 +155,19 @@ public class GoodsReceiptService {
 		this.products.recordPurchasePrices(unitCosts);
 		order.recordReceipt(totalAmount, receivedAt);
 		this.entityManager.flush();
+
+		List<Map<String, Object>> received = new ArrayList<>(plan.size());
+		plan.forEach((line, quantity) -> received.add(Map.of("productSku", line.getProductSku(), "quantity", quantity,
+				"unitCost", line.getUnitCost())));
+		this.audit.record(AuditEvent.of("RECEIVE", "GOODS_RECEIPT", receipt.getId(), receipt.getNumber())
+			.details("Réception " + receipt.getNumber() + " de la commande " + order.getNumber() + " : " + totalQuantity
+					+ " article(s), " + totalAmount.toPlainString() + " ; entrées en stock et prix d'achat mis à jour")
+			.before(Map.of("orderStatus", statusBefore, "receivedAmount", receivedBefore))
+			.after(Map.of("orderStatus", order.getStatus(), "receivedAmount", order.getReceivedAmount()))
+			.meta("purchaseOrderId", order.getId())
+			.meta("purchaseOrderNumber", order.getNumber())
+			.meta("lines", received)
+			.warehouse(order.getWarehouseId()));
 		return PurchaseMapper.toResponse(this.orderRepository.save(order));
 	}
 

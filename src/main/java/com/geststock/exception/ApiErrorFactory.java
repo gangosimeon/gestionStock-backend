@@ -14,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 
 import com.geststock.common.web.TraceIdFilter;
 
@@ -26,6 +28,12 @@ import com.geststock.common.web.TraceIdFilter;
 public class ApiErrorFactory {
 
 	private static final String TYPE_PREFIX = "urn:geststock:error:";
+
+	/** Attribut de requête portant le code de l'erreur renvoyée (lu par le journal d'audit). */
+	public static final String ERROR_CODE_ATTRIBUTE = ApiErrorFactory.class.getName() + ".code";
+
+	/** Attribut de requête portant le message de l'erreur renvoyée. */
+	public static final String ERROR_MESSAGE_ATTRIBUTE = ApiErrorFactory.class.getName() + ".message";
 
 	private final Clock clock;
 
@@ -41,6 +49,11 @@ public class ApiErrorFactory {
 			Map<String, Object> details, String path) {
 		String effectiveMessage = StringUtils.hasText(message) ? message : code.defaultMessage();
 		HttpStatus resolved = HttpStatus.resolve(status.value());
+		RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+		if (attributes != null) {
+			attributes.setAttribute(ERROR_CODE_ATTRIBUTE, code.name(), RequestAttributes.SCOPE_REQUEST);
+			attributes.setAttribute(ERROR_MESSAGE_ATTRIBUTE, effectiveMessage, RequestAttributes.SCOPE_REQUEST);
+		}
 		return new ApiError(
 				TYPE_PREFIX + code.name().toLowerCase(Locale.ROOT).replace('_', '-'),
 				resolved != null ? resolved.getReasonPhrase() : String.valueOf(status.value()),

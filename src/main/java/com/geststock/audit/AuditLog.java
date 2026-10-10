@@ -52,6 +52,9 @@ public class AuditLog {
 	@Column(name = "entity_type", nullable = false, length = 50, updatable = false)
 	private String entityType;
 
+	@Column(name = "module", nullable = false, length = 30, updatable = false)
+	private String module;
+
 	@Column(name = "entity_id", length = 100, updatable = false)
 	private String entityId;
 
@@ -101,6 +104,7 @@ public class AuditLog {
 		this.createdAt = Objects.requireNonNull(builder.createdAt, "createdAt");
 		this.action = Objects.requireNonNull(builder.action, "action");
 		this.entityType = Objects.requireNonNull(builder.entityType, "entityType");
+		this.module = Objects.requireNonNull(builder.module, "module");
 		this.status = Objects.requireNonNull(builder.status, "status");
 		this.userId = builder.userId;
 		this.username = builder.username;
@@ -118,7 +122,7 @@ public class AuditLog {
 		this.traceId = builder.traceId;
 	}
 
-	public static Builder builder(Instant createdAt, String action, String entityType, AuditStatus status) {
+	static Builder builder(Instant createdAt, String action, String entityType, AuditStatus status) {
 		return new Builder(createdAt, action, entityType, status);
 	}
 
@@ -148,6 +152,10 @@ public class AuditLog {
 
 	public String getEntityType() {
 		return this.entityType;
+	}
+
+	public String getModule() {
+		return this.module;
 	}
 
 	public String getEntityId() {
@@ -199,7 +207,7 @@ public class AuditLog {
 	}
 
 	/** Construction d'une entrée : tous les champs sont figés à la création. */
-	public static final class Builder {
+	static final class Builder {
 
 		private final Instant createdAt;
 
@@ -208,6 +216,8 @@ public class AuditLog {
 		private final String entityType;
 
 		private final AuditStatus status;
+
+		private String module;
 
 		private UUID userId;
 
@@ -242,6 +252,11 @@ public class AuditLog {
 			this.action = action;
 			this.entityType = entityType;
 			this.status = status;
+		}
+
+		public Builder module(String value) {
+			this.module = value;
+			return this;
 		}
 
 		public Builder user(UUID id, String name, String role) {

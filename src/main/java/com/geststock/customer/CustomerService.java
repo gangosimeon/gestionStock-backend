@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.api.ActiveStatus;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
@@ -59,9 +61,12 @@ public class CustomerService {
 
 	private final CustomerAccountEntryRepository entries;
 
-	CustomerService(CustomerRepository repository, CustomerAccountEntryRepository entries) {
+	private final AuditService audit;
+
+	CustomerService(CustomerRepository repository, CustomerAccountEntryRepository entries, AuditService audit) {
 		this.repository = repository;
 		this.entries = entries;
+		this.audit = audit;
 	}
 
 	public Page<CustomerResponse> search(CustomerFilter filter, PageQuery query) {
@@ -93,13 +98,20 @@ public class CustomerService {
 		customer.changeTerms(request.priceCategory() != null ? request.priceCategory() : PriceCategory.RETAIL,
 				creditLimit, request.paymentTermsDays() != null ? request.paymentTermsDays() : 0);
 		customer.annotate(blankToNull(request.note()));
-		return toResponse(this.repository.saveAndFlush(customer), BigDecimal.ZERO);
+		CustomerResponse created = toResponse(this.repository.saveAndFlush(customer), BigDecimal.ZERO);
+		this.audit.record(AuditEvent.of("CREATE", "CUSTOMER", customer.getId(), code + " · " + name)
+			.details("Création du client " + name
+					+ (creditLimit.signum() > 0 ? " avec un plafond de crédit de " + creditLimit.toPlainString() : ""))
+			.after(created));
+		return created;
 	}
 
 	/** Modification (PUT ou PATCH du front) ; voir {@link CustomerRequest} pour les champs conservés. */
 	@Transactional
 	public CustomerResponse update(UUID id, CustomerRequest request) {
 		Customer customer = load(id);
+		BigDecimal balance = this.entries.balanceOf(id);
+		CustomerResponse before = toResponse(customer, balance);
 		String code = StringUtils.hasText(request.code()) ? normalizeCode(request.code()) : customer.getCode();
 		requireUniqueCode(code, id);
 		BigDecimal creditLimit = request.creditLimit() != null ? request.creditLimit() : customer.getCreditLimit();
@@ -115,8 +127,17 @@ public class CustomerService {
 				creditLimit,
 				request.paymentTermsDays() != null ? request.paymentTermsDays() : customer.getPaymentTermsDays());
 		customer.annotate(keepIfAbsent(request.note(), customer.getNote()));
+		boolean creditChanged = creditLimit.compareTo(before.creditLimit()) != 0;
 		Customer saved = this.repository.saveAndFlush(customer);
-		return toResponse(saved, this.entries.balanceOf(id));
+		CustomerResponse updated = toResponse(saved, balance);
+		// Le plafond de crédit est une donnée sensible : sa modification est signalée dans l'action.
+		this.audit.record(AuditEvent.of(creditChanged ? "UPDATE_CREDIT_LIMIT" : "UPDATE", "CUSTOMER", id,
+				saved.getCode() + " · " + saved.getName())
+			.details(creditChanged ? "Plafond de crédit de " + saved.getName() + " : " + before.creditLimit().toPlainString()
+					+ " → " + creditLimit.toPlainString() : "Modification du client " + saved.getName())
+			.before(before)
+			.after(updated));
+		return updated;
 	}
 
 	/**
@@ -126,13 +147,21 @@ public class CustomerService {
 	@Transactional
 	public CustomerResponse setActive(UUID id, boolean active) {
 		Customer customer = load(id);
+		boolean wasActive = customer.isActive();
 		if (active) {
 			customer.activate();
 		}
 		else {
 			customer.deactivate();
 		}
-		return toResponse(this.repository.saveAndFlush(customer), this.entries.balanceOf(id));
+		CustomerResponse saved = toResponse(this.repository.saveAndFlush(customer), this.entries.balanceOf(id));
+		if (wasActive != active) {
+			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "CUSTOMER", id,
+					customer.getCode() + " · " + customer.getName())
+				.before(Map.of("active", wasActive))
+				.after(Map.of("active", active)));
+		}
+		return saved;
 	}
 
 	/**

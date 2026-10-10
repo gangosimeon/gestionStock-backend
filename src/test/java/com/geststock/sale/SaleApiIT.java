@@ -275,7 +275,7 @@ class SaleApiIT {
 			.andExpect(jsonPath("$.cashSalesTotal").value(0))
 			.andExpect(jsonPath("$.expectedCash").value(50000));
 		assertThat(this.jdbc.queryForObject(
-				"select count(*) from audit_log where action = 'CANCEL' and entity_type = 'SALE' and entity_id = ?",
+				"select count(*) from audit_log where action = 'CANCEL' and entity_type = 'SALE' and entity_id = ? and status = 'SUCCESS'",
 				Integer.class, id)).isEqualTo(1);
 		cancel(id, "{\"reason\": \"Deux fois\"}")
 			.andExpect(status().isConflict())

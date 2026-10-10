@@ -20,6 +20,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 
+import com.geststock.audit.AuditService;
 import com.geststock.brand.BrandService;
 import com.geststock.category.Category;
 import com.geststock.category.CategoryService;
@@ -74,7 +75,7 @@ class ProductServiceTest {
 	@BeforeEach
 	void setUp() {
 		this.service = new ProductService(this.repository, this.categories, this.brands, this.suppliers,
-				this.stockReaderProvider, this.entityManager);
+				this.stockReaderProvider, this.entityManager, org.mockito.Mockito.mock(AuditService.class));
 		this.frames = withId(new Category("Montures", null));
 	}
 

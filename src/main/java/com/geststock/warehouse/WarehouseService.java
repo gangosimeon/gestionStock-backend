@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.api.ActiveStatus;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
@@ -58,9 +60,12 @@ public class WarehouseService {
 
 	private final WarehouseAccess access;
 
-	WarehouseService(WarehouseRepository repository, WarehouseAccess access) {
+	private final AuditService audit;
+
+	WarehouseService(WarehouseRepository repository, WarehouseAccess access, AuditService audit) {
 		this.repository = repository;
 		this.access = access;
+		this.audit = audit;
 	}
 
 	public Page<WarehouseResponse> search(WarehouseFilter filter, PageQuery query) {
@@ -104,20 +109,25 @@ public class WarehouseService {
 		requireUniqueName(name, null);
 		Warehouse warehouse = new Warehouse(code, name, type);
 		warehouse.changeContact(blankToNull(request.address()), blankToNull(request.phone()));
-		return toResponse(this.repository.saveAndFlush(warehouse));
+		WarehouseResponse created = toResponse(this.repository.saveAndFlush(warehouse));
+		this.audit.record(AuditEvent.of("CREATE", "WAREHOUSE", created.id(), code + " · " + name).after(created));
+		return created;
 	}
 
 	/** Modification ; un code ou un type absent conserve la valeur actuelle. */
 	@Transactional
 	public WarehouseResponse update(UUID id, WarehouseRequest request) {
 		Warehouse warehouse = load(id);
+		WarehouseResponse before = toResponse(warehouse);
 		String name = request.name().trim();
 		String code = StringUtils.hasText(request.code()) ? normalizeCode(request.code()) : warehouse.getCode();
 		requireUniqueCode(code, id);
 		requireUniqueName(name, id);
 		warehouse.update(code, name, request.type() != null ? request.type() : warehouse.getType());
 		warehouse.changeContact(blankToNull(request.address()), blankToNull(request.phone()));
-		return toResponse(this.repository.saveAndFlush(warehouse));
+		WarehouseResponse updated = toResponse(this.repository.saveAndFlush(warehouse));
+		this.audit.record(AuditEvent.of("UPDATE", "WAREHOUSE", id, code + " · " + name).before(before).after(updated));
+		return updated;
 	}
 
 	/**
@@ -127,6 +137,7 @@ public class WarehouseService {
 	@Transactional
 	public WarehouseResponse setActive(UUID id, boolean active) {
 		Warehouse warehouse = load(id);
+		boolean wasActive = warehouse.isActive();
 		if (active) {
 			warehouse.activate();
 		}
@@ -137,7 +148,14 @@ public class WarehouseService {
 			}
 			warehouse.deactivate();
 		}
-		return toResponse(this.repository.saveAndFlush(warehouse));
+		WarehouseResponse saved = toResponse(this.repository.saveAndFlush(warehouse));
+		if (wasActive != active) {
+			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "WAREHOUSE", id,
+					warehouse.getCode() + " · " + warehouse.getName())
+				.before(Map.of("active", wasActive))
+				.after(Map.of("active", active)));
+		}
+		return saved;
 	}
 
 	/** Désigne le dépôt principal (dépôt de repli des utilisateurs sans affectation). */
@@ -150,13 +168,18 @@ public class WarehouseService {
 		if (target.isMain()) {
 			return toResponse(target);
 		}
+		UUID previous = this.repository.findByMainTrue().map(Warehouse::getId).orElse(null);
 		this.repository.findByMainTrue().ifPresent(current -> {
 			current.unmarkMain();
 			// Index unique partiel uk_warehouse_main : l'ancien principal doit être écrit d'abord.
 			this.repository.saveAndFlush(current);
 		});
 		target.markMain();
-		return toResponse(this.repository.saveAndFlush(target));
+		WarehouseResponse saved = toResponse(this.repository.saveAndFlush(target));
+		this.audit.record(AuditEvent.of("SET_MAIN", "WAREHOUSE", id, target.getCode() + " · " + target.getName())
+			.details("Nouveau dépôt principal : " + target.getName())
+			.meta("previousMainWarehouseId", previous));
+		return saved;
 	}
 
 	/**

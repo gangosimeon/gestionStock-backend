@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.OkResponse;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
@@ -79,6 +80,7 @@ class WarehouseController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "WAREHOUSE", idParam = "")
 	@RequiresPermission(Permissions.WAREHOUSE_MANAGE)
 	@Operation(summary = "Créer un dépôt", description = "Code généré si absent (MAG-nn / DEP-nn), type STORE par défaut.")
 	ResponseEntity<WarehouseResponse> create(@Valid @RequestBody WarehouseRequest request) {
@@ -87,6 +89,7 @@ class WarehouseController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "WAREHOUSE")
 	@RequiresPermission(Permissions.WAREHOUSE_MANAGE)
 	@Operation(summary = "Modifier un dépôt")
 	WarehouseResponse update(@PathVariable UUID id, @Valid @RequestBody WarehouseRequest request) {
@@ -94,6 +97,7 @@ class WarehouseController {
 	}
 
 	@PatchMapping("/{id}/active")
+	@Audited(action = "SET_ACTIVE", entityType = "WAREHOUSE")
 	@RequiresPermission(Permissions.WAREHOUSE_MANAGE)
 	@Operation(summary = "Activer ou désactiver un dépôt", description = "Le dépôt principal ne peut pas être désactivé.")
 	WarehouseResponse setActive(@PathVariable UUID id, @Valid @RequestBody SetActiveRequest request) {
@@ -101,6 +105,7 @@ class WarehouseController {
 	}
 
 	@PostMapping("/{id}/main")
+	@Audited(action = "SET_MAIN", entityType = "WAREHOUSE")
 	@RequiresPermission(Permissions.WAREHOUSE_MANAGE)
 	@Operation(summary = "Désigner le dépôt principal")
 	WarehouseResponse setMain(@PathVariable UUID id) {
@@ -108,6 +113,7 @@ class WarehouseController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DEACTIVATE", entityType = "WAREHOUSE")
 	@RequiresPermission(Permissions.WAREHOUSE_MANAGE)
 	@Operation(summary = "Supprimer un dépôt (désactivation)",
 			description = "Le dépôt est désactivé, jamais effacé : stock et pièces le référencent.")

@@ -141,8 +141,10 @@ class InventoryApiIT {
 		action(manager(), id, "cancel").andExpect(status().isConflict());
 		action(manager(), id, "reopen").andExpect(status().isConflict());
 		action(manager(), id, "validate").andExpect(status().isConflict());
-		assertThat(this.jdbc.queryForList("select action from audit_log where entity_type = 'INVENTORY' and entity_id = ?",
-				String.class, id)).containsExactlyInAnyOrder("CREATE", "START", "SUBMIT", "VALIDATE");
+		assertThat(this.jdbc.queryForList("""
+				select distinct action from audit_log
+				where entity_type = 'INVENTORY_SESSION' and module = 'INVENTORY' and entity_id = ? and status = 'SUCCESS'""",
+				String.class, id)).containsExactlyInAnyOrder("CREATE", "START", "COUNT", "SUBMIT", "VALIDATE");
 		checkDeferredConstraints();
 	}
 

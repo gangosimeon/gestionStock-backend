@@ -17,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.security.ActorPermissions;
 import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
@@ -52,12 +54,15 @@ public class RoleService {
 
 	private final PermissionService permissionService;
 
+	private final AuditService audit;
+
 	/** Cache rôle → permissions, lu à chaque requête authentifiée ; vidé après chaque modification. */
 	private final Map<String, Set<String>> permissionsByRole = new ConcurrentHashMap<>();
 
-	RoleService(RoleRepository repository, PermissionService permissionService) {
+	RoleService(RoleRepository repository, PermissionService permissionService, AuditService audit) {
 		this.repository = repository;
 		this.permissionService = permissionService;
+		this.audit = audit;
 	}
 
 	// --- Lecture --------------------------------------------------------------------------
@@ -123,12 +128,17 @@ public class RoleService {
 		role.replacePermissions(permissions);
 		Role saved = this.repository.saveAndFlush(role);
 		evictCacheAfterCommit();
-		return toResponse(saved);
+		RoleResponse created = toResponse(saved);
+		this.audit.record(AuditEvent.of("CREATE", "ROLE", saved.getId(), saved.getCode())
+			.details("Création du rôle " + saved.getCode() + " (" + permissions.size() + " permission(s))")
+			.after(created));
+		return created;
 	}
 
 	@Transactional
 	public RoleResponse update(UUID id, UpdateRoleRequest request) {
 		Role role = load(id);
+		RoleResponse before = toResponse(role);
 		if (ADMIN.equals(role.getCode())) {
 			throw new ConflictException(ErrorCode.ROLE_NOT_EDITABLE, ErrorCode.ROLE_NOT_EDITABLE.defaultMessage());
 		}
@@ -137,11 +147,23 @@ public class RoleService {
 		added.removeAll(codes(role.getPermissions()));
 		requireActorHolds(added, "ajouter ces permissions");
 
+		Set<String> removed = new TreeSet<>(codes(role.getPermissions()));
+		removed.removeAll(codes(permissions));
+
 		role.describe(request.label().trim(), blankToNull(request.description()));
 		role.replacePermissions(permissions);
 		Role saved = this.repository.saveAndFlush(role);
 		evictCacheAfterCommit();
-		return toResponse(saved);
+		RoleResponse updated = toResponse(saved);
+		this.audit.record(AuditEvent.of("UPDATE", "ROLE", id, saved.getCode())
+			.details("Rôle " + saved.getCode() + " modifié ; permissions ajoutées : "
+					+ (added.isEmpty() ? "aucune" : String.join(", ", added)) + " ; retirées : "
+					+ (removed.isEmpty() ? "aucune" : String.join(", ", removed)))
+			.before(before)
+			.after(updated)
+			.meta("addedPermissions", added)
+			.meta("removedPermissions", removed));
+		return updated;
 	}
 
 	@Transactional
@@ -153,9 +175,13 @@ public class RoleService {
 		if (this.repository.countUsers(id) > 0) {
 			throw new ConflictException(ErrorCode.ROLE_IN_USE, ErrorCode.ROLE_IN_USE.defaultMessage());
 		}
+		RoleResponse before = toResponse(role);
 		this.repository.delete(role);
 		this.repository.flush();
 		evictCacheAfterCommit();
+		this.audit.record(AuditEvent.of("DELETE", "ROLE", id, role.getCode())
+			.details("Suppression du rôle " + role.getCode())
+			.before(before));
 	}
 
 	/** Vide le cache (après une modification de la matrice hors API, ex. migration). */

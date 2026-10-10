@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.security.Permissions;
 import com.geststock.common.security.RequiresPermission;
 import com.geststock.stock.dto.StockMovementResponse;
@@ -37,6 +38,7 @@ class StockTransferController {
 
 	@PostMapping("/api/warehouses/transfer")
 	@RequiresPermission(Permissions.STOCK_TRANSFER)
+	@Audited(action = "TRANSFER", entityType = "WAREHOUSE_TRANSFER", idParam = "")
 	@Operation(summary = "Transférer du stock entre deux dépôts",
 			description = "Sortie du dépôt source et entrée dans le dépôt destination, atomiques. Les deux dépôts "
 					+ "doivent être actifs et accessibles à l'utilisateur.")

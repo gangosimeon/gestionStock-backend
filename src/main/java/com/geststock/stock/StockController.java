@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
@@ -89,6 +90,7 @@ class StockController {
 
 	@PostMapping("/movements")
 	@RequiresPermission(Permissions.STOCK_ADJUST)
+	@Audited(action = "CREATE", entityType = "STOCK_MOVEMENT", idParam = "")
 	@Operation(summary = "Saisir un mouvement manuel",
 			description = "Dans le dépôt courant, au nom de l'utilisateur connecté. Refusé si le stock deviendrait "
 					+ "négatif (422 STOCK_INSUFFICIENT).")
@@ -104,12 +106,13 @@ class StockController {
 			.of(warehouse.id(), request.productId(), type, request.quantity(), StockSourceType.MANUAL,
 					request.note() != null && !request.note().isBlank() ? request.note().trim() : null)
 			.withUnitCost(request.unitCost());
-		StockMovementResponse created = this.queries.toResponse(this.stock.applyMovement(command));
+		StockMovementResponse created = this.queries.toResponse(this.stock.applyManualMovement(command));
 		return ResponseEntity.created(URI.create("/api/stock/movements/" + created.id())).body(created);
 	}
 
 	@PostMapping("/movements/{id}/reversal")
 	@RequiresPermission(Permissions.STOCK_ADJUST)
+	@Audited(action = "REVERSAL", entityType = "STOCK_MOVEMENT")
 	@Operation(summary = "Annuler un mouvement manuel",
 			description = "Écrit un mouvement REVERSAL de quantité opposée ; le mouvement d'origine reste dans "
 					+ "l'historique. Une seule annulation par mouvement.")

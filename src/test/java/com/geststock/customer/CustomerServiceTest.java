@@ -17,6 +17,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import com.geststock.audit.AuditService;
 import com.geststock.common.jpa.BaseEntity;
 import com.geststock.common.security.Permissions;
 import com.geststock.customer.dto.CustomerRequest;
@@ -44,7 +45,7 @@ class CustomerServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		this.service = new CustomerService(this.repository, this.entries);
+		this.service = new CustomerService(this.repository, this.entries, org.mockito.Mockito.mock(AuditService.class));
 	}
 
 	@AfterEach

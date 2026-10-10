@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
 import com.geststock.common.security.RequiresPermission;
@@ -66,6 +67,7 @@ class LegacyInventoryController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "INVENTORY_SESSION", idParam = "")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Inventaire en une fois (contrat front)",
 			description = "Sélection, comptage et soumission en une transaction ; validation immédiate avec "

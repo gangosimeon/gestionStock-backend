@@ -20,6 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.security.ActorIdentity;
 import com.geststock.exception.BusinessRuleException;
 import com.geststock.exception.ConflictException;
@@ -69,15 +71,33 @@ public class StockService {
 
 	private final WarehouseService warehouses;
 
+	private final AuditService audit;
+
 	private final Clock clock;
 
 	StockService(EntityManager entityManager, StockMovementRepository movements, ProductService products,
-			WarehouseService warehouses, Clock clock) {
+			WarehouseService warehouses, AuditService audit, Clock clock) {
 		this.entityManager = entityManager;
 		this.movements = movements;
 		this.products = products;
 		this.warehouses = warehouses;
+		this.audit = audit;
 		this.clock = clock;
+	}
+
+	/**
+	 * Mouvement <b>manuel</b> saisi par un utilisateur (entrée, perte, ajustement) : appliqué
+	 * puis tracé dans le journal d'audit, dans la même transaction. Les mouvements produits par
+	 * une pièce (vente, réception…) sont tracés par la pièce.
+	 */
+	public StockMovement applyManualMovement(StockMovementCommand command) {
+		if (command.sourceType() != StockSourceType.MANUAL) {
+			throw new IllegalArgumentException("Mouvement manuel attendu : " + command.sourceType());
+		}
+		StockMovement movement = applyMovement(command);
+		auditMovement("CREATE", movement, movement.getId(),
+				"Mouvement manuel " + movement.getType() + " de " + signed(movement.getQuantity()));
+		return movement;
 	}
 
 	/** Un seul mouvement ; voir {@link #applyMovements(List)}. */
@@ -156,11 +176,23 @@ public class StockService {
 		}
 		UUID transferId = UUID.randomUUID();
 		String note = StringUtils.hasText(reason) ? reason.trim() : "Transfert entre dépôts";
-		return applyMovements(List.of(
+		List<StockMovement> written = applyMovements(List.of(
 				StockMovementCommand.of(fromWarehouseId, productId, StockMovementType.TRANSFER_OUT, -quantity,
 						StockSourceType.TRANSFER, note).withSource(transferId, null).withCorrelation(transferId),
 				StockMovementCommand.of(toWarehouseId, productId, StockMovementType.TRANSFER_IN, quantity,
 						StockSourceType.TRANSFER, note).withSource(transferId, null).withCorrelation(transferId)));
+		StockMovement out = written.get(0);
+		StockMovement in = written.get(1);
+		this.audit.record(AuditEvent.of("TRANSFER", "WAREHOUSE_TRANSFER", transferId, productLabel(productId))
+			.details("Transfert de " + quantity + " " + productLabel(productId) + " — " + note)
+			.before(Map.of("sourceQuantity", out.getBalanceAfter() + quantity,
+					"destinationQuantity", in.getBalanceAfter() - quantity))
+			.after(Map.of("sourceQuantity", out.getBalanceAfter(), "destinationQuantity", in.getBalanceAfter()))
+			.meta("fromWarehouseId", fromWarehouseId)
+			.meta("toWarehouseId", toWarehouseId)
+			.meta("productId", productId)
+			.warehouse(fromWarehouseId));
+		return written;
 	}
 
 	/**
@@ -181,9 +213,35 @@ public class StockService {
 					ErrorCode.MOVEMENT_ALREADY_REVERSED.defaultMessage());
 		}
 		String note = StringUtils.hasText(reason) ? reason.trim() : "Annulation du mouvement";
-		return applyMovement(new StockMovementCommand(original.getWarehouseId(), original.getProductId(),
-				StockMovementType.REVERSAL, -original.getQuantity(), note, StockSourceType.MANUAL, original.getId(),
-				original.getSourceReference(), original.getUnitCost(), original.getCorrelationId(), original.getId()));
+		StockMovement reversal = applyMovement(new StockMovementCommand(original.getWarehouseId(),
+				original.getProductId(), StockMovementType.REVERSAL, -original.getQuantity(), note,
+				StockSourceType.MANUAL, original.getId(), original.getSourceReference(), original.getUnitCost(),
+				original.getCorrelationId(), original.getId()));
+		auditMovement("REVERSAL", reversal, original.getId(), "Annulation du mouvement " + original.getType() + " de "
+				+ signed(original.getQuantity()) + " — " + note);
+		return reversal;
+	}
+
+	private void auditMovement(String action, StockMovement movement, UUID entityId, String details) {
+		String product = productLabel(movement.getProductId());
+		this.audit.record(AuditEvent.of(action, "STOCK_MOVEMENT", entityId, product)
+			.details(details + " sur " + product
+					+ (StringUtils.hasText(movement.getReason()) ? " (" + movement.getReason() + ")" : ""))
+			.before(Map.of("quantity", movement.getBalanceAfter() - movement.getQuantity()))
+			.after(Map.of("quantity", movement.getBalanceAfter()))
+			.meta("movementId", movement.getId())
+			.meta("type", movement.getType())
+			.meta("productId", movement.getProductId())
+			.warehouse(movement.getWarehouseId()));
+	}
+
+	private String productLabel(UUID productId) {
+		ProductSnapshot product = this.products.snapshots(List.of(productId)).get(productId);
+		return product != null ? product.sku() + " · " + product.name() : productId.toString();
+	}
+
+	private static String signed(int quantity) {
+		return (quantity > 0 ? "+" : "") + quantity;
 	}
 
 	// --- Cœur ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
@@ -48,6 +49,7 @@ class CustomerReturnController {
 	}
 
 	@PostMapping("/api/sales/{saleId}/returns")
+	@Audited(action = "CREATE", entityType = "CUSTOMER_RETURN", idParam = "")
 	@RequiresPermission(Permissions.RETURN_CREATE)
 	@Operation(summary = "Enregistrer un retour client",
 			description = "Montants calculés au prix net de la vente ; jamais plus que vendu (retours précédents compris). "

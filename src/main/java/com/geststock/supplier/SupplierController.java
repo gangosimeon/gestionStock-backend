@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.OkResponse;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
@@ -70,6 +71,7 @@ class SupplierController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "SUPPLIER", idParam = "")
 	@RequiresPermission(Permissions.SUPPLIER_CREATE)
 	@Operation(summary = "Créer un fournisseur", description = "Code généré (FOU-0001) s'il n'est pas fourni.")
 	ResponseEntity<SupplierResponse> create(@Valid @RequestBody SupplierRequest request) {
@@ -78,6 +80,7 @@ class SupplierController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "SUPPLIER")
 	@RequiresPermission(Permissions.SUPPLIER_UPDATE)
 	@Operation(summary = "Modifier un fournisseur", description = "Les champs inconnus du front (code, contactName, taxId, "
 			+ "paymentTermsDays, note) sont conservés s'ils sont absents ; une chaîne vide les efface.")
@@ -86,6 +89,7 @@ class SupplierController {
 	}
 
 	@PatchMapping("/{id}/active")
+	@Audited(action = "SET_ACTIVE", entityType = "SUPPLIER")
 	@RequiresPermission(Permissions.SUPPLIER_DELETE)
 	@Operation(summary = "Activer ou désactiver un fournisseur")
 	SupplierResponse setActive(@PathVariable UUID id, @Valid @RequestBody SetActiveRequest request) {
@@ -93,6 +97,7 @@ class SupplierController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DEACTIVATE", entityType = "SUPPLIER")
 	@RequiresPermission(Permissions.SUPPLIER_DELETE)
 	@Operation(summary = "Supprimer un fournisseur (désactivation)",
 			description = "Le fournisseur est désactivé, jamais effacé : produits et pièces d'achat le référencent.")

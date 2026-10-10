@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.alert.dto.AlertFilter;
 import com.geststock.alert.dto.AlertResponse;
 import com.geststock.alert.dto.AlertSummaryResponse;
@@ -79,6 +80,7 @@ class AlertController {
 	}
 
 	@PutMapping("/settings")
+	@Audited(action = "UPDATE", entityType = "ALERT_SETTING", idParam = "")
 	@RequiresPermission(Permissions.ALERT_CONFIGURE)
 	@Operation(summary = "Modifier les seuils des alertes",
 			description = "Effet immédiat, sans redémarrage ; tracé dans le journal d'audit. 0 désactive l'alerte "

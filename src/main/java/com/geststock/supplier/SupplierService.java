@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.api.ActiveStatus;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
@@ -49,8 +51,11 @@ public class SupplierService {
 
 	private final SupplierRepository repository;
 
-	SupplierService(SupplierRepository repository) {
+	private final AuditService audit;
+
+	SupplierService(SupplierRepository repository, AuditService audit) {
 		this.repository = repository;
+		this.audit = audit;
 	}
 
 	public Page<SupplierResponse> search(SupplierFilter filter, PageQuery query) {
@@ -89,7 +94,9 @@ public class SupplierService {
 		supplier.changeTerms(blankToNull(request.taxId()), orZero(request.deliveryLeadTimeDays()),
 				orZero(request.paymentTermsDays()));
 		supplier.annotate(blankToNull(request.note()));
-		return toResponse(this.repository.saveAndFlush(supplier));
+		SupplierResponse created = toResponse(this.repository.saveAndFlush(supplier));
+		this.audit.record(AuditEvent.of("CREATE", "SUPPLIER", supplier.getId(), code + " · " + name).after(created));
+		return created;
 	}
 
 	/**
@@ -99,6 +106,7 @@ public class SupplierService {
 	@Transactional
 	public SupplierResponse update(UUID id, SupplierRequest request) {
 		Supplier supplier = load(id);
+		SupplierResponse before = toResponse(supplier);
 		String name = request.name().trim();
 		requireUniqueName(name, id);
 		String code = StringUtils.hasText(request.code()) ? normalizeCode(request.code()) : supplier.getCode();
@@ -111,20 +119,30 @@ public class SupplierService {
 				request.deliveryLeadTimeDays() != null ? request.deliveryLeadTimeDays() : supplier.getDeliveryLeadTimeDays(),
 				request.paymentTermsDays() != null ? request.paymentTermsDays() : supplier.getPaymentTermsDays());
 		supplier.annotate(keepIfAbsent(request.note(), supplier.getNote()));
-		return toResponse(this.repository.saveAndFlush(supplier));
+		SupplierResponse updated = toResponse(this.repository.saveAndFlush(supplier));
+		this.audit.record(AuditEvent.of("UPDATE", "SUPPLIER", id, code + " · " + name).before(before).after(updated));
+		return updated;
 	}
 
 	/** Désactive (« supprime ») ou réactive. */
 	@Transactional
 	public SupplierResponse setActive(UUID id, boolean active) {
 		Supplier supplier = load(id);
+		boolean wasActive = supplier.isActive();
 		if (active) {
 			supplier.activate();
 		}
 		else {
 			supplier.deactivate();
 		}
-		return toResponse(this.repository.saveAndFlush(supplier));
+		SupplierResponse saved = toResponse(this.repository.saveAndFlush(supplier));
+		if (wasActive != active) {
+			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "SUPPLIER", id,
+					supplier.getCode() + " · " + supplier.getName())
+				.before(Map.of("active", wasActive))
+				.after(Map.of("active", active)));
+		}
+		return saved;
 	}
 
 	/**

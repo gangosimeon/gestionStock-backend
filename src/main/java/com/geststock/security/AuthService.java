@@ -12,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Service;
 
+import com.geststock.audit.AuditService;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.UnauthorizedException;
 import com.geststock.role.RoleService;
@@ -38,15 +39,18 @@ public class AuthService {
 
 	private final RefreshTokenService refreshTokens;
 
+	private final AuditService audit;
+
 	private final Clock clock;
 
 	AuthService(LoginAuthenticationProvider loginProvider, UserAccountService accounts, RoleService roles,
-			JwtTokenService jwtTokens, RefreshTokenService refreshTokens, Clock clock) {
+			JwtTokenService jwtTokens, RefreshTokenService refreshTokens, AuditService audit, Clock clock) {
 		this.loginManager = new ProviderManager(loginProvider);
 		this.accounts = accounts;
 		this.roles = roles;
 		this.jwtTokens = jwtTokens;
 		this.refreshTokens = refreshTokens;
+		this.audit = audit;
 		this.clock = clock;
 	}
 
@@ -57,17 +61,19 @@ public class AuthService {
 				.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(username, password));
 		}
 		catch (LockedException ex) {
-			throw new UnauthorizedException(ErrorCode.ACCOUNT_LOCKED);
+			throw loginRefused(username, ErrorCode.ACCOUNT_LOCKED);
 		}
 		catch (DisabledException ex) {
-			throw new UnauthorizedException(ErrorCode.ACCOUNT_DISABLED);
+			throw loginRefused(username, ErrorCode.ACCOUNT_DISABLED);
 		}
 		catch (AuthenticationException ex) {
-			throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
+			throw loginRefused(username, ErrorCode.INVALID_CREDENTIALS);
 		}
 		UserAccount account = (UserAccount) authentication.getPrincipal();
 		String refreshToken = this.refreshTokens.issue(account.id(), null, client);
-		return response(account, refreshToken);
+		AuthResponse response = response(account, refreshToken);
+		this.audit.authentication("LOGIN", account.id(), account.username(), account.roles());
+		return response;
 	}
 
 	/**
@@ -87,9 +93,21 @@ public class AuthService {
 		return response(account, rotation.rawValue());
 	}
 
-	/** Ferme la session associée au refresh token. Idempotent, ne révèle rien. */
+	/**
+	 * Ferme la session associée au refresh token. Idempotent, ne révèle rien. La trace porte le
+	 * propriétaire du jeton, pas une identité déclarée par le client.
+	 */
 	public void logout(String refreshToken) {
-		this.refreshTokens.revoke(refreshToken);
+		this.refreshTokens.revoke(refreshToken)
+			.flatMap(this.accounts::findById)
+			.ifPresent(account -> this.audit.authentication("LOGOUT", account.id(), account.username(),
+					account.roles()));
+	}
+
+	/** Connexion refusée : tracée (nom saisi, motif), puis renvoyée au client. */
+	private UnauthorizedException loginRefused(String username, ErrorCode code) {
+		this.audit.loginFailed(username, code.name());
+		return new UnauthorizedException(code);
 	}
 
 	public MeResponse me(CurrentUser user) {

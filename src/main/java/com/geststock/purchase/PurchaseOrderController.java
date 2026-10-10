@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
@@ -96,6 +97,7 @@ class PurchaseOrderController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "PURCHASE_ORDER", idParam = "")
 	@RequiresPermission(Permissions.PURCHASE_CREATE)
 	@Operation(summary = "Créer une commande fournisseur",
 			description = "Totaux calculés par le serveur ; coût unitaire = unitPurchasePrice, sinon prix d'achat du "
@@ -107,6 +109,7 @@ class PurchaseOrderController {
 	}
 
 	@PostMapping("/{id}/receive")
+	@Audited(action = "RECEIVE", entityType = "PURCHASE_ORDER")
 	@RequiresPermission(Permissions.PURCHASE_RECEIVE)
 	@Operation(summary = "Réceptionner une commande",
 			description = "Corps vide ({}) : tout le reste à recevoir. lines : réception partielle. Entrée en stock "
@@ -118,6 +121,7 @@ class PurchaseOrderController {
 	}
 
 	@PostMapping("/{id}/cancel")
+	@Audited(action = "CANCEL", entityType = "PURCHASE_ORDER")
 	@RequiresPermission(Permissions.PURCHASE_CREATE)
 	@Operation(summary = "Annuler une commande", description = "Uniquement si rien n'a été reçu.")
 	PurchaseOrderResponse cancel(@PathVariable UUID id,
@@ -126,6 +130,7 @@ class PurchaseOrderController {
 	}
 
 	@PostMapping("/{id}/close")
+	@Audited(action = "CLOSE", entityType = "PURCHASE_ORDER")
 	@RequiresPermission(Permissions.PURCHASE_CREATE)
 	@Operation(summary = "Solder une commande", description = "Commande reçue en partie : le reliquat n'est plus attendu.")
 	PurchaseOrderResponse close(@PathVariable UUID id,

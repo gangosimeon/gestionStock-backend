@@ -128,6 +128,7 @@ public enum ErrorCode {
 
 	// Retours clients
 	RETURN_NOT_FOUND(HttpStatus.NOT_FOUND, "Retour introuvable."),
+	AUDIT_LOG_NOT_FOUND(HttpStatus.NOT_FOUND, "Entrée du journal d'audit introuvable."),
 	SALE_NOT_RETURNABLE(HttpStatus.CONFLICT, "Une vente annulée ne peut pas faire l'objet d'un retour."),
 	SALE_HAS_RETURNS(HttpStatus.CONFLICT,
 			"Cette vente a déjà fait l'objet d'un retour : elle ne peut plus être annulée, enregistrez un retour."),

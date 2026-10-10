@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.common.security.ActorIdentity;
@@ -79,15 +81,18 @@ public class PurchaseOrderService {
 
 	private final WarehouseAccess warehouseAccess;
 
+	private final AuditService audit;
+
 	private final Clock clock;
 
 	PurchaseOrderService(PurchaseOrderRepository orders, GoodsReceiptRepository receipts, SupplierService suppliers,
-			ProductService products, WarehouseAccess warehouseAccess, Clock clock) {
+			ProductService products, WarehouseAccess warehouseAccess, AuditService audit, Clock clock) {
 		this.orders = orders;
 		this.receipts = receipts;
 		this.suppliers = suppliers;
 		this.products = products;
 		this.warehouseAccess = warehouseAccess;
+		this.audit = audit;
 		this.clock = clock;
 	}
 
@@ -182,23 +187,46 @@ public class PurchaseOrderService {
 			throw new InvalidRequestException(ErrorCode.PURCHASE_AMOUNT_OUT_OF_RANGE,
 					ErrorCode.PURCHASE_AMOUNT_OUT_OF_RANGE.defaultMessage());
 		}
-		return PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
+		PurchaseOrderResponse created = PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
+		this.audit.record(AuditEvent.of("CREATE", "PURCHASE_ORDER", order.getId(), order.getNumber())
+			.details("Commande " + order.getNumber() + " à " + order.getSupplierName() + " : "
+					+ order.getTotalAmount().toPlainString())
+			.after(created)
+			.warehouse(warehouseId));
+		return created;
 	}
 
 	/** Annule une commande dont rien n'a été reçu. */
 	@Transactional
 	public PurchaseOrderResponse cancel(UUID id, ClosePurchaseOrderRequest request) {
 		PurchaseOrder order = loadForUpdate(id);
+		PurchaseOrderStatus before = order.getStatus();
 		order.cancel(Instant.now(this.clock), ActorIdentity.currentUserId().orElse(null), reasonOf(request));
-		return PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
+		PurchaseOrderResponse saved = PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
+		auditClosing("CANCEL", order, before, "Annulation de la commande " + order.getNumber(), request);
+		return saved;
 	}
 
 	/** Solde une commande reçue en partie : le reliquat n'est plus attendu. */
 	@Transactional
 	public PurchaseOrderResponse closeRemainder(UUID id, ClosePurchaseOrderRequest request) {
 		PurchaseOrder order = loadForUpdate(id);
+		PurchaseOrderStatus before = order.getStatus();
 		order.closeRemainder(Instant.now(this.clock), ActorIdentity.currentUserId().orElse(null), reasonOf(request));
-		return PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
+		PurchaseOrderResponse saved = PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
+		auditClosing("CLOSE", order, before, "Solde de la commande " + order.getNumber() + " (reliquat abandonné)",
+				request);
+		return saved;
+	}
+
+	private void auditClosing(String action, PurchaseOrder order, PurchaseOrderStatus before, String details,
+			ClosePurchaseOrderRequest request) {
+		String reason = reasonOf(request);
+		this.audit.record(AuditEvent.of(action, "PURCHASE_ORDER", order.getId(), order.getNumber())
+			.details(details + (reason != null ? " — " + reason : ""))
+			.before(Map.of("status", before))
+			.after(Map.of("status", order.getStatus()))
+			.warehouse(order.getWarehouseId()));
 	}
 
 	// --- Outils (partagés avec la réception) --------------------------------------------

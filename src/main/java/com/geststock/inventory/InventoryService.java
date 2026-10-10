@@ -163,16 +163,21 @@ public class InventoryService {
 	@Transactional
 	public InventoryResponse addProducts(UUID id, List<UUID> productIds) {
 		InventorySession inventory = lock(id);
-		selection(productIds).forEach(product -> inventory.addProduct(product.id(), product.sku(), product.name()));
-		return toResponse(this.inventories.saveAndFlush(inventory));
+		List<ProductSnapshot> added = selection(productIds);
+		added.forEach(product -> inventory.addProduct(product.id(), product.sku(), product.name()));
+		this.inventories.saveAndFlush(inventory);
+		return traced("ADD_PRODUCTS", inventory, "Inventaire " + inventory.getNumber() + " : ajout de "
+				+ added.stream().map(ProductSnapshot::sku).collect(java.util.stream.Collectors.joining(", ")), null);
 	}
 
 	@Transactional
 	public InventoryResponse removeProduct(UUID id, UUID productId) {
 		InventorySession inventory = lock(id);
-		inventory.line(productId).orElseThrow(InventoryService::notInScope);
+		InventoryLine removed = inventory.line(productId).orElseThrow(InventoryService::notInScope);
 		inventory.removeProduct(productId);
-		return toResponse(this.inventories.saveAndFlush(inventory));
+		this.inventories.saveAndFlush(inventory);
+		return traced("REMOVE_PRODUCT", inventory, "Inventaire " + inventory.getNumber() + " : retrait de "
+				+ removed.getProductSku(), null);
 	}
 
 	/** Démarre : le périmètre est figé, le comptage peut commencer. */
@@ -211,7 +216,9 @@ public class InventoryService {
 			inventory.count(line, count.countedQuantity(), theoretical.getOrDefault(count.productId(), 0), now, actor,
 					blankToNull(count.note()));
 		}
-		return toResponse(this.inventories.saveAndFlush(inventory));
+		this.inventories.saveAndFlush(inventory);
+		return traced("COUNT", inventory, "Inventaire " + inventory.getNumber() + " : " + counts.size()
+				+ " comptage(s) enregistré(s)", actor);
 	}
 
 	/** Clôt le comptage et soumet l'inventaire à validation (tout doit être compté). */
@@ -336,7 +343,7 @@ public class InventoryService {
 
 	private InventoryResponse traced(String action, InventorySession inventory, String details, UUID actor) {
 		InventoryResponse response = toResponse(inventory);
-		this.audit.success(action, "INVENTORY", inventory.getId().toString(), inventory.getNumber(), details, response,
+		this.audit.success(action, "INVENTORY_SESSION", inventory.getId().toString(), inventory.getNumber(), details, response,
 				inventory.getWarehouseId());
 		return response;
 	}

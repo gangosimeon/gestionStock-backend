@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.brand.Brand;
 import com.geststock.brand.BrandService;
 import com.geststock.category.Category;
@@ -72,14 +74,18 @@ public class ProductService {
 
 	private final EntityManager entityManager;
 
+	private final AuditService audit;
+
 	ProductService(ProductRepository repository, CategoryService categories, BrandService brands,
-			SupplierService suppliers, ObjectProvider<ProductStockReader> stockReader, EntityManager entityManager) {
+			SupplierService suppliers, ObjectProvider<ProductStockReader> stockReader, EntityManager entityManager,
+			AuditService audit) {
 		this.repository = repository;
 		this.categories = categories;
 		this.brands = brands;
 		this.suppliers = suppliers;
 		this.stockReader = stockReader;
 		this.entityManager = entityManager;
+		this.audit = audit;
 	}
 
 	public Page<ProductResponse> search(ProductFilter filter, PageQuery query, UUID warehouseId) {
@@ -103,18 +109,28 @@ public class ProductService {
 		Product product = new Product(sku, request.name().trim(), category);
 		apply(product, request, sku, barcode, true);
 		Product saved = this.repository.saveAndFlush(product);
-		return toResponse(saved, stockOf(List.of(saved), warehouseId));
+		ProductResponse created = toResponse(saved, stockOf(List.of(saved), warehouseId));
+		this.audit.record(AuditEvent.of("CREATE", "PRODUCT", saved.getId(), label(saved))
+			.details("Création du produit " + label(saved))
+			.after(created));
+		return created;
 	}
 
 	@Transactional
 	public ProductResponse update(UUID id, ProductRequest request, UUID warehouseId) {
 		Product product = load(id);
+		ProductResponse before = toResponse(product, stockOf(List.of(product), warehouseId));
 		String sku = request.sku().trim();
 		String barcode = blankToNull(request.barcode());
 		requireUniqueIdentifiers(sku, barcode, id);
 		apply(product, request, sku, barcode, false);
 		Product saved = this.repository.saveAndFlush(product);
-		return toResponse(saved, stockOf(List.of(saved), warehouseId));
+		ProductResponse updated = toResponse(saved, stockOf(List.of(saved), warehouseId));
+		this.audit.record(AuditEvent.of("UPDATE", "PRODUCT", id, label(saved))
+			.details("Modification du produit " + label(saved))
+			.before(before)
+			.after(updated));
+		return updated;
 	}
 
 	/**
@@ -124,6 +140,7 @@ public class ProductService {
 	@Transactional
 	public ProductResponse setActive(UUID id, boolean active, UUID warehouseId) {
 		Product product = load(id);
+		boolean wasActive = product.isActive();
 		if (active) {
 			product.activate();
 		}
@@ -131,7 +148,17 @@ public class ProductService {
 			product.deactivate();
 		}
 		Product saved = this.repository.saveAndFlush(product);
+		if (wasActive != active) {
+			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "PRODUCT", id, label(saved))
+				.details((active ? "Réactivation" : "Désactivation") + " du produit " + label(saved))
+				.before(Map.of("active", wasActive))
+				.after(Map.of("active", active)));
+		}
 		return toResponse(saved, stockOf(List.of(saved), warehouseId));
+	}
+
+	private static String label(Product product) {
+		return product.getSku() + " · " + product.getName();
 	}
 
 	/**

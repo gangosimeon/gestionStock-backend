@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import com.geststock.audit.AuditService;
 import com.geststock.exception.ApiException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.product.ProductService;
@@ -83,7 +84,8 @@ class GoodsReceiptServiceTest {
 	@BeforeEach
 	void setUp() {
 		this.service = new GoodsReceiptService(this.orders, this.orderRepository, this.receipts, this.stock,
-				this.products, this.warehouseAccess, this.entityManager, Clock.fixed(NOW, ZoneOffset.UTC));
+				this.products, this.warehouseAccess, this.entityManager, org.mockito.Mockito.mock(AuditService.class),
+				Clock.fixed(NOW, ZoneOffset.UTC));
 		this.order = new PurchaseOrder("CMD-2026-000007", UUID.randomUUID(), "Essilor", WAREHOUSE, null, null, null);
 		this.frames = UUID.randomUUID();
 		this.lenses = UUID.randomUUID();

@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.exception.ConflictException;
@@ -73,11 +75,13 @@ public class UserService {
 
 	private final ApplicationEventPublisher events;
 
+	private final AuditService audit;
+
 	private final Clock clock;
 
 	UserService(AppUserRepository repository, RoleService roleService, WarehouseService warehouseService,
 			PasswordEncoder passwordEncoder, PasswordPolicy passwordPolicy, UserMapper mapper,
-			ApplicationEventPublisher events, Clock clock) {
+			ApplicationEventPublisher events, AuditService audit, Clock clock) {
 		this.repository = repository;
 		this.roleService = roleService;
 		this.warehouseService = warehouseService;
@@ -85,6 +89,7 @@ public class UserService {
 		this.passwordPolicy = passwordPolicy;
 		this.mapper = mapper;
 		this.events = events;
+		this.audit = audit;
 		this.clock = clock;
 	}
 
@@ -122,12 +127,17 @@ public class UserService {
 		if (Boolean.FALSE.equals(request.isActive())) {
 			user.deactivate();
 		}
-		return this.mapper.toResponse(this.repository.saveAndFlush(user));
+		UserResponse created = this.mapper.toResponse(this.repository.saveAndFlush(user));
+		this.audit.record(AuditEvent.of("CREATE", "USER", created.id(), username)
+			.details("Création de l'utilisateur " + username + " (rôles : " + String.join(", ", request.roles()) + ")")
+			.after(created));
+		return created;
 	}
 
 	@Transactional
 	public UserResponse update(UUID id, UpdateUserRequest request) {
 		AppUser user = load(id);
+		UserResponse before = this.mapper.toResponse(user);
 		String username = request.username().trim();
 		if (this.repository.existsByUsernameIgnoringCaseAndIdNot(username, id)) {
 			throw new ConflictException(ErrorCode.USERNAME_ALREADY_USED, ErrorCode.USERNAME_ALREADY_USED.defaultMessage());
@@ -148,7 +158,12 @@ public class UserService {
 		user.changeContact(email, phone);
 		user.replaceRoles(roles);
 		applyWarehouses(user, request.defaultWarehouseId(), request.warehouseIds());
-		return this.mapper.toResponse(this.repository.saveAndFlush(user));
+		UserResponse updated = this.mapper.toResponse(this.repository.saveAndFlush(user));
+		this.audit.record(AuditEvent.of("UPDATE", "USER", id, updated.username())
+			.details("Modification de l'utilisateur " + updated.username())
+			.before(before)
+			.after(updated));
+		return updated;
 	}
 
 	/**
@@ -158,15 +173,26 @@ public class UserService {
 	@Transactional
 	public UserResponse assignRoles(UUID id, Collection<String> roleCodes) {
 		AppUser user = load(id);
+		UserResponse before = this.mapper.toResponse(user);
 		Set<Role> roles = this.roleService.findAllByCodes(roleCodes);
 		checkRoleChange(user, roles);
 		user.replaceRoles(roles);
-		return this.mapper.toResponse(this.repository.saveAndFlush(user));
+		UserResponse updated = this.mapper.toResponse(this.repository.saveAndFlush(user));
+		this.audit.record(AuditEvent.of("ASSIGN_ROLES", "USER", id, updated.username())
+			.details("Rôles de " + updated.username() + " : " + String.join(", ", new java.util.TreeSet<>(roleCodes)))
+			.before(before)
+			.after(updated));
+		return updated;
 	}
 
 	@Transactional
 	public UserResponse setActive(UUID id, boolean active) {
+		return changeActive(id, active, active ? "ACTIVATE" : "DEACTIVATE");
+	}
+
+	private UserResponse changeActive(UUID id, boolean active, String action) {
 		AppUser user = load(id);
+		boolean wasActive = user.isActive();
 		if (active) {
 			user.activate();
 		}
@@ -177,7 +203,15 @@ public class UserService {
 			user.deactivate();
 			this.events.publishEvent(new UserDeactivatedEvent(user.getId()));
 		}
-		return this.mapper.toResponse(this.repository.saveAndFlush(user));
+		UserResponse updated = this.mapper.toResponse(this.repository.saveAndFlush(user));
+		if (wasActive != active || "DELETE".equals(action)) {
+			this.audit.record(AuditEvent.of(action, "USER", id, user.getUsername())
+				.details((active ? "Réactivation" : "DELETE".equals(action) ? "Suppression (désactivation)"
+						: "Désactivation") + " de l'utilisateur " + user.getUsername())
+				.before(java.util.Map.of("active", wasActive))
+				.after(java.util.Map.of("active", active)));
+		}
+		return updated;
 	}
 
 	/**
@@ -186,7 +220,7 @@ public class UserService {
 	 */
 	@Transactional
 	public void delete(UUID id) {
-		setActive(id, false);
+		changeActive(id, false, "DELETE");
 	}
 
 	@Transactional
@@ -197,6 +231,10 @@ public class UserService {
 		user.changePasswordHash(this.passwordEncoder.encode(request.password()), temporary, Instant.now(this.clock));
 		this.repository.saveAndFlush(user);
 		this.events.publishEvent(new UserCredentialsChangedEvent(user.getId()));
+		// Le mot de passe lui-même n'est jamais tracé.
+		this.audit.record(AuditEvent.of("PASSWORD_RESET", "USER", id, user.getUsername())
+			.details("Mot de passe de " + user.getUsername() + " réinitialisé" + (temporary ? " (provisoire)" : "")
+					+ " ; sessions fermées"));
 	}
 
 	// --- Outils -------------------------------------------------------------------------

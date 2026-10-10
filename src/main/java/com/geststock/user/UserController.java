@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.OkResponse;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
@@ -82,6 +83,7 @@ class UserController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "USER", idParam = "")
 	@Operation(summary = "Créer un utilisateur")
 	@ApiResponse(responseCode = "201", description = "Utilisateur créé")
 	@ApiResponse(responseCode = "400", description = "Données invalides, rôle ou dépôt inconnu, mot de passe refusé",
@@ -94,6 +96,7 @@ class UserController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "USER")
 	@Operation(summary = "Modifier un utilisateur")
 	@ApiResponse(responseCode = "409", description = "Identifiant ou email déjà utilisé, dernier administrateur",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
@@ -102,6 +105,7 @@ class UserController {
 	}
 
 	@PutMapping("/{id}/roles")
+	@Audited(action = "ASSIGN_ROLES", entityType = "USER")
 	@Operation(summary = "Attribuer les rôles d'un utilisateur",
 			description = "Remplace ses rôles. Refusé (403 PRIVILEGE_ESCALATION) si un rôle ajouté accorde une "
 					+ "permission que vous ne possédez pas.")
@@ -112,6 +116,7 @@ class UserController {
 	}
 
 	@PatchMapping("/{id}/active")
+	@Audited(action = "SET_ACTIVE", entityType = "USER")
 	@Operation(summary = "Activer ou désactiver un compte")
 	@ApiResponse(responseCode = "409", description = "Désactivation du dernier administrateur actif",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
@@ -120,6 +125,7 @@ class UserController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DELETE", entityType = "USER")
 	@Operation(summary = "Supprimer un utilisateur (désactivation)",
 			description = "Le compte est désactivé, jamais effacé : l'historique conserve son auteur.")
 	OkResponse delete(@PathVariable UUID id) {
@@ -128,6 +134,7 @@ class UserController {
 	}
 
 	@PutMapping("/{id}/password")
+	@Audited(action = "PASSWORD_RESET", entityType = "USER")
 	@Operation(summary = "Attribuer un mot de passe",
 			description = "Mot de passe temporaire par défaut : l'utilisateur devra le changer à sa prochaine connexion.")
 	@ApiResponse(responseCode = "204", description = "Mot de passe enregistré")

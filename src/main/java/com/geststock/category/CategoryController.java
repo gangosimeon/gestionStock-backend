@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.category.dto.CategoryRequest;
 import com.geststock.category.dto.CategoryResponse;
 import com.geststock.common.api.ActiveStatus;
@@ -63,6 +64,7 @@ class CategoryController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "CATEGORY", idParam = "")
 	@RequiresPermission(Permissions.CATEGORY_MANAGE)
 	@Operation(summary = "Créer une catégorie")
 	ResponseEntity<CategoryResponse> create(@Valid @RequestBody CategoryRequest request) {
@@ -71,6 +73,7 @@ class CategoryController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "CATEGORY")
 	@RequiresPermission(Permissions.CATEGORY_MANAGE)
 	@Operation(summary = "Modifier une catégorie")
 	CategoryResponse update(@PathVariable UUID id, @Valid @RequestBody CategoryRequest request) {
@@ -78,6 +81,7 @@ class CategoryController {
 	}
 
 	@PatchMapping("/{id}/active")
+	@Audited(action = "SET_ACTIVE", entityType = "CATEGORY")
 	@RequiresPermission(Permissions.CATEGORY_MANAGE)
 	@Operation(summary = "Activer ou désactiver une catégorie")
 	CategoryResponse setActive(@PathVariable UUID id, @Valid @RequestBody SetActiveRequest request) {
@@ -85,6 +89,7 @@ class CategoryController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DEACTIVATE", entityType = "CATEGORY")
 	@RequiresPermission(Permissions.CATEGORY_MANAGE)
 	@Operation(summary = "Supprimer une catégorie (désactivation)",
 			description = "La catégorie est désactivée, jamais effacée : ses produits la conservent.")

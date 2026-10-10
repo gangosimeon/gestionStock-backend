@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.geststock.audit.AuditService;
 import com.geststock.common.jpa.BaseEntity;
 import com.geststock.exception.ApiException;
 import com.geststock.exception.ErrorCode;
@@ -35,7 +36,7 @@ class SupplierServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		this.service = new SupplierService(this.repository);
+		this.service = new SupplierService(this.repository, org.mockito.Mockito.mock(AuditService.class));
 	}
 
 	@Test

@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.cash.dto.CustomerPaymentRequest;
 import com.geststock.cash.dto.CustomerPaymentResponse;
 import com.geststock.common.api.PageQuery;
@@ -52,6 +53,7 @@ class CustomerPaymentController {
 	}
 
 	@PostMapping
+	@Audited(action = "PAY", entityType = "CUSTOMER", idParam = "customerId")
 	@RequiresPermission(Permissions.CUSTOMER_PAY)
 	@Operation(summary = "Enregistrer un règlement",
 			description = "Encaissé dans ma caisse ouverte ; refusé s'il dépasse la dette du client (pas de trop-perçu).")

@@ -30,7 +30,7 @@ class AuditLogRepositoryIT {
 		Instant at = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		UUID userId = UUID.randomUUID();
 		AuditLog entry = AuditLog.builder(at, "UPDATE", "PRODUCT", AuditStatus.SUCCESS)
-			.user(userId, "marie.k", "GESTIONNAIRE")
+			.module("CATALOG").user(userId, "marie.k", "GESTIONNAIRE")
 			.entity("p-1", "Monture Ray-Ban RB3025")
 			.changes("[{\"field\": \"retailPrice\", \"newValue\": 35000, \"oldValue\": 32000}]")
 			.states("{\"retailPrice\": 32000}", "{\"retailPrice\": 35000}")
@@ -53,12 +53,14 @@ class AuditLogRepositoryIT {
 
 	@Test
 	void jsonColumnsAreRealJsonbAndQueryable() {
-		this.repository.saveAndFlush(AuditLog.builder(Instant.now(), "RECEIVE", "PURCHASE_ORDER", AuditStatus.SUCCESS)
-			.meta("{\"warehouse\": \"MAG-01\", \"lines\": 3}")
-			.build());
+		AuditLog saved = this.repository.saveAndFlush(
+				AuditLog.builder(Instant.now(), "RECEIVE", "PURCHASE_ORDER", AuditStatus.SUCCESS).module("PURCHASE")
+					.meta("{\"warehouse\": \"MAG-01\", \"lines\": 3}")
+					.build());
 
 		Number lines = (Number) this.entityManager
-			.createNativeQuery("select (meta ->> 'lines')::int from audit_log where action = 'RECEIVE'")
+			.createNativeQuery("select (meta ->> 'lines')::int from audit_log where id = :id and meta ->> 'warehouse' = 'MAG-01'")
+			.setParameter("id", saved.getId())
 			.getSingleResult();
 		assertThat(lines.intValue()).isEqualTo(3);
 	}
@@ -66,7 +68,7 @@ class AuditLogRepositoryIT {
 	@Test
 	void databaseRefusesAnyModification() {
 		AuditLog saved = this.repository.saveAndFlush(
-				AuditLog.builder(Instant.now(), "LOGIN", "SYSTEM", AuditStatus.FAILURE).details("Mot de passe invalide").build());
+				AuditLog.builder(Instant.now(), "LOGIN", "SYSTEM", AuditStatus.FAILURE).module("AUTH").details("Mot de passe invalide").build());
 
 		assertThatThrownBy(() -> this.entityManager
 			.createNativeQuery("update audit_log set status = 'SUCCESS' where id = :id")
@@ -78,7 +80,7 @@ class AuditLogRepositoryIT {
 	@Test
 	void databaseRefusesDeletion() {
 		AuditLog saved = this.repository.saveAndFlush(
-				AuditLog.builder(Instant.now(), "EXPORT", "REPORT", AuditStatus.SUCCESS).build());
+				AuditLog.builder(Instant.now(), "EXPORT", "REPORT", AuditStatus.SUCCESS).module("SYSTEM").build());
 
 		assertThatThrownBy(() -> this.entityManager
 			.createNativeQuery("delete from audit_log where id = :id")

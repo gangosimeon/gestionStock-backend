@@ -15,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.geststock.audit.AuditService;
 import com.geststock.exception.ApiException;
 import com.geststock.exception.BusinessRuleException;
 import com.geststock.exception.ErrorCode;
@@ -67,7 +68,7 @@ class PurchaseOrderServiceTest {
 	@BeforeEach
 	void setUp() {
 		this.service = new PurchaseOrderService(this.orders, this.receipts, this.suppliers, this.products,
-				this.warehouseAccess, Clock.fixed(NOW, ZoneOffset.UTC));
+				this.warehouseAccess, org.mockito.Mockito.mock(AuditService.class), Clock.fixed(NOW, ZoneOffset.UTC));
 		this.essilor = new SupplierSnapshot(UUID.randomUUID(), "FOU-ESS", "Essilor", 5, 30, true);
 		this.frame = new ProductSnapshot(UUID.randomUUID(), "MON-1", "Monture", true, new BigDecimal("15000.00"),
 				BigDecimal.ZERO, BigDecimal.ZERO);

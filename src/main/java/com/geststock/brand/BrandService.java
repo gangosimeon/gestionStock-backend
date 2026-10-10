@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.brand.dto.BrandRequest;
 import com.geststock.brand.dto.BrandResponse;
 import com.geststock.common.api.ActiveStatus;
@@ -31,8 +33,11 @@ public class BrandService {
 
 	private final BrandRepository repository;
 
-	BrandService(BrandRepository repository) {
+	private final AuditService audit;
+
+	BrandService(BrandRepository repository, AuditService audit) {
 		this.repository = repository;
+		this.audit = audit;
 	}
 
 	public Page<BrandResponse> search(String text, ActiveStatus status, PageQuery query) {
@@ -56,29 +61,41 @@ public class BrandService {
 	public BrandResponse create(BrandRequest request) {
 		String name = request.name().trim();
 		requireUniqueName(name, null);
-		return toResponse(this.repository.saveAndFlush(new Brand(name)));
+		BrandResponse created = toResponse(this.repository.saveAndFlush(new Brand(name)));
+		this.audit.record(AuditEvent.of("CREATE", "BRAND", created.id(), name).after(created));
+		return created;
 	}
 
 	@Transactional
 	public BrandResponse update(UUID id, BrandRequest request) {
 		Brand brand = load(id);
+		BrandResponse before = toResponse(brand);
 		String name = request.name().trim();
 		requireUniqueName(name, id);
 		brand.rename(name);
-		return toResponse(this.repository.saveAndFlush(brand));
+		BrandResponse updated = toResponse(this.repository.saveAndFlush(brand));
+		this.audit.record(AuditEvent.of("UPDATE", "BRAND", id, name).before(before).after(updated));
+		return updated;
 	}
 
 	/** Une marque désactivée reste attachée à ses produits mais ne peut plus être choisie. */
 	@Transactional
 	public BrandResponse setActive(UUID id, boolean active) {
 		Brand brand = load(id);
+		boolean wasActive = brand.isActive();
 		if (active) {
 			brand.activate();
 		}
 		else {
 			brand.deactivate();
 		}
-		return toResponse(this.repository.saveAndFlush(brand));
+		BrandResponse saved = toResponse(this.repository.saveAndFlush(brand));
+		if (wasActive != active) {
+			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "BRAND", id, saved.name())
+				.before(java.util.Map.of("active", wasActive))
+				.after(java.util.Map.of("active", active)));
+		}
+		return saved;
 	}
 
 	/**

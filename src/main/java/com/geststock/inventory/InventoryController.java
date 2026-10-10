@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
@@ -78,6 +79,7 @@ class InventoryController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "INVENTORY_SESSION", idParam = "")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Créer un inventaire (brouillon)",
 			description = "Périmètre FULL (produits actifs), CATEGORY (categoryId) ou SELECTION (productIds). "
@@ -89,6 +91,7 @@ class InventoryController {
 	}
 
 	@PostMapping("/{id}/products")
+	@Audited(action = "ADD_PRODUCTS", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Ajouter des produits (brouillon)")
 	InventoryResponse addProducts(@PathVariable UUID id, @Valid @RequestBody InventoryProductsRequest request) {
@@ -96,6 +99,7 @@ class InventoryController {
 	}
 
 	@DeleteMapping("/{id}/products/{productId}")
+	@Audited(action = "REMOVE_PRODUCT", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Retirer un produit (brouillon)")
 	InventoryResponse removeProduct(@PathVariable UUID id, @PathVariable UUID productId) {
@@ -103,6 +107,7 @@ class InventoryController {
 	}
 
 	@PostMapping("/{id}/start")
+	@Audited(action = "START", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Démarrer", description = "DRAFT → IN_PROGRESS : périmètre figé.")
 	InventoryResponse start(@PathVariable UUID id) {
@@ -110,6 +115,7 @@ class InventoryController {
 	}
 
 	@PutMapping("/{id}/counts")
+	@Audited(action = "COUNT", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Saisir des comptages",
 			description = "Quantité théorique relevée par le serveur au même instant ; recomptage possible jusqu'à la "
@@ -119,6 +125,7 @@ class InventoryController {
 	}
 
 	@PostMapping("/{id}/submit")
+	@Audited(action = "SUBMIT", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Soumettre à validation", description = "COUNTING → VALIDATION : tous les produits comptés.")
 	InventoryResponse submit(@PathVariable UUID id) {
@@ -126,6 +133,7 @@ class InventoryController {
 	}
 
 	@PostMapping("/{id}/reopen")
+	@Audited(action = "REOPEN", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_VALIDATE)
 	@Operation(summary = "Renvoyer au comptage", description = "VALIDATION → COUNTING (recomptage demandé).")
 	InventoryResponse reopen(@PathVariable UUID id,
@@ -134,6 +142,7 @@ class InventoryController {
 	}
 
 	@PostMapping("/{id}/validate")
+	@Audited(action = "VALIDATE", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_VALIDATE)
 	@Operation(summary = "Valider",
 			description = "VALIDATION → COMPLETED : chaque écart appliqué au stock (mouvement INVENTORY), en une transaction.")
@@ -143,6 +152,7 @@ class InventoryController {
 	}
 
 	@PostMapping("/{id}/cancel")
+	@Audited(action = "CANCEL", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Annuler", description = "Avant validation uniquement ; aucun effet sur le stock.")
 	InventoryResponse cancel(@PathVariable UUID id, @Valid @RequestBody(required = false) InventoryCommentRequest request) {

@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.AuditModule;
+import com.geststock.audit.Audited;
 import com.geststock.exception.ApiError;
 import com.geststock.security.dto.AuthResponse;
 import com.geststock.security.dto.ChangePasswordRequest;
@@ -88,6 +90,7 @@ class AuthController {
 	}
 
 	@PostMapping("/change-password")
+	@Audited(action = "PASSWORD_CHANGE", entityType = "USER", idParam = "", module = AuditModule.AUTH)
 	@PreAuthorize("isAuthenticated()")
 	@Operation(summary = "Changer son mot de passe", description = "Ferme toutes les sessions puis renvoie une nouvelle session.")
 	@ApiResponse(responseCode = "400", description = "CURRENT_PASSWORD_INVALID ou PASSWORD_POLICY_VIOLATION",

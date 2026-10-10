@@ -14,7 +14,7 @@ situé à la racine du dépôt.
 
 État actuel : **socle technique, authentification JWT (`/api/auth`), utilisateurs, rôles et
 permissions, catalogue (catégories, marques, produits), fournisseurs, clients (compte client),
-dépôts, stock, achats (commandes, réceptions), ventes, caisse, inventaires, retours clients et corrections, alertes**. Sans
+dépôts, stock, achats (commandes, réceptions), ventes, caisse, inventaires, retours clients et corrections, alertes, journal d'audit, tableau de bord, rapports**. Sans
 jeton valide, toute route protégée répond 401.
 
 ## Installation
@@ -406,6 +406,67 @@ Alertes **calculées à la demande** à partir des données existantes : aucune 
 - **Seuils** : par produit (`alertThreshold` = seuil minimum, `maxStockLevel`), et globaux dans `alert_setting` (V021, valeurs par défaut : seuil minimum par défaut 0, marge 50 %, dormance 90 j, tolérance commandes 0 j, délai de paiement 30 j, plafond 90 %, caisse 24 h, écart 1 000 FCFA sur 7 j).
 - Non couvert (données absentes) : péremption et lots, notifications (e-mail, SMS, WhatsApp), accusé de lecture des alertes.
 
+## Tableau de bord
+
+Indicateurs **calculés à chaque appel sur PostgreSQL** (aucune donnée simulée) ; règles de calcul détaillées dans [docs/dashboard.md](docs/dashboard.md). Permission `report:read`, dépôt courant ou `allWarehouses=true` (avec `warehouse:all`).
+
+| Endpoint | Contenu |
+|---|---|
+| `GET /api/dashboard` | Forme du `DashboardVm` du front : `kpis` du jour (`todaySalesTotal` = CA net, `todayProfit` = marge brute, `stockTotal`), ventes 14 jours, top 8 produits sur 30 jours, stock 7 jours |
+| `GET /api/dashboard/summary` | Ventes (CA brut, retours, CA net, coût, marge brute, taux de marge, panier moyen, annulations), achats (réceptions, commandes), stock (unités, valeur, ruptures, seuils) d'une période |
+| `GET /api/dashboard/sales-by-day`, `/top-products`, `/stock-evolution` | Séries paramétrables (`from`, `to`, `days`, `limit`) |
+
+- CA net = ventes validées − retours du jour du retour ; marge brute = CA net − coût (coût figé à la vente, articles revendables retournés déduits).
+- Évolution du stock **reconstituée depuis le journal des mouvements** (stock actuel − mouvements postérieurs), en remplacement de la courbe fictive du front.
+- Fuseau des jours : `geststock.dashboard.time-zone` (défaut `Africa/Abidjan`).
+
+## Rapports
+
+Rapports serveur paginés (`/api/reports/*`, `report:read`) ; filtres, champs et règles de calcul : [docs/reports.md](docs/reports.md).
+
+| Domaine | Endpoints |
+|---|---|
+| Ventes | `/sales` (liste), `/sales/by-product`, `/sales/by-period` (`groupBy` DAY / MONTH / YEAR), `/sales/by-seller`, `/sales/by-warehouse` |
+| Achats | `/purchases` (commandes : reçu, reste, retards), `/suppliers` (synthèse fournisseur, délai constaté) |
+| Stock | `/stock` (valorisation, rotation, couverture, dormants), `/stock-movements`, `/stock-movements/by-type` |
+| Exploitation | `/inventories` (écarts valorisés), `/cash-sessions` (attendu, compté, écart), `/customers` (créances, part échue) |
+
+- Filtres selon pertinence : période (`from`, `to`), dépôt (courant, `warehouseId`, `allWarehouses`), `productId`, `categoryId`, `userId`, `customerId`, `supplierId`, `status`, `type`, `stockState`, `withBalance`.
+- Base de données seule : comptage, tri (liste blanche), `LIMIT`/`OFFSET` et totaux (`summary`) en SQL ; 200 lignes au plus par page.
+
+## Journal d'audit
+
+Journal métier persisté dans `audit_log` (V006, module ajouté en V022), **en ajout seul** : la base refuse toute modification ou suppression, et l'API n'a aucune route d'écriture.
+
+Chaque entrée : utilisateur (`userId`, `username`, `userRole`), `action`, `module`, `entityType`, `entityId`, `entityLabel`, date, résultat (`SUCCESS` | `FAILURE`), `details`, et selon le cas `before`/`after` et `changes` (`[{field, oldValue, newValue}]`), `meta` (`{errorCode, httpStatus}` pour un échec), IP, navigateur, dépôt, `traceId`.
+
+- **Identité infalsifiable** : l'auteur est relevé par `AuditService` dans le `SecurityContext` (utilisateur du jeton, rôles relus en base) ; aucune méthode n'accepte un auteur fourni par l'appelant, et les champs ou en-têtes du client (`userId`, `X-User-Id`…) sont ignorés. L'IP est celle de la connexion (`X-Forwarded-For` n'est pris en compte qu'en prod, via `forward-headers-strategy`). Connexion : identité vérifiée par le mot de passe ; échec de connexion : aucun auteur, le nom saisi n'est qu'un libellé ; déconnexion : propriétaire du jeton révoqué.
+- **Réussites** : écrites par le service métier **dans la transaction de l'opération** (une opération annulée ne laisse pas de trace « réussie »). **Échecs** (droits, validation, règle métier, conflit, erreur serveur) : écrits dans une transaction indépendante par l'intercepteur des points d'entrée `@Audited`, avec le code d'erreur de l'API.
+- **Données sensibles** : mots de passe, jetons, secrets et empreintes masqués (`***`) dans les états ; un mot de passe n'apparaît jamais, même haché.
+
+| Module | Opérations tracées |
+|---|---|
+| `AUTH` | `LOGIN` (réussi / refusé, compte verrouillé ou désactivé), `LOGOUT`, `PASSWORD_CHANGE` |
+| `USER` | `CREATE`, `UPDATE`, `ASSIGN_ROLES`, `ACTIVATE` / `DEACTIVATE`, `DELETE`, `PASSWORD_RESET` (avant/après) |
+| `SECURITY` | rôles : `CREATE`, `UPDATE` (permissions ajoutées / retirées), `DELETE` |
+| `CATALOG` | produits, catégories, marques : `CREATE`, `UPDATE` (avant/après : prix, seuils…), `ACTIVATE` / `DEACTIVATE` |
+| `WAREHOUSE`, `SUPPLIER`, `CUSTOMER` | `CREATE`, `UPDATE`, `ACTIVATE` / `DEACTIVATE`, `SET_MAIN` ; client : `UPDATE_CREDIT_LIMIT` (donnée sensible), `PAY` |
+| `STOCK` | mouvement manuel `CREATE`, `REVERSAL`, `TRANSFER` (quantités avant/après) |
+| `PURCHASE` | commande `CREATE`, `CANCEL`, `CLOSE` ; réception `RECEIVE` (lignes, prix d'achat) |
+| `SALE`, `RETURN` | vente `CREATE`, `CANCEL` ; retour `CREATE` |
+| `INVENTORY` | `CREATE`, `ADD_PRODUCTS`, `REMOVE_PRODUCT`, `START`, `COUNT`, `SUBMIT`, `REOPEN`, `VALIDATE`, `CANCEL` |
+| `CASH` | `OPEN`, `CASH_IN`, `CASH_OUT`, `CORRECTION`, `CLOSE` |
+| `ALERT`, `AUDIT` | seuils des alertes `UPDATE` ; export du journal `EXPORT` |
+
+| Endpoint (`audit:read`) | Rôle |
+|---|---|
+| `GET /api/audit-logs` | Du plus récent au plus ancien ; filtres `dateFrom`, `dateTo` (`AAAA-MM-JJ` inclus ou instant ISO), `actions`, `entityTypes`, `modules` (`A,B`), `userId`, `status`, `entityId`, `search` ; `page`, `size` |
+| `GET /api/audit-logs/{id}` | Détail, `changes`/`before`/`after`/`meta` en JSON |
+| `GET /api/audit-logs/stats` | `{totalToday, failuresLast7Days, mostActiveUser, mostFrequentAction}` (30 jours) |
+| `GET /api/audit-logs/export` | CSV `;` UTF-8 (BOM), en-tête du front + `Module`, 50 000 lignes max ; l'export est tracé |
+
+Ajouter une opération : `audit.record(AuditEvent.of(action, entityType, id, libellé).before(...).after(...))` dans la transaction du service, `@Audited(action, entityType)` sur le point d'entrée, et le type d'entité dans `AuditModule`.
+
 ## Rôles et permissions (RBAC)
 
 Modèle : **utilisateur → rôles → permissions** `domaine:action`. Les permissions sont calculées
@@ -475,6 +536,6 @@ src/main/java/com/geststock/
   common/      entités de base, enveloppes de réponse, santé, traceId
   exception/   codes d'erreur, exceptions, gestionnaire global
   audit/ user/ role/ permission/ warehouse/   entités fondamentales (V002–V006)
-  category/ brand/ product/ supplier/ stock/ purchase/ customer/ sale/ cash/ inventory/ returns/ alert/   catalogue … alertes (V010–V021)
-  expense/ appointment/ report/   modules à venir
+  category/ brand/ product/ supplier/ stock/ purchase/ customer/ sale/ cash/ inventory/ returns/ alert/ report/   catalogue … tableau de bord (V010–V023)
+  expense/ appointment/   modules à venir
 ```

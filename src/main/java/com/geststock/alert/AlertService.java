@@ -149,7 +149,7 @@ public class AlertService {
 			}
 		}
 		if (types.contains(AlertType.CUSTOMER_PAYMENT_OVERDUE) || types.contains(AlertType.CUSTOMER_CREDIT_LIMIT)) {
-			for (AlertRules.CustomerDebt debt : this.queries.customerDebts(s.defaultPaymentTermsDays(), now)) {
+			for (AlertRules.CustomerDebt debt : this.queries.customerDebts()) {
 				AlertRules.customer(debt, s, now).stream().filter(a -> types.contains(a.type())).forEach(alerts::add);
 			}
 		}

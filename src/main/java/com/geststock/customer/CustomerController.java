@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.OkResponse;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
@@ -77,6 +78,7 @@ class CustomerController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "CUSTOMER", idParam = "")
 	@RequiresPermission(Permissions.CUSTOMER_CREATE)
 	@Operation(summary = "Créer un client",
 			description = "Code généré (CLI-000001) s'il est absent. Un plafond de crédit > 0 exige customer:credit.")
@@ -86,6 +88,7 @@ class CustomerController {
 	}
 
 	@PatchMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "CUSTOMER")
 	@RequiresPermission(Permissions.CUSTOMER_UPDATE)
 	@Operation(summary = "Modifier un client (verbe du front)",
 			description = "name, phone et email remplacés ; creditLimit et champs étendus conservés s'ils sont absents. "
@@ -95,6 +98,7 @@ class CustomerController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "CUSTOMER")
 	@RequiresPermission(Permissions.CUSTOMER_UPDATE)
 	@Operation(summary = "Modifier un client", description = "Mêmes règles que PATCH.")
 	CustomerResponse update(@PathVariable UUID id, @Valid @RequestBody CustomerRequest request) {
@@ -102,6 +106,7 @@ class CustomerController {
 	}
 
 	@PatchMapping("/{id}/active")
+	@Audited(action = "SET_ACTIVE", entityType = "CUSTOMER")
 	@RequiresPermission(Permissions.CUSTOMER_DELETE)
 	@Operation(summary = "Activer ou désactiver un client")
 	CustomerResponse setActive(@PathVariable UUID id, @Valid @RequestBody SetActiveRequest request) {
@@ -109,6 +114,7 @@ class CustomerController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DEACTIVATE", entityType = "CUSTOMER")
 	@RequiresPermission(Permissions.CUSTOMER_DELETE)
 	@Operation(summary = "Supprimer un client (désactivation)",
 			description = "Le client est désactivé, jamais effacé : ventes, paiements et dette le référencent.")

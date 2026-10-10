@@ -149,7 +149,7 @@ class CashApiIT {
 		close(this.alice, "{\"countedCash\": 0}").andExpect(status().isConflict());
 
 		assertThat(this.jdbc.queryForList("""
-				select action from audit_log where user_id = ? and entity_type in ('CASH_SESSION', 'CASH_ENTRY')
+				select action from audit_log where user_id = ? and entity_type in ('CASH_SESSION', 'CASH_ENTRY') and status = 'SUCCESS'
 				order by created_at""", String.class, this.alice))
 			.containsExactlyInAnyOrder("OPEN", "CASH_IN", "CASH_OUT", "CLOSE");
 		checkDeferredConstraints();
@@ -307,7 +307,7 @@ class CashApiIT {
 			.andExpect(status().isForbidden());
 
 		assertThat(this.jdbc.queryForObject(
-				"select count(*) from audit_log where action = 'CORRECTION' and entity_type = 'CASH_ENTRY' and user_id = ?",
+				"select count(*) from audit_log where action = 'CORRECTION' and entity_type = 'CASH_ENTRY' and user_id = ? and status = 'SUCCESS'",
 				Integer.class, this.alice)).isEqualTo(2);
 		checkDeferredConstraints();
 	}

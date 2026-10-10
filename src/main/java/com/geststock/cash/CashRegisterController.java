@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import tools.jackson.databind.node.NullNode;
 
+import com.geststock.audit.Audited;
 import com.geststock.cash.dto.CashCorrectionRequest;
 import com.geststock.cash.dto.CashEntryResponse;
 import com.geststock.cash.dto.CashOperationRequest;
@@ -109,6 +110,7 @@ class CashRegisterController {
 	}
 
 	@PostMapping("/open")
+	@Audited(action = "OPEN", entityType = "CASH_SESSION", idParam = "")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Ouvrir ma caisse", description = "Dans le dépôt courant ; une seule caisse ouverte par utilisateur.")
 	ResponseEntity<CashSessionResponse> open(@Valid @RequestBody OpenCashSessionRequest request,
@@ -118,6 +120,7 @@ class CashRegisterController {
 	}
 
 	@PostMapping("/operations")
+	@Audited(action = "CASH_OPERATION", entityType = "CASH_ENTRY", idParam = "")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Apport ou sortie d'espèces",
 			description = "Dans ma caisse ouverte ; une sortie ne peut dépasser les espèces attendues.")
@@ -128,6 +131,7 @@ class CashRegisterController {
 	}
 
 	@PostMapping("/operations/{id}/reversal")
+	@Audited(action = "CORRECTION", entityType = "CASH_ENTRY")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Corriger un apport ou une sortie",
 			description = "Écriture inverse du même montant dans ma caisse ouverte ; l'opération d'origine reste. "
@@ -139,6 +143,7 @@ class CashRegisterController {
 	}
 
 	@PostMapping("/close")
+	@Audited(action = "CLOSE", entityType = "CASH_SESSION", idParam = "")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Clôturer ma caisse", description = "Espèces comptées ; attendu et écart figés.")
 	CashSessionResponse close(@Valid @RequestBody CloseCashSessionRequest request) {

@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
@@ -81,6 +82,7 @@ class SaleController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "SALE", idParam = "")
 	@RequiresPermission(Permissions.SALE_CREATE)
 	@Operation(summary = "Enregistrer une vente",
 			description = "Prix, coûts et montants calculés par le serveur (prix envoyés ignorés). Sorties de stock, "
@@ -92,6 +94,7 @@ class SaleController {
 	}
 
 	@PostMapping("/{id}/cancel")
+	@Audited(action = "CANCEL", entityType = "SALE")
 	@RequiresPermission(Permissions.SALE_CANCEL)
 	@Operation(summary = "Annuler une vente",
 			description = "Remise en stock et annulation de la créance, motif obligatoire. Refusée si le client a déjà "

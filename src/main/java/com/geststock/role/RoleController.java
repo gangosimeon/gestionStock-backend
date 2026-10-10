@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.OkResponse;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
@@ -63,6 +64,7 @@ class RoleController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "ROLE", idParam = "")
 	@RequiresPermission(Permissions.ROLE_MANAGE)
 	@Operation(summary = "Créer un rôle personnalisé")
 	@ApiResponse(responseCode = "201", description = "Rôle créé")
@@ -74,6 +76,7 @@ class RoleController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "ROLE")
 	@RequiresPermission(Permissions.ROLE_MANAGE)
 	@Operation(summary = "Modifier un rôle et ses permissions", description = "Le rôle ADMIN n'est pas modifiable.")
 	@ApiResponse(responseCode = "409", description = "Rôle ADMIN",
@@ -83,6 +86,7 @@ class RoleController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DELETE", entityType = "ROLE")
 	@RequiresPermission(Permissions.ROLE_MANAGE)
 	@Operation(summary = "Supprimer un rôle personnalisé", description = "Refusé pour un rôle système ou encore attribué.")
 	@ApiResponse(responseCode = "409", description = "Rôle système ou attribué",

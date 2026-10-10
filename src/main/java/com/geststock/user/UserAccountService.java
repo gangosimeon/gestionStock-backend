@@ -15,6 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditModule;
+import com.geststock.audit.AuditService;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.InvalidRequestException;
 import com.geststock.exception.NotFoundException;
@@ -43,16 +46,20 @@ public class UserAccountService {
 
 	private final ApplicationEventPublisher events;
 
+	private final AuditService audit;
+
 	private final Clock clock;
 
 	UserAccountService(AppUserRepository repository, RoleService roleService, PasswordEncoder passwordEncoder,
-			PasswordPolicy passwordPolicy, UserMapper mapper, ApplicationEventPublisher events, Clock clock) {
+			PasswordPolicy passwordPolicy, UserMapper mapper, ApplicationEventPublisher events, AuditService audit,
+			Clock clock) {
 		this.repository = repository;
 		this.roleService = roleService;
 		this.passwordEncoder = passwordEncoder;
 		this.passwordPolicy = passwordPolicy;
 		this.mapper = mapper;
 		this.events = events;
+		this.audit = audit;
 		this.clock = clock;
 	}
 
@@ -109,6 +116,9 @@ public class UserAccountService {
 		user.changePasswordHash(this.passwordEncoder.encode(newPassword), false, Instant.now(this.clock));
 		this.repository.saveAndFlush(user);
 		this.events.publishEvent(new UserCredentialsChangedEvent(id));
+		this.audit.record(AuditEvent.of("PASSWORD_CHANGE", "USER", id, user.getUsername())
+			.module(AuditModule.AUTH)
+			.details("Mot de passe changé par l'utilisateur ; autres sessions fermées"));
 	}
 
 	/** Identifiants de connexion des utilisateurs demandés (affichage des historiques). */
@@ -139,7 +149,10 @@ public class UserAccountService {
 		AppUser admin = new AppUser(username, null, lastName);
 		admin.replaceRoles(this.roleService.findAllByCodes(java.util.List.of(RoleService.ADMIN)));
 		admin.changePasswordHash(this.passwordEncoder.encode(password), true, Instant.now(this.clock));
-		return this.repository.saveAndFlush(admin).getId();
+		UUID id = this.repository.saveAndFlush(admin).getId();
+		this.audit.record(AuditEvent.of("CREATE", "USER", id, username)
+			.details("Administrateur initial créé au démarrage (mot de passe provisoire)"));
+		return id;
 	}
 
 	private static UserAccount toAccount(AppUser user) {

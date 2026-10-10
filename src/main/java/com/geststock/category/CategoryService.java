@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.category.dto.CategoryRequest;
 import com.geststock.category.dto.CategoryResponse;
 import com.geststock.common.api.ActiveStatus;
@@ -31,8 +33,11 @@ public class CategoryService {
 
 	private final CategoryRepository repository;
 
-	CategoryService(CategoryRepository repository) {
+	private final AuditService audit;
+
+	CategoryService(CategoryRepository repository, AuditService audit) {
 		this.repository = repository;
+		this.audit = audit;
 	}
 
 	public Page<CategoryResponse> search(String text, ActiveStatus status, PageQuery query) {
@@ -56,16 +61,21 @@ public class CategoryService {
 	public CategoryResponse create(CategoryRequest request) {
 		String name = request.name().trim();
 		requireUniqueName(name, null);
-		return toResponse(this.repository.saveAndFlush(new Category(name, blankToNull(request.description()))));
+		CategoryResponse created = toResponse(this.repository.saveAndFlush(new Category(name, blankToNull(request.description()))));
+		this.audit.record(AuditEvent.of("CREATE", "CATEGORY", created.id(), name).after(created));
+		return created;
 	}
 
 	@Transactional
 	public CategoryResponse update(UUID id, CategoryRequest request) {
 		Category category = load(id);
+		CategoryResponse before = toResponse(category);
 		String name = request.name().trim();
 		requireUniqueName(name, id);
 		category.update(name, blankToNull(request.description()));
-		return toResponse(this.repository.saveAndFlush(category));
+		CategoryResponse updated = toResponse(this.repository.saveAndFlush(category));
+		this.audit.record(AuditEvent.of("UPDATE", "CATEGORY", id, name).before(before).after(updated));
+		return updated;
 	}
 
 	/**
@@ -75,13 +85,20 @@ public class CategoryService {
 	@Transactional
 	public CategoryResponse setActive(UUID id, boolean active) {
 		Category category = load(id);
+		boolean wasActive = category.isActive();
 		if (active) {
 			category.activate();
 		}
 		else {
 			category.deactivate();
 		}
-		return toResponse(this.repository.saveAndFlush(category));
+		CategoryResponse saved = toResponse(this.repository.saveAndFlush(category));
+		if (wasActive != active) {
+			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "CATEGORY", id, saved.name())
+				.before(java.util.Map.of("active", wasActive))
+				.after(java.util.Map.of("active", active)));
+		}
+		return saved;
 	}
 
 	/**

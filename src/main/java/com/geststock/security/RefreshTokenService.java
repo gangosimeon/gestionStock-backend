@@ -8,6 +8,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -83,16 +84,20 @@ class RefreshTokenService {
 		return new Rotation(current.getUserId(), current.getFamilyId(), successor.rawValue());
 	}
 
-	/** Déconnexion : révoque la famille du jeton présenté. Sans effet si inconnu ou déjà révoqué. */
+	/**
+	 * Déconnexion : révoque la famille du jeton présenté. Sans effet si inconnu ou déjà révoqué.
+	 *
+	 * @return propriétaire de la session fermée, s'il y en avait une
+	 */
 	@Transactional
-	public void revoke(String rawToken) {
+	public Optional<UUID> revoke(String rawToken) {
 		if (!StringUtils.hasText(rawToken)) {
-			return;
+			return Optional.empty();
 		}
-		this.repository.findByTokenHash(hash(rawToken))
-			.filter(token -> !token.isRevoked())
-			.ifPresent(token -> this.repository.revokeFamily(token.getFamilyId(), RevocationReason.LOGOUT,
-					Instant.now(this.clock)));
+		Optional<RefreshToken> token = this.repository.findByTokenHash(hash(rawToken)).filter(t -> !t.isRevoked());
+		token.ifPresent(t -> this.repository.revokeFamily(t.getFamilyId(), RevocationReason.LOGOUT,
+				Instant.now(this.clock)));
+		return token.map(RefreshToken::getUserId);
 	}
 
 	@Transactional

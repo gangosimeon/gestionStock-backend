@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.common.api.OkResponse;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
@@ -73,6 +74,7 @@ class ProductController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "PRODUCT", idParam = "")
 	@RequiresPermission(Permissions.PRODUCT_CREATE)
 	@Operation(summary = "Créer un produit", description = "Le stock initial ne se saisit pas ici : il s'enregistre par "
 			+ "un mouvement de stock. Un champ stockQuantity éventuellement envoyé est ignoré.")
@@ -83,6 +85,7 @@ class ProductController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "PRODUCT")
 	@RequiresPermission(Permissions.PRODUCT_UPDATE)
 	@Operation(summary = "Modifier un produit", description = "Ne modifie jamais le stock (stockQuantity ignoré).")
 	ProductResponse update(@PathVariable UUID id, @Valid @RequestBody ProductRequest request,
@@ -91,6 +94,7 @@ class ProductController {
 	}
 
 	@PatchMapping("/{id}/active")
+	@Audited(action = "SET_ACTIVE", entityType = "PRODUCT")
 	@RequiresPermission(Permissions.PRODUCT_DELETE)
 	@Operation(summary = "Activer ou désactiver un produit")
 	ProductResponse setActive(@PathVariable UUID id, @Valid @RequestBody SetActiveRequest request,
@@ -99,6 +103,7 @@ class ProductController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DEACTIVATE", entityType = "PRODUCT")
 	@RequiresPermission(Permissions.PRODUCT_DELETE)
 	@Operation(summary = "Supprimer un produit (désactivation)",
 			description = "Le produit est désactivé, jamais effacé : ventes et mouvements le référencent.")

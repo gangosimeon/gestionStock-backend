@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.audit.Audited;
 import com.geststock.brand.dto.BrandRequest;
 import com.geststock.brand.dto.BrandResponse;
 import com.geststock.common.api.ActiveStatus;
@@ -63,6 +64,7 @@ class BrandController {
 	}
 
 	@PostMapping
+	@Audited(action = "CREATE", entityType = "BRAND", idParam = "")
 	@RequiresPermission(Permissions.BRAND_MANAGE)
 	@Operation(summary = "Créer une marque")
 	ResponseEntity<BrandResponse> create(@Valid @RequestBody BrandRequest request) {
@@ -71,6 +73,7 @@ class BrandController {
 	}
 
 	@PutMapping("/{id}")
+	@Audited(action = "UPDATE", entityType = "BRAND")
 	@RequiresPermission(Permissions.BRAND_MANAGE)
 	@Operation(summary = "Renommer une marque")
 	BrandResponse update(@PathVariable UUID id, @Valid @RequestBody BrandRequest request) {
@@ -78,6 +81,7 @@ class BrandController {
 	}
 
 	@PatchMapping("/{id}/active")
+	@Audited(action = "SET_ACTIVE", entityType = "BRAND")
 	@RequiresPermission(Permissions.BRAND_MANAGE)
 	@Operation(summary = "Activer ou désactiver une marque")
 	BrandResponse setActive(@PathVariable UUID id, @Valid @RequestBody SetActiveRequest request) {
@@ -85,6 +89,7 @@ class BrandController {
 	}
 
 	@DeleteMapping("/{id}")
+	@Audited(action = "DEACTIVATE", entityType = "BRAND")
 	@RequiresPermission(Permissions.BRAND_MANAGE)
 	@Operation(summary = "Supprimer une marque (désactivation)")
 	OkResponse delete(@PathVariable UUID id) {

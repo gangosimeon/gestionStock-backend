@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import com.geststock.audit.AuditService;
 import com.geststock.common.jpa.BaseEntity;
 import com.geststock.exception.ApiException;
 import com.geststock.exception.ErrorCode;
@@ -67,7 +68,8 @@ class UserServiceTest {
 	@BeforeEach
 	void setUp() {
 		this.service = new UserService(this.repository, this.roleService, this.warehouseService, this.passwordEncoder,
-				new PasswordPolicy(), new UserMapper(), this.events, Clock.fixed(NOW, ZoneOffset.UTC));
+				new PasswordPolicy(), new UserMapper(), this.events, org.mockito.Mockito.mock(AuditService.class),
+				Clock.fixed(NOW, ZoneOffset.UTC));
 	}
 
 	@Test

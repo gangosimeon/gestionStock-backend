@@ -81,39 +81,18 @@ class AlertQueries {
 	}
 
 	/**
-	 * Clients débiteurs. Les règlements, avoirs et annulations sont imputés aux plus anciennes
-	 * créances (premier entré, premier soldé) ; une créance est échue quand sa date + le délai
-	 * de paiement du client (ou le délai par défaut) est dépassée.
+	 * Clients débiteurs, d'après la vue {@code v_customer_receivable} (V024) : règlements imputés
+	 * aux plus anciennes créances, échéance = date + délai du client (ou délai par défaut des
+	 * paramètres d'alerte).
 	 */
-	List<CustomerDebt> customerDebts(int defaultTermsDays, Instant now) {
+	List<CustomerDebt> customerDebts() {
 		String sql = """
-				with debits as (
-				    select e.customer_id, e.amount, e.created_at,
-				           sum(e.amount) over (partition by e.customer_id order by e.created_at, e.id) as cumulated
-				    from customer_account_entry e
-				    where e.direction = 'DEBIT'),
-				credits as (
-				    select customer_id, sum(amount) as total
-				    from customer_account_entry
-				    where direction = 'CREDIT'
-				    group by customer_id)
-				select c.id, c.code, c.name, c.credit_limit, t.terms,
-				       sum(d.amount) - coalesce(cr.total, 0) as balance,
-				       coalesce(sum(greatest(0, least(d.amount, d.cumulated - coalesce(cr.total, 0))))
-				                filter (where d.created_at + make_interval(days => t.terms) < :now), 0) as overdue,
-				       min(d.created_at + make_interval(days => t.terms))
-				           filter (where d.cumulated > coalesce(cr.total, 0)
-				                     and d.created_at + make_interval(days => t.terms) < :now) as oldest_due
-				from customer c
-				cross join lateral (
-				    select case when c.payment_terms_days > 0 then c.payment_terms_days else :defaultTerms end as terms) t
-				join debits d on d.customer_id = c.id
-				left join credits cr on cr.customer_id = c.id
-				group by c.id, c.code, c.name, c.credit_limit, t.terms, cr.total
-				having sum(d.amount) - coalesce(cr.total, 0) > 0
-				""";
-		return this.jdbc.query(sql,
-				new MapSqlParameterSource("defaultTerms", defaultTermsDays).addValue("now", timestamp(now)),
+				select c.id, c.code, c.name, c.credit_limit, v.payment_terms_days as terms, v.balance,
+				       v.overdue_amount as overdue, v.oldest_due_at as oldest_due
+				from v_customer_receivable v
+				join customer c on c.id = v.customer_id
+				where v.balance > 0""";
+		return this.jdbc.query(sql, new MapSqlParameterSource(),
 				(rs, i) -> new CustomerDebt(uuid(rs, "id"), rs.getString("code"), rs.getString("name"),
 						rs.getBigDecimal("credit_limit"), rs.getInt("terms"), rs.getBigDecimal("balance"),
 						rs.getBigDecimal("overdue"), instant(rs, "oldest_due")));
