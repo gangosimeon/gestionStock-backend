@@ -103,6 +103,19 @@ Couverture (mesure seulement) : `./mvnw verify -Pcoverage` → `target/site/jaco
 Stratégie, styles de tests et règles métier couvertes par domaine : [docs/testing.md](docs/testing.md).
 Audit de sécurité (constats, preuves, corrections, points à valider) : [docs/security-audit.md](docs/security-audit.md).
 
+## Mise en production
+
+Guide complet et checklist : [docs/production.md](docs/production.md).
+
+En bref :
+- image Docker (`Dockerfile`) toujours lancée en profil `prod` ;
+- secrets fournis par des variables d'environnement, jamais versionnés ;
+- contrôles de sécurité au démarrage ;
+- sondes `/actuator/health/liveness` et `/actuator/health/readiness` ;
+- journaux JSON.
+
+Pile locale identique à la production : `deploy/docker-compose.local.yml`.
+
 ## Profils
 
 | Profil | Activation | Particularités |

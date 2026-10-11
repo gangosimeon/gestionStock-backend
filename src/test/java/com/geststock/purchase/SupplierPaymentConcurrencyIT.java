@@ -93,7 +93,7 @@ class SupplierPaymentConcurrencyIT {
 		UUID second = order(3); // 30 000
 		List<Callable<String>> tasks = new ArrayList<>();
 		for (int i = 0; i < 8; i++) {
-			// 8 × 10 000 demandés pour 60 000 dus : 6 passent, 2 refusés.
+			// 8 × 10 000 demandés pour 60 000 dus (3 ciblés sur first, 5 globaux) : 5 ou 6 passent.
 			UUID target = i % 3 == 0 ? first : null;
 			PaymentMethod method = i % 2 == 0 ? PaymentMethod.CASH : PaymentMethod.BANK_TRANSFER;
 			tasks.add(() -> outcome(() -> as(this.actor, () -> this.payments.pay(this.supplier,
@@ -105,9 +105,21 @@ class SupplierPaymentConcurrencyIT {
 		assertThat(outcomes).allMatch(o -> o.equals("ok")
 				|| o.equals(ErrorCode.SUPPLIER_PAYMENT_EXCEEDS_BALANCE.name())
 				|| o.equals(ErrorCode.PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING.name()));
-		assertThat(outcomes.stream().filter("ok"::equals).count()).as("exactement le dû").isEqualTo(6);
-		assertThat(this.jdbc.queryForObject("select sum(paid_amount) from purchase_order where supplier_id = ?",
-				BigDecimal.class, this.supplier)).isEqualByComparingTo("60000");
+		// L'issue dépend de l'ordre des threads : un paiement global passé avant un paiement ciblé
+		// impute sur la commande la plus ancienne (first), et le paiement ciblé sur first est alors
+		// refusé à juste titre (reste dû dépassé) même si second n'est pas soldée. Si k paiements
+		// ciblés réussissent, les globaux en réussissent min(5, 6 - k) : 5 ou 6 succès au total.
+		// Invariants vérifiés quel que soit l'ordre : chaque succès est payé, rien au-delà du dû, et un
+		// refus global (solde dépassé) n'arrive que lorsque tout est réglé.
+		long ok = outcomes.stream().filter("ok"::equals).count();
+		BigDecimal paid = this.jdbc.queryForObject("select sum(paid_amount) from purchase_order where supplier_id = ?",
+				BigDecimal.class, this.supplier);
+		assertThat(ok).as("5 ou 6 succès selon l'ordre").isBetween(5L, 6L);
+		assertThat(paid).as("payé = succès × 10 000").isEqualByComparingTo(BigDecimal.valueOf(ok * 10000));
+		assertThat(paid).as("jamais plus que le dû").isLessThanOrEqualTo(new BigDecimal("60000"));
+		if (outcomes.contains(ErrorCode.SUPPLIER_PAYMENT_EXCEEDS_BALANCE.name())) {
+			assertThat(paid).as("refus global : plus rien à payer").isEqualByComparingTo("60000");
+		}
 		assertThat(this.jdbc.queryForObject("""
 				select count(*) from purchase_order o
 				where o.supplier_id = ? and o.paid_amount <> (select coalesce(sum(a.amount), 0)

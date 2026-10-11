@@ -25,8 +25,24 @@ spring:
     hikari:
       pool-name: geststock-pool
       maximum-pool-size: ${GESTSTOCK_DB_POOL_SIZE:10}
-      # Millisecondes (propriété Hikari brute : pas de suffixe d'unité).
-      connection-timeout: 10000
+      minimum-idle: ${GESTSTOCK_DB_POOL_MIN_IDLE:2}
+      # Millisecondes (propriétés Hikari brutes : pas de suffixe d'unité).
+      # Attente maximale d'une connexion libre avant erreur (pool saturé ou base injoignable).
+      connection-timeout: ${GESTSTOCK_DB_CONNECTION_TIMEOUT_MS:10000}
+      # Connexion inactive rendue après 10 min ; renouvelée au plus tard après 30 min
+      # (sous les délais de coupure des pare-feu et proxys courants).
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      # Connexions inactives vérifiées toutes les 5 min (détecte une base redémarrée).
+      keepalive-time: 300000
+      # Connexion non rendue au pool au-delà de 60 s : trace dans les logs (fuite probable).
+      leak-detection-threshold: ${GESTSTOCK_DB_LEAK_DETECTION_MS:60000}
+      data-source-properties:
+        # Nom visible dans pg_stat_activity (diagnostic côté base).
+        ApplicationName: geststock-backend
+        tcpKeepAlive: true
+        # Secondes : une requête bloquée (réseau, verrou) n'immobilise pas un thread indéfiniment.
+        socketTimeout: ${GESTSTOCK_DB_SOCKET_TIMEOUT_S:120}
 
   # --- JPA / Hibernate ----------------------------------------------------------
   jpa:
@@ -53,6 +69,16 @@ spring:
     clean-disabled: true
     baseline-on-migrate: false
 
+  # --- Transactions -------------------------------------------------------------
+  transaction:
+    # Plafond par transaction (exports et rapports compris) : au-delà, annulation propre.
+    default-timeout: ${GESTSTOCK_TX_TIMEOUT:60s}
+
+  # --- Arrêt gracieux ---------------------------------------------------------------
+  lifecycle:
+    # Requêtes en cours terminées avant l'arrêt (déploiement, redémarrage du conteneur).
+    timeout-per-shutdown-phase: 30s
+
   # --- Web ----------------------------------------------------------------------
   web:
     # Messages de validation (Bean Validation) en français, quel que soit le client.
@@ -62,12 +88,20 @@ spring:
 server:
   port: ${GESTSTOCK_SERVER_PORT:8080}
   shutdown: graceful
+  tomcat:
+    # Client qui n'envoie rien après ouverture de la connexion : coupé après 20 s.
+    connection-timeout: 20s
+    threads:
+      max: ${GESTSTOCK_HTTP_THREADS_MAX:200}
   error:
     include-stacktrace: never
     include-message: never
     include-binding-errors: never
 
 # --- Actuator : seule la santé est exposée ------------------------------------
+# /actuator/health           : état global (base de données comprise), sans détail
+# /actuator/health/liveness  : le processus répond (redémarrer le conteneur sinon)
+# /actuator/health/readiness : prêt à recevoir du trafic (base joignable)
 management:
   endpoints:
     web:
@@ -76,6 +110,16 @@ management:
   endpoint:
     health:
       show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState, db
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 # --- OpenAPI / Swagger UI -----------------------------------------------------
 springdoc:

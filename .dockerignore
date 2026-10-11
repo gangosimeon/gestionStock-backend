@@ -1,0 +1,13 @@
+# Contexte de construction minimal : ni secrets, ni artefacts, ni historique.
+.git
+.github
+.idea
+.vscode
+target
+config
+deploy
+docs
+*.md
+*.log
+.env
+.env.*

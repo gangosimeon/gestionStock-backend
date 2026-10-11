@@ -34,3 +34,7 @@ build/
 
 ### Configuration locale (secrets du poste : jamais versionnée) ###
 /config/
+
+### Secrets de déploiement (jamais versionnés) ###
+.env
+deploy/.env
