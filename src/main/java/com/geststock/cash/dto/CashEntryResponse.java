@@ -15,8 +15,8 @@ import com.geststock.cash.PaymentMethod;
  *
  * @param number    référence de l'opération (OPC-AAAA-nnnnnn)
  * @param type      sens : IN (encaissement) ou OUT (décaissement)
- * @param entryType nature : SALE, CUSTOMER_PAYMENT, CASH_IN, CORRECTION_IN, SALE_REFUND, RETURN_REFUND,
- *                  CASH_OUT, CORRECTION_OUT
+ * @param entryType nature : SALE, CUSTOMER_PAYMENT, CASH_IN, CORRECTION_IN, EXPENSE_CANCELLATION,
+ *                  SALE_REFUND, RETURN_REFUND, CASH_OUT, CORRECTION_OUT, SUPPLIER_PAYMENT, EXPENSE
  */
 @Schema(name = "CashOperation")
 public record CashEntryResponse(

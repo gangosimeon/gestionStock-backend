@@ -92,3 +92,21 @@ Remplace l'ancienne courbe du front, qui était **fictive** (stock actuel × (1 
   de la période, puis cumul inverse en mémoire (N points, sans requête par jour).
 - Un appel = une transaction en lecture seule : instantané cohérent entre ventes, retours et
   stock.
+
+## Tableau de bord du vendeur (`GET /api/dashboard/me`)
+
+Permission `sale:create` (le caissier n'a pas `report:read`). Indicateurs de **ses propres** ventes
+du jour (fuseau de l'entreprise), tous dépôts confondus, calculés par une seule requête :
+
+| Champ | Règle |
+|---|---|
+| `salesCount` | Ventes `COMPLETED` créées par l'utilisateur aujourd'hui |
+| `salesTotal` | Σ `total` de ces ventes |
+| `paidAmount` / `creditAmount` | Σ part encaissée au moment des ventes (tous moyens) / Σ crédit accordé. Le crédit accordé est figé à la vente : un règlement ultérieur ne le modifie pas (la dette vit dans le compte client). |
+| `customerPaymentsAmount` / `customerPaymentsCount` | Règlements de dettes clients encaissés aujourd'hui par l'utilisateur (écritures `PAYMENT` du compte client), quelle que soit la date des ventes réglées |
+| `collectedAmount` | Encaissé aujourd'hui : `paidAmount + customerPaymentsAmount` |
+| `cancelledCount` | Ventes de l'utilisateur annulées aujourd'hui |
+| `lastSaleAt` | Dernière vente validée du jour |
+| `last7Days` | 7 points `{date, label, count, total}` (J-6 → aujourd'hui, jours sans vente à 0) : ses ventes `COMPLETED` par jour |
+
+Ni coût ni marge, ni chiffres du magasin : ceux-ci restent réservés à `report:read`.

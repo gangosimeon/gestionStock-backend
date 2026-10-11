@@ -152,6 +152,25 @@ public class CashService {
 		requireWarehouse(session, warehouseId);
 	}
 
+	/**
+	 * Contrôle préalable d'une sortie d'espèces, sans rien écrire : caisse ouverte et espèces
+	 * suffisantes. Permet de refuser avant toute autre écriture ; la sortie elle-même revérifie
+	 * sous verrou de la session.
+	 */
+	public void requireCashAvailable(UUID warehouseId, BigDecimal amount) {
+		CashSession session = this.sessions.findOpenByCashier(actor()).orElseThrow(CashService::noOpenSession);
+		requireWarehouse(session, warehouseId);
+		BigDecimal available = summaryOf(session).expectedCash();
+		if (amount.setScale(2).compareTo(available) > 0) {
+			Map<String, Object> details = new LinkedHashMap<>();
+			details.put("sessionId", session.getId());
+			details.put("available", available);
+			details.put("requested", amount.setScale(2));
+			throw new BusinessRuleException(ErrorCode.CASH_INSUFFICIENT, ErrorCode.CASH_INSUFFICIENT.defaultMessage(),
+					details);
+		}
+	}
+
 	// --- Cycle de vie ------------------------------------------------------------------------
 
 	/** Ouvre la caisse de l'utilisateur courant dans le dépôt courant. */
@@ -229,6 +248,42 @@ public class CashService {
 			PaymentMethod method, UUID customerId, String note) {
 		return toResponse(post(CashEntryType.RETURN_REFUND, method, amount, warehouseId, customerId, "CUSTOMER_RETURN",
 				returnId, returnNumber, note, null, null));
+	}
+
+	/**
+	 * Paiement d'un fournisseur en espèces : décaissement dans la caisse ouverte de l'utilisateur
+	 * (refusé si les espèces manquent).
+	 *
+	 * @param warehouseId dépôt exigé pour la caisse, ou {@code null} pour celle de l'utilisateur
+	 * @return référence de l'écriture de caisse
+	 */
+	@Transactional(propagation = Propagation.MANDATORY, readOnly = false)
+	public CashEntryResponse recordSupplierPayment(UUID warehouseId, UUID paymentId, String paymentNumber,
+			BigDecimal amount, String note) {
+		return toResponse(post(CashEntryType.SUPPLIER_PAYMENT, PaymentMethod.CASH, amount, warehouseId, null,
+				"SUPPLIER_PAYMENT", paymentId, paymentNumber, note, null, null));
+	}
+
+	/**
+	 * Dépense payée en espèces : sortie de la caisse ouverte de l'utilisateur, dans le dépôt de
+	 * la dépense (refusée si les espèces manquent).
+	 */
+	@Transactional(propagation = Propagation.MANDATORY, readOnly = false)
+	public CashEntryResponse recordExpense(UUID warehouseId, UUID expenseId, String expenseNumber, BigDecimal amount,
+			String note) {
+		return toResponse(post(CashEntryType.EXPENSE, PaymentMethod.CASH, amount, warehouseId, null, "EXPENSE",
+				expenseId, expenseNumber, note, null, null));
+	}
+
+	/**
+	 * Annulation d'une dépense payée en espèces : l'argent revient dans la caisse ouverte de la
+	 * personne qui annule, dans le dépôt de la dépense.
+	 */
+	@Transactional(propagation = Propagation.MANDATORY, readOnly = false)
+	public CashEntryResponse recordExpenseCancellation(UUID warehouseId, UUID expenseId, String expenseNumber,
+			BigDecimal amount, String note) {
+		return toResponse(post(CashEntryType.EXPENSE_CANCELLATION, PaymentMethod.CASH, amount, warehouseId, null,
+				"EXPENSE", expenseId, expenseNumber, note, null, null));
 	}
 
 	/**

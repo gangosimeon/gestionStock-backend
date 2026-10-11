@@ -25,6 +25,7 @@ import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.common.security.ActorIdentity;
 import com.geststock.exception.BusinessRuleException;
+import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.InvalidRequestException;
 import com.geststock.exception.NotFoundException;
@@ -36,6 +37,8 @@ import com.geststock.purchase.dto.GoodsReceiptResponse;
 import com.geststock.purchase.dto.PurchaseOrderFilter;
 import com.geststock.purchase.dto.PurchaseOrderResponse;
 import com.geststock.purchase.dto.SupplierPurchaseHistoryResponse;
+import com.geststock.purchase.dto.SupplierInvoiceResponse;
+import com.geststock.purchase.dto.SupplierInvoiceRequest;
 import com.geststock.supplier.SupplierService;
 import com.geststock.supplier.SupplierSnapshot;
 import com.geststock.warehouse.WarehouseAccess;
@@ -194,6 +197,34 @@ public class PurchaseOrderService {
 			.after(created)
 			.warehouse(warehouseId));
 		return created;
+	}
+
+	/**
+	 * Enregistre la facture du fournisseur d'une commande reçue ou soldée (une seule, figée). Le
+	 * montant facturé est la valeur reçue ; le numéro est unique par fournisseur.
+	 */
+	@Transactional
+	public SupplierInvoiceResponse invoice(UUID id, SupplierInvoiceRequest request) {
+		PurchaseOrder order = loadForUpdate(id);
+		String number = request.invoiceNumber().trim();
+		LocalDate ordered = order.getCreatedAt().atZone(this.clock.getZone()).toLocalDate();
+		if (request.invoiceDate().isAfter(LocalDate.now(this.clock)) || request.invoiceDate().isBefore(ordered)) {
+			throw new InvalidRequestException(ErrorCode.SUPPLIER_INVOICE_DATE_INVALID,
+					ErrorCode.SUPPLIER_INVOICE_DATE_INVALID.defaultMessage());
+		}
+		if (order.getInvoiceNumber() == null && this.orders.existsInvoiceNumber(order.getSupplierId(), number)) {
+			throw new ConflictException(ErrorCode.SUPPLIER_INVOICE_NUMBER_ALREADY_USED,
+					ErrorCode.SUPPLIER_INVOICE_NUMBER_ALREADY_USED.defaultMessage());
+		}
+		order.recordInvoice(number, request.invoiceDate(), Instant.now(this.clock),
+				ActorIdentity.currentUserId().orElse(null));
+		SupplierInvoiceResponse invoice = PurchaseMapper.invoiceOf(this.orders.saveAndFlush(order));
+		this.audit.record(AuditEvent.of("INVOICE", "PURCHASE_ORDER", order.getId(), order.getNumber())
+			.details("Facture " + number + " de " + order.getSupplierName() + " sur la commande " + order.getNumber() + " : "
+					+ invoice.totalAmount().toPlainString())
+			.after(invoice)
+			.warehouse(order.getWarehouseId()));
+		return invoice;
 	}
 
 	/** Annule une commande dont rien n'a été reçu. */

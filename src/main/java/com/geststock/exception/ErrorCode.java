@@ -166,6 +166,36 @@ public enum ErrorCode {
 	RECEIPT_PRODUCT_NOT_ORDERED(HttpStatus.BAD_REQUEST, "Ce produit ne figure pas sur la commande."),
 	RECEIPT_QUANTITY_EXCEEDS_REMAINING(HttpStatus.UNPROCESSABLE_CONTENT,
 			"Quantité reçue supérieure au reste à recevoir."),
+	PURCHASE_ORDER_PREPAID(HttpStatus.CONFLICT,
+			"Les paiements versés dépassent la valeur reçue : la commande ne peut être ni annulée ni soldée."),
+	PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING(HttpStatus.UNPROCESSABLE_CONTENT,
+			"Montant supérieur au reste à payer de la commande."),
+	SUPPLIER_PAYMENT_EXCEEDS_BALANCE(HttpStatus.UNPROCESSABLE_CONTENT,
+			"Montant supérieur au reste à payer à ce fournisseur."),
+	SUPPLIER_PAYMENT_ORDER_MISMATCH(HttpStatus.BAD_REQUEST, "Cette commande n'est pas de ce fournisseur."),
+	SUPPLIER_PAYMENT_DATE_IN_FUTURE(HttpStatus.BAD_REQUEST, "La date du paiement ne peut pas être dans le futur."),
+	PURCHASE_ORDER_NOT_INVOICEABLE(HttpStatus.CONFLICT,
+			"Facturation possible une fois la commande entièrement reçue ou soldée."),
+	PURCHASE_ORDER_ALREADY_INVOICED(HttpStatus.CONFLICT, "Cette commande a déjà sa facture fournisseur."),
+	SUPPLIER_INVOICE_NUMBER_ALREADY_USED(HttpStatus.CONFLICT, "Ce numéro de facture existe déjà pour ce fournisseur."),
+	SUPPLIER_INVOICE_DATE_INVALID(HttpStatus.BAD_REQUEST,
+			"La date de facture ne peut être ni dans le futur ni antérieure à la commande."),
+
+	// Dépenses
+	EXPENSE_NOT_FOUND(HttpStatus.NOT_FOUND, "Dépense introuvable."),
+	EXPENSE_DATE_IN_FUTURE(HttpStatus.BAD_REQUEST, "La date de la dépense ne peut pas être dans le futur."),
+	EXPENSE_ALREADY_CANCELLED(HttpStatus.CONFLICT, "Cette dépense est déjà annulée."),
+
+	// Rendez-vous
+	APPOINTMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Rendez-vous introuvable."),
+	APPOINTMENT_CONTACT_REQUIRED(HttpStatus.BAD_REQUEST,
+			"Indiquez un client du fichier, ou le nom et le téléphone du prospect."),
+	APPOINTMENT_IN_PAST(HttpStatus.BAD_REQUEST, "Un rendez-vous se planifie dans le futur."),
+	APPOINTMENT_SLOT_TAKEN(HttpStatus.CONFLICT, "Un rendez-vous est déjà planifié à cette heure dans ce dépôt."),
+	APPOINTMENT_CLOSED(HttpStatus.CONFLICT, "Ce rendez-vous est clos : il ne se modifie plus."),
+	APPOINTMENT_NOT_YET_DUE(HttpStatus.CONFLICT,
+			"Un rendez-vous ne peut être déclaré honoré ou manqué qu'à partir de son jour."),
+	APPOINTMENT_CANCELLATION_REASON_REQUIRED(HttpStatus.BAD_REQUEST, "Indiquez le motif de l'annulation."),
 
 	// Dépôts
 	WAREHOUSE_NOT_FOUND(HttpStatus.NOT_FOUND, "Dépôt introuvable."),

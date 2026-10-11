@@ -225,6 +225,61 @@ class DashboardApiIT {
 		perform(get("/api/dashboard/summary").param("from", "hier"), null).andExpect(status().isBadRequest());
 	}
 
+	@Test
+	void aSellerSeesOnlyTheirOwnDayWithoutReportRead() throws Exception {
+		// Caissier : sale:create sans report:read. Ses ventes du jour : 63 000 + 10 000, une annulée.
+		RequestPostProcessor cashier = authentication(StockFixtures.authentication(this.manager, Permissions.SALE_CREATE,
+				Permissions.SALE_READ, Permissions.CASH_OPERATE));
+		// Règlement d'une dette ancienne encaissé aujourd'hui par le caissier : compté dans l'encaissé du jour,
+		// sans changer le crédit accordé sur ses ventes. (Contrainte différée non forcée : test en rollback.)
+		UUID debtor = this.jdbc.queryForObject(
+				"insert into customer (code, name) values ('CLI-DASH-ME', 'Client à crédit') returning id", UUID.class);
+		this.jdbc.update("""
+				insert into customer_account_entry (customer_id, entry_type, direction, amount, balance_after, source_type,
+				                                    source_id, created_by)
+				values (?, 'PAYMENT', 'CREDIT', 11000, 0, 'CASH_ENTRY', gen_random_uuid(), ?)""", debtor, this.manager);
+		this.mvc.perform(get("/api/dashboard/me").with(cashier))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.date").value(this.today))
+			.andExpect(jsonPath("$.salesCount").value(2))
+			.andExpect(jsonPath("$.salesTotal").value(73000))
+			.andExpect(jsonPath("$.paidAmount").value(73000))
+			.andExpect(jsonPath("$.creditAmount").value(0))
+			.andExpect(jsonPath("$.customerPaymentsAmount").value(11000))
+			.andExpect(jsonPath("$.customerPaymentsCount").value(1))
+			.andExpect(jsonPath("$.collectedAmount").value(84000))
+			.andExpect(jsonPath("$.cancelledCount").value(1))
+			.andExpect(jsonPath("$.lastSaleAt").isString())
+			// Courbe : 7 jours (aujourd'hui en dernier), ventes validées seulement.
+			.andExpect(jsonPath("$.last7Days.length()").value(7))
+			.andExpect(jsonPath("$.last7Days[6].date").value(this.today))
+			.andExpect(jsonPath("$.last7Days[6].count").value(2))
+			.andExpect(jsonPath("$.last7Days[6].total").value(73000))
+			.andExpect(jsonPath("$.last7Days[0].profit").doesNotExist())
+			// Ni marge ni chiffres du magasin.
+			.andExpect(jsonPath("$.profit").doesNotExist());
+		this.mvc.perform(get("/api/dashboard").with(cashier)).andExpect(status().isForbidden());
+
+		// Un autre vendeur ne voit que ses propres ventes (aucune).
+		UUID colleague = this.jdbc.queryForObject(
+				"insert into app_user (username, last_name) values ('dashboard_colleague', 'Collègue') returning id",
+				UUID.class);
+		this.mvc.perform(get("/api/dashboard/me")
+			.with(authentication(StockFixtures.authentication(colleague, Permissions.SALE_CREATE))))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.salesCount").value(0))
+			.andExpect(jsonPath("$.salesTotal").value(0))
+			.andExpect(jsonPath("$.customerPaymentsAmount").value(0))
+			.andExpect(jsonPath("$.last7Days.length()").value(7))
+			.andExpect(jsonPath("$.last7Days[6].total").value(0))
+			.andExpect(jsonPath("$.lastSaleAt").doesNotExist());
+
+		// Sans droit de vendre : refusé.
+		this.mvc.perform(get("/api/dashboard/me")
+			.with(authentication(StockFixtures.authentication(colleague, Permissions.STOCK_READ))))
+			.andExpect(status().isForbidden());
+	}
+
 	// --- Outils ------------------------------------------------------------------------------------
 
 	private UUID product(String sku, int purchasePrice, int retailPrice, int threshold) {

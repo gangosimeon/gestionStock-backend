@@ -1,12 +1,12 @@
 package com.geststock.purchase;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import com.geststock.purchase.dto.GoodsReceiptResponse;
 import com.geststock.purchase.dto.GoodsReceiptResponse.GoodsReceiptLineResponse;
 import com.geststock.purchase.dto.PurchaseOrderResponse;
 import com.geststock.purchase.dto.PurchaseOrderResponse.PurchaseOrderLineResponse;
+import com.geststock.purchase.dto.SupplierInvoiceResponse;
 import com.geststock.purchase.dto.SupplierPurchaseHistoryResponse;
 
 /** Conversion des pièces d'achat en DTO ; les entités ne sortent jamais du module. */
@@ -22,9 +22,18 @@ final class PurchaseMapper {
 				order.getWarehouseId(), status.legacyStatus(), status, order.getExpectedDeliveryDate(),
 				order.getSupplierReference(), order.getNote(),
 				order.getLines().stream().map(PurchaseMapper::toResponse).toList(), order.getTotalAmount(),
-				order.getReceivedAmount(), BigDecimal.ZERO.setScale(2), order.getCreatedAt(), order.getCreatedBy(),
+				order.getReceivedAmount(), order.getPaidAmount(), order.remainingToPay(), order.getCreatedAt(), order.getCreatedBy(),
 				nothingExpected ? order.getLastReceiptAt() : null, order.getLastReceiptAt(), order.getClosedAt(),
-				order.getCloseReason(), order.getUpdatedAt());
+				order.getCloseReason(), order.getUpdatedAt(), invoiceOf(order));
+	}
+
+	/** Facture du fournisseur, ou {@code null} si elle n'est pas enregistrée. */
+	static SupplierInvoiceResponse invoiceOf(PurchaseOrder order) {
+		if (order.getInvoiceNumber() == null) {
+			return null;
+		}
+		return new SupplierInvoiceResponse(order.getId(), order.getSupplierId(), order.getInvoiceNumber(),
+				order.getInvoiceDate(), order.getInvoicedAmount(), order.getInvoicedAt(), order.getInvoicedBy());
 	}
 
 	static GoodsReceiptResponse toResponse(GoodsReceipt receipt, List<GoodsReceiptLine> lines) {

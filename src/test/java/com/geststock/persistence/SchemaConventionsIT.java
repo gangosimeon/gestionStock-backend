@@ -52,11 +52,12 @@ class SchemaConventionsIT {
 
 	@Test
 	void foundationTablesExistAndNothingElse() {
-		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("alert_setting", "app_user", "audit_log", "brand",
+		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("alert_setting", "app_user", "appointment", "audit_log", "brand",
 				"cash_entry", "cash_session", "category", "customer", "customer_account_entry", "customer_return",
-				"customer_return_line", "goods_receipt", "goods_receipt_line", "inventory_line", "inventory_session", "permission", "product", "purchase_order",
+				"customer_return_line", "expense", "goods_receipt", "goods_receipt_line", "inventory_line", "inventory_session", "permission", "product", "purchase_order",
 				"purchase_order_line", "refresh_token", "role", "role_permission", "sale", "sale_line", "stock_level",
-				"stock_movement", "supplier", "user_role", "user_warehouse", "warehouse");
+				"stock_movement", "supplier", "supplier_payment", "supplier_payment_allocation", "user_role", "user_warehouse",
+				"warehouse");
 	}
 
 	@Test
@@ -166,7 +167,7 @@ class SchemaConventionsIT {
 				where table_schema = current_schema() and column_name = 'version'
 				  and table_name <> 'flyway_schema_history'
 				""", String.class);
-		assertThat(tablesWithVersion).containsExactlyInAnyOrder("alert_setting", "app_user", "brand", "cash_session", "category", "customer", "inventory_session", "permission", "product",
+		assertThat(tablesWithVersion).containsExactlyInAnyOrder("alert_setting", "app_user", "appointment", "brand", "cash_session", "category", "customer", "expense", "inventory_session", "permission", "product",
 				"purchase_order", "role", "sale", "supplier", "warehouse");
 
 		for (String table : tablesWithVersion) {

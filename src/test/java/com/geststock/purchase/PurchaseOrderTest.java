@@ -17,6 +17,8 @@ class PurchaseOrderTest {
 
 	private static final Instant T0 = Instant.parse("2026-10-09T08:00:00Z");
 
+	private static final java.time.LocalDate T0_DATE = java.time.LocalDate.parse("2026-10-09");
+
 	@Test
 	void totalsAreComputedFromQuantitiesAndUnitCosts() {
 		PurchaseOrder order = order();
@@ -40,6 +42,84 @@ class PurchaseOrderTest {
 			.isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> order().addLine(UUID.randomUUID(), "MON-1", "Monture", 1, new BigDecimal("-1")))
 			.isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	void theAmountDueFollowsTheOrderLifecycle() {
+		PurchaseOrder ordered = order();
+		PurchaseOrderLine frames = ordered.addLine(UUID.randomUUID(), "MON-1", "Monture", 10, new BigDecimal("1000"));
+		assertThat(ordered.payableAmount()).as("acompte possible sur une commande en cours").isEqualByComparingTo("10000");
+
+		frames.receive(4);
+		ordered.recordReceipt(frames.amountOf(4), T0);
+		ordered.recordPayment(new BigDecimal("3000"));
+		assertThat(ordered.remainingToPay()).isEqualByComparingTo("7000");
+		ordered.closeRemainder(T0, null, "Reliquat abandonné");
+		assertThat(ordered.payableAmount()).as("soldée : seule la valeur reçue est due").isEqualByComparingTo("4000");
+		assertThat(ordered.remainingToPay()).isEqualByComparingTo("1000");
+
+		PurchaseOrder cancelled = order();
+		cancelled.addLine(UUID.randomUUID(), "MON-1", "Monture", 1, new BigDecimal("1000"));
+		cancelled.cancel(T0, null, null);
+		assertThat(cancelled.payableAmount()).as("annulée : rien n'est dû").isZero();
+	}
+
+	@Test
+	void aPaymentNeverExceedsTheRemainingAmount() {
+		PurchaseOrder order = order();
+		order.addLine(UUID.randomUUID(), "MON-1", "Monture", 2, new BigDecimal("1000"));
+		order.recordPayment(new BigDecimal("1500"));
+
+		assertThatThrownBy(() -> order.recordPayment(new BigDecimal("500.01"))).isInstanceOf(ApiException.class)
+			.extracting(e -> ((ApiException) e).getCode())
+			.isEqualTo(ErrorCode.PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING);
+		assertThatThrownBy(() -> order.recordPayment(BigDecimal.ZERO)).isInstanceOf(ApiException.class);
+		order.recordPayment(new BigDecimal("500"));
+		assertThat(order.getPaidAmount()).isEqualByComparingTo("2000");
+		assertThat(order.remainingToPay()).isZero();
+	}
+
+	@Test
+	void aPrepaidOrderCanNeitherBeCancelledNorClosedBelowWhatWasPaid() {
+		PurchaseOrder prepaid = order();
+		prepaid.addLine(UUID.randomUUID(), "MON-1", "Monture", 2, new BigDecimal("1000"));
+		prepaid.recordPayment(new BigDecimal("1"));
+		assertThatThrownBy(() -> prepaid.cancel(T0, null, null)).isInstanceOf(ApiException.class)
+			.extracting(e -> ((ApiException) e).getCode())
+			.isEqualTo(ErrorCode.PURCHASE_ORDER_PREPAID);
+
+		PurchaseOrder partial = order();
+		PurchaseOrderLine frames = partial.addLine(UUID.randomUUID(), "MON-1", "Monture", 10, new BigDecimal("1000"));
+		frames.receive(2);
+		partial.recordReceipt(frames.amountOf(2), T0);
+		partial.recordPayment(new BigDecimal("2000.01"));
+		assertThatThrownBy(() -> partial.closeRemainder(T0, null, null)).isInstanceOf(ApiException.class)
+			.extracting(e -> ((ApiException) e).getCode())
+			.isEqualTo(ErrorCode.PURCHASE_ORDER_PREPAID);
+		assertThat(partial.getStatus()).isEqualTo(PurchaseOrderStatus.PARTIALLY_RECEIVED);
+	}
+
+	@Test
+	void anInvoiceIsRecordedOnceWhenNothingMoreIsExpectedForTheReceivedValue() {
+		PurchaseOrder order = order();
+		PurchaseOrderLine frames = order.addLine(UUID.randomUUID(), "MON-1", "Monture", 10, new BigDecimal("1000"));
+		assertThatThrownBy(() -> order.recordInvoice("FA-1", T0_DATE, T0, null)).isInstanceOf(ApiException.class)
+			.extracting(e -> ((ApiException) e).getCode())
+			.isEqualTo(ErrorCode.PURCHASE_ORDER_NOT_INVOICEABLE);
+
+		frames.receive(4);
+		order.recordReceipt(frames.amountOf(4), T0);
+		assertThatThrownBy(() -> order.recordInvoice("FA-1", T0_DATE, T0, null))
+			.as("reçue en partie : le reliquat est encore attendu")
+			.isInstanceOf(ApiException.class);
+
+		order.closeRemainder(T0, null, "Reliquat abandonné");
+		order.recordInvoice("FA-1", T0_DATE, T0, null);
+		assertThat(order.getInvoicedAmount()).as("montant facturé = valeur reçue").isEqualByComparingTo("4000");
+		assertThatThrownBy(() -> order.recordInvoice("FA-2", T0_DATE, T0, null)).isInstanceOf(ApiException.class)
+			.extracting(e -> ((ApiException) e).getCode())
+			.isEqualTo(ErrorCode.PURCHASE_ORDER_ALREADY_INVOICED);
+		assertThat(order.getInvoiceNumber()).isEqualTo("FA-1");
 	}
 
 	@Test

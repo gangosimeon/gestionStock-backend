@@ -18,6 +18,9 @@ public enum CashEntryType {
 	/** Correction d'une sortie manuelle saisie par erreur (l'argent revient dans le tiroir). */
 	CORRECTION_IN(Direction.IN),
 
+	/** Retour en caisse d'une dépense en espèces annulée (module dépenses). */
+	EXPENSE_CANCELLATION(Direction.IN),
+
 	/** Remboursement d'une vente annulée (module ventes). */
 	SALE_REFUND(Direction.OUT),
 
@@ -28,7 +31,13 @@ public enum CashEntryType {
 	CASH_OUT(Direction.OUT),
 
 	/** Correction d'un apport manuel saisi par erreur. */
-	CORRECTION_OUT(Direction.OUT);
+	CORRECTION_OUT(Direction.OUT),
+
+	/** Paiement d'un fournisseur en espèces (module achats). */
+	SUPPLIER_PAYMENT(Direction.OUT),
+
+	/** Dépense payée en espèces (module dépenses). */
+	EXPENSE(Direction.OUT);
 
 	/** Sens du mouvement d'argent (contrat front {@code CashOperation.type}). */
 	public enum Direction {

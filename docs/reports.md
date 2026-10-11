@@ -36,8 +36,9 @@ date** dans les vues agrégées, rattachés à leur vente dans la liste ; coût 
 | `GET /purchases` | période (date de commande), dépôt, `supplierId`, `userId`, `status` (`ORDERED`, `PARTIALLY_RECEIVED`, `RECEIVED`, `CLOSED`, `CANCELLED`), `productId`, `categoryId` | Commandé, reçu, reste à recevoir (commandes ouvertes uniquement), `overdue` = ouverte et date prévue dépassée. |
 | `GET /suppliers` | période, dépôt, `supplierId`, `status` (`ACTIVE`, `INACTIVE`, `ALL`) | Commandes passées et réceptions de la période ; reste à recevoir et commandes en retard **actuels** ; dernière réception ; délai moyen constaté (création → dernière réception des commandes reçues de la période) face au délai annoncé. |
 
-Les factures et règlements fournisseurs ne sont pas gérés : pas de rapport de dettes
-fournisseurs tant que ces données n'existent pas.
+Factures et paiements fournisseurs existent depuis V025/V026 (voir `supplier-payments.md` et
+`supplier-invoices.md`) ; le reste à payer par fournisseur est servi par
+`GET /api/suppliers/{id}/account`. Pas encore de rapport de dettes fournisseurs agrégé.
 
 ## Stock
 

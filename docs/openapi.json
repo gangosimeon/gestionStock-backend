@@ -2,7 +2,7 @@
   "openapi" : "3.0.1",
   "info" : {
     "title" : "GestStock API",
-    "description" : "API REST de GestStock (gestion de stock et gestion commerciale d'un magasin d'optique).\n\n## Authentification\n\n1. `POST /api/auth/login` `{username, password}` → `{accessToken, refreshToken, expiresIn, user}`.\n2. Chaque appel : en-tête `Authorization: Bearer <accessToken>` (jeton valable `expiresIn` secondes).\n3. Sur `401 INVALID_TOKEN` (jeton expiré ou invalide) : `POST /api/auth/refresh` `{refreshToken}` renvoie une\n   nouvelle paire ; l'ancien refresh token est révoqué (rotation). Si le refresh échoue, se reconnecter.\n4. `POST /api/auth/logout` `{refreshToken}` ferme la session.\n\nRôles et permissions sont relus en base à chaque requête (jamais pris dans le jeton) :\n`GET /api/auth/me` renvoie l'utilisateur et ses permissions, à utiliser pour afficher les menus.\nChaque opération indique la permission exigée (description et extension `x-permissions`) ;\nsans elle : `403 ACCESS_DENIED`.\n\n## Conventions\n\n| Sujet | Règle |\n|---|---|\n| Dépôt courant | En-tête `X-Warehouse-Id` (UUID) sur les routes concernées ; absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. `allWarehouses=true` (permission `warehouse:all`) pour tous les dépôts. |\n| Listes | `{items, total, page, size, totalPages}` ; `page` (à partir de 0), `size` (1 à 200), `sort=champ,asc\\|desc` (champs listés par route). Sans `page` ni `size`, certaines listes historiques du front renvoient tout (5 000 au plus, en-tête `X-Result-Truncated` au-delà). Les rapports sont toujours paginés et portent leurs totaux dans `summary`. |\n| Dates | Instants ISO-8601 UTC (`2026-10-10T09:30:00Z`) ; dates seules `AAAA-MM-JJ`, journées dans le fuseau de l'entreprise (Abidjan). |\n| Montants | Décimaux en FCFA, 2 décimales ; prix, coûts et totaux toujours calculés par le serveur (les prix envoyés sont ignorés). |\n| Identifiants | UUID. |\n| Traçabilité | En-tête `X-Trace-Id` (envoyé ou généré) renvoyé dans chaque réponse et dans les erreurs (`traceId`). |\n\n## Erreurs\n\nToutes les erreurs ont la forme `ApiError` (RFC 9457) : `code` stable à tester côté front, `message`\nen français à afficher, `errors` (champs invalides) et `details` (contexte : quantités disponibles,\nplafond…). Statuts : `400` requête invalide, `401` non authentifié, `403` permission ou dépôt, `404`\nintrouvable, `409` conflit d'état ou modification concurrente, `422` règle métier, `500` erreur interne.\n\n### Catalogue des codes d'erreur\n\n| Code | HTTP | Message par défaut |\n|---|---|---|\n| `VALIDATION_FAILED` | 400 | Données invalides. |\n| `MALFORMED_REQUEST` | 400 | Requête illisible : vérifiez le format des données envoyées. |\n| `INVALID_PARAMETER` | 400 | Paramètre invalide. |\n| `UNAUTHENTICATED` | 401 | Authentification requise. |\n| `ACCESS_DENIED` | 403 | Accès refusé. |\n| `RESOURCE_NOT_FOUND` | 404 | Ressource introuvable. |\n| `METHOD_NOT_ALLOWED` | 405 | Méthode HTTP non autorisée pour cette ressource. |\n| `NOT_ACCEPTABLE` | 406 | Format de réponse demandé non disponible. |\n| `UNSUPPORTED_MEDIA_TYPE` | 415 | Format de données non supporté. |\n| `CONFLICT` | 409 | Opération impossible dans l'état actuel de la ressource. |\n| `CONCURRENT_MODIFICATION` | 409 | La ressource a été modifiée par un autre utilisateur. Veuillez recharger puis réessayer. |\n| `DATA_INTEGRITY_VIOLATION` | 409 | Opération impossible : elle violerait l'intégrité des données. |\n| `BUSINESS_RULE_VIOLATION` | 422 | Opération refusée par une règle de gestion. |\n| `INVALID_CREDENTIALS` | 401 | Identifiant ou mot de passe incorrect. |\n| `ACCOUNT_LOCKED` | 401 | Compte temporairement verrouillé après plusieurs échecs de connexion. Réessayez plus tard. |\n| `ACCOUNT_DISABLED` | 401 | Ce compte est désactivé. Contactez un administrateur. |\n| `INVALID_TOKEN` | 401 | Session expirée ou invalide. Veuillez vous reconnecter. |\n| `INVALID_REFRESH_TOKEN` | 401 | Session expirée. Veuillez vous reconnecter. |\n| `CURRENT_PASSWORD_INVALID` | 400 | Le mot de passe actuel est incorrect. |\n| `UNKNOWN_SORT_FIELD` | 400 | Critère de tri non autorisé. |\n| `USER_NOT_FOUND` | 404 | Utilisateur introuvable. |\n| `USERNAME_ALREADY_USED` | 409 | Ce nom d'utilisateur est déjà utilisé. |\n| `EMAIL_ALREADY_USED` | 409 | Cette adresse email est déjà utilisée. |\n| `LAST_ADMIN_REQUIRED` | 409 | Au moins un administrateur actif doit être conservé. |\n| `PASSWORD_POLICY_VIOLATION` | 400 | Le mot de passe ne respecte pas la politique de sécurité. |\n| `ROLE_NOT_FOUND` | 404 | Rôle introuvable. |\n| `ROLE_CODE_ALREADY_USED` | 409 | Ce code de rôle est déjà utilisé. |\n| `ROLE_IN_USE` | 409 | Ce rôle est attribué à des utilisateurs : retirez-le d'abord. |\n| `ROLE_NOT_EDITABLE` | 409 | Le rôle ADMIN détient toutes les permissions et ne peut pas être modifié. |\n| `ROLE_NOT_DELETABLE` | 409 | Les rôles système ne peuvent pas être supprimés. |\n| `UNKNOWN_PERMISSION` | 400 | Permission inconnue. |\n| `PRIVILEGE_ESCALATION` | 403 | Vous ne pouvez pas accorder des permissions que vous ne possédez pas vous-même. |\n| `CATEGORY_NOT_FOUND` | 404 | Catégorie introuvable. |\n| `CATEGORY_NAME_ALREADY_USED` | 409 | Une catégorie porte déjà ce nom. |\n| `CATEGORY_INACTIVE` | 422 | Cette catégorie est désactivée : choisissez une catégorie active. |\n| `BRAND_NOT_FOUND` | 404 | Marque introuvable. |\n| `BRAND_NAME_ALREADY_USED` | 409 | Une marque porte déjà ce nom. |\n| `BRAND_INACTIVE` | 422 | Cette marque est désactivée : choisissez une marque active. |\n| `PRODUCT_NOT_FOUND` | 404 | Produit introuvable. |\n| `SKU_ALREADY_USED` | 409 | Cette référence (SKU) est déjà utilisée. |\n| `BARCODE_ALREADY_USED` | 409 | Ce code-barres est déjà attribué à un autre produit. |\n| `PRODUCT_INACTIVE` | 422 | Ce produit est désactivé. |\n| `SUPPLIER_NOT_FOUND` | 404 | Fournisseur introuvable. |\n| `SUPPLIER_NAME_ALREADY_USED` | 409 | Un fournisseur porte déjà ce nom. |\n| `SUPPLIER_CODE_ALREADY_USED` | 409 | Ce code fournisseur est déjà utilisé. |\n| `SUPPLIER_INACTIVE` | 422 | Ce fournisseur est désactivé : choisissez un fournisseur actif. |\n| `CUSTOMER_NOT_FOUND` | 404 | Client introuvable. |\n| `CUSTOMER_CODE_ALREADY_USED` | 409 | Ce code client est déjà utilisé. |\n| `CUSTOMER_INACTIVE` | 422 | Ce client est désactivé. |\n| `CREDIT_LIMIT_CHANGE_FORBIDDEN` | 403 | Vous n'êtes pas autorisé à accorder ou modifier un plafond de crédit. |\n| `CREDIT_LIMIT_EXCEEDED` | 422 | Plafond de crédit du client dépassé. |\n| `AMOUNT_EXCEEDS_CUSTOMER_BALANCE` | 422 | Montant supérieur au solde dû par le client. |\n| `CUSTOMER_ACCOUNT_ENTRY_ALREADY_RECORDED` | 409 | Cette pièce est déjà imputée au compte du client. |\n| `SALE_NOT_FOUND` | 404 | Vente introuvable. |\n| `SALE_DUPLICATE_PRODUCT` | 400 | Un même produit figure sur plusieurs lignes : regroupez les quantités sur une seule ligne. |\n| `PRODUCT_PRICE_NOT_SET` | 422 | Ce produit n'a pas de prix de vente pour ce tarif. |\n| `DISCOUNT_NOT_ALLOWED` | 422 | Remise supérieure au maximum autorisé. |\n| `PAID_AMOUNT_EXCEEDS_TOTAL` | 400 | Le montant payé dépasse le total de la vente : la monnaie rendue ne s'enregistre pas. |\n| `PAYMENT_METHOD_REQUIRED` | 400 | Mode de paiement requis pour un montant payé. |\n| `CUSTOMER_REQUIRED_FOR_CREDIT` | 422 | Une vente avec un reste à payer exige un client identifié. |\n| `SALE_AMOUNT_OUT_OF_RANGE` | 400 | Montant de vente trop élevé. |\n| `SALE_NOT_CANCELLABLE` | 409 | Cette vente est déjà annulée. |\n| `SALE_CREDIT_ALREADY_SETTLED` | 409 | Le client a déjà réglé tout ou partie du crédit de cette vente : passez par un retour avec avoir. |\n| `CASH_SESSION_NOT_FOUND` | 404 | Session de caisse introuvable. |\n| `CASH_SESSION_ALREADY_OPEN` | 409 | Vous avez déjà une caisse ouverte : clôturez-la d'abord. |\n| `NO_OPEN_CASH_SESSION` | 409 | Aucune caisse ouverte : ouvrez votre caisse avant d'encaisser. |\n| `CASH_SESSION_OTHER_WAREHOUSE` | 409 | Votre caisse est ouverte dans un autre dépôt : clôturez-la ou travaillez dans ce dépôt. |\n| `CASH_INSUFFICIENT` | 422 | Espèces insuffisantes dans la caisse pour cette sortie. |\n| `CASH_ENTRY_ALREADY_RECORDED` | 409 | Cette pièce est déjà enregistrée en caisse. |\n| `CASH_ENTRY_NOT_FOUND` | 404 | Opération de caisse introuvable. |\n| `CASH_ENTRY_NOT_REVERSIBLE` | 409 | Seuls les apports et sorties manuels se corrigent ici : une vente se corrige par annulation ou retour. |\n| `CASH_ENTRY_ALREADY_REVERSED` | 409 | Cette opération a déjà été corrigée. |\n| `RETURN_NOT_FOUND` | 404 | Retour introuvable. |\n| `AUDIT_LOG_NOT_FOUND` | 404 | Entrée du journal d'audit introuvable. |\n| `SALE_NOT_RETURNABLE` | 409 | Une vente annulée ne peut pas faire l'objet d'un retour. |\n| `SALE_HAS_RETURNS` | 409 | Cette vente a déjà fait l'objet d'un retour : elle ne peut plus être annulée, enregistrez un retour. |\n| `RETURN_PRODUCT_NOT_SOLD` | 400 | Ce produit ne figure pas sur la vente. |\n| `RETURN_DUPLICATE_PRODUCT` | 400 | Un même produit figure plusieurs fois dans le retour. |\n| `RETURN_QUANTITY_EXCEEDS_SOLD` | 422 | Quantité retournée supérieure à la quantité vendue restant à retourner. |\n| `RETURN_CUSTOMER_REQUIRED` | 422 | Un avoir sur compte exige une vente faite à un client identifié. |\n| `RETURN_REFUND_EXCEEDS_PAID` | 422 | Remboursement supérieur à ce que le client a payé sur cette vente : imputez le reste sur son compte. |\n| `INVENTORY_NOT_FOUND` | 404 | Inventaire introuvable. |\n| `INVENTORY_ALREADY_OPEN` | 409 | Un inventaire est déjà en cours dans ce dépôt : terminez-le ou annulez-le d'abord. |\n| `INVENTORY_INVALID_TRANSITION` | 409 | Action impossible à cette étape de l'inventaire. |\n| `INVENTORY_EMPTY` | 422 | Aucun produit dans le périmètre de l'inventaire. |\n| `INVENTORY_LINES_NOT_COUNTED` | 422 | Tous les produits de l'inventaire doivent être comptés avant la validation. |\n| `INVENTORY_PRODUCT_NOT_IN_SCOPE` | 400 | Ce produit ne fait pas partie de l'inventaire. |\n| `INVENTORY_DUPLICATE_PRODUCT` | 400 | Un même produit figure plusieurs fois dans la demande. |\n| `PURCHASE_ORDER_NOT_FOUND` | 404 | Commande fournisseur introuvable. |\n| `PURCHASE_DUPLICATE_PRODUCT` | 400 | Un même produit figure sur plusieurs lignes : regroupez les quantités sur une seule ligne. |\n| `PURCHASE_AMOUNT_OUT_OF_RANGE` | 400 | Montant de commande trop élevé. |\n| `PURCHASE_ORDER_NOT_RECEIVABLE` | 409 | Cette commande ne peut plus être réceptionnée : elle est déjà reçue, soldée ou annulée. |\n| `PURCHASE_ORDER_NOT_CANCELLABLE` | 409 | Seule une commande sans aucune réception peut être annulée. |\n| `PURCHASE_ORDER_NOT_CLOSABLE` | 409 | Seule une commande partiellement reçue peut être soldée. |\n| `RECEIPT_PRODUCT_NOT_ORDERED` | 400 | Ce produit ne figure pas sur la commande. |\n| `RECEIPT_QUANTITY_EXCEEDS_REMAINING` | 422 | Quantité reçue supérieure au reste à recevoir. |\n| `WAREHOUSE_NOT_FOUND` | 404 | Dépôt introuvable. |\n| `WAREHOUSE_CODE_ALREADY_USED` | 409 | Ce code de dépôt est déjà utilisé. |\n| `WAREHOUSE_NAME_ALREADY_USED` | 409 | Un dépôt porte déjà ce nom. |\n| `WAREHOUSE_INACTIVE` | 422 | Ce dépôt est désactivé. |\n| `MAIN_WAREHOUSE_REQUIRED` | 409 | Le dépôt principal ne peut pas être désactivé : désignez d'abord un autre dépôt principal. |\n| `WAREHOUSE_ACCESS_DENIED` | 403 | Vous n'avez pas accès à ce dépôt. |\n| `NO_WAREHOUSE_AVAILABLE` | 403 | Aucun dépôt actif ne vous est attribué. |\n| `STOCK_INSUFFICIENT` | 422 | Stock insuffisant. |\n| `INVALID_STOCK_QUANTITY` | 400 | Quantité invalide. |\n| `STOCK_MOVEMENT_NOT_FOUND` | 404 | Mouvement de stock introuvable. |\n| `MOVEMENT_NOT_REVERSIBLE` | 409 | Ce mouvement ne peut pas être annulé ici : annulez la pièce qui l'a produit (vente, réception, transfert…). |\n| `MOVEMENT_ALREADY_REVERSED` | 409 | Ce mouvement a déjà été annulé. |\n| `SAME_WAREHOUSE_TRANSFER` | 400 | Magasins identiques. |\n| `UNKNOWN_ROLE` | 400 | Rôle inconnu. |\n| `UNKNOWN_WAREHOUSE` | 400 | Dépôt inconnu ou inactif. |\n| `INTERNAL_ERROR` | 500 | Une erreur interne est survenue. |\n| `SERVICE_UNAVAILABLE` | 503 | Service momentanément indisponible. |\n",
+    "description" : "API REST de GestStock (gestion de stock et gestion commerciale d'un magasin d'optique).\n\n## Authentification\n\n1. `POST /api/auth/login` `{username, password}` → `{accessToken, refreshToken, expiresIn, user}`.\n2. Chaque appel : en-tête `Authorization: Bearer <accessToken>` (jeton valable `expiresIn` secondes).\n3. Sur `401 INVALID_TOKEN` (jeton expiré ou invalide) : `POST /api/auth/refresh` `{refreshToken}` renvoie une\n   nouvelle paire ; l'ancien refresh token est révoqué (rotation). Si le refresh échoue, se reconnecter.\n4. `POST /api/auth/logout` `{refreshToken}` ferme la session.\n\nRôles et permissions sont relus en base à chaque requête (jamais pris dans le jeton) :\n`GET /api/auth/me` renvoie l'utilisateur et ses permissions, à utiliser pour afficher les menus.\nChaque opération indique la permission exigée (description et extension `x-permissions`) ;\nsans elle : `403 ACCESS_DENIED`.\n\n## Conventions\n\n| Sujet | Règle |\n|---|---|\n| Dépôt courant | En-tête `X-Warehouse-Id` (UUID) sur les routes concernées ; absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. `allWarehouses=true` (permission `warehouse:all`) pour tous les dépôts. |\n| Listes | `{items, total, page, size, totalPages}` ; `page` (à partir de 0), `size` (1 à 200), `sort=champ,asc\\|desc` (champs listés par route). Sans `page` ni `size`, certaines listes historiques du front renvoient tout (5 000 au plus, en-tête `X-Result-Truncated` au-delà). Les rapports sont toujours paginés et portent leurs totaux dans `summary`. |\n| Dates | Instants ISO-8601 UTC (`2026-10-10T09:30:00Z`) ; dates seules `AAAA-MM-JJ`, journées dans le fuseau de l'entreprise (Abidjan). |\n| Montants | Décimaux en FCFA, 2 décimales ; prix, coûts et totaux toujours calculés par le serveur (les prix envoyés sont ignorés). |\n| Identifiants | UUID. |\n| Traçabilité | En-tête `X-Trace-Id` (envoyé ou généré) renvoyé dans chaque réponse et dans les erreurs (`traceId`). |\n\n## Erreurs\n\nToutes les erreurs ont la forme `ApiError` (RFC 9457) : `code` stable à tester côté front, `message`\nen français à afficher, `errors` (champs invalides) et `details` (contexte : quantités disponibles,\nplafond…). Statuts : `400` requête invalide, `401` non authentifié, `403` permission ou dépôt, `404`\nintrouvable, `409` conflit d'état ou modification concurrente, `422` règle métier, `500` erreur interne.\n\n### Catalogue des codes d'erreur\n\n| Code | HTTP | Message par défaut |\n|---|---|---|\n| `VALIDATION_FAILED` | 400 | Données invalides. |\n| `MALFORMED_REQUEST` | 400 | Requête illisible : vérifiez le format des données envoyées. |\n| `INVALID_PARAMETER` | 400 | Paramètre invalide. |\n| `UNAUTHENTICATED` | 401 | Authentification requise. |\n| `ACCESS_DENIED` | 403 | Accès refusé. |\n| `RESOURCE_NOT_FOUND` | 404 | Ressource introuvable. |\n| `METHOD_NOT_ALLOWED` | 405 | Méthode HTTP non autorisée pour cette ressource. |\n| `NOT_ACCEPTABLE` | 406 | Format de réponse demandé non disponible. |\n| `UNSUPPORTED_MEDIA_TYPE` | 415 | Format de données non supporté. |\n| `CONFLICT` | 409 | Opération impossible dans l'état actuel de la ressource. |\n| `CONCURRENT_MODIFICATION` | 409 | La ressource a été modifiée par un autre utilisateur. Veuillez recharger puis réessayer. |\n| `DATA_INTEGRITY_VIOLATION` | 409 | Opération impossible : elle violerait l'intégrité des données. |\n| `BUSINESS_RULE_VIOLATION` | 422 | Opération refusée par une règle de gestion. |\n| `INVALID_CREDENTIALS` | 401 | Identifiant ou mot de passe incorrect. |\n| `ACCOUNT_LOCKED` | 401 | Compte temporairement verrouillé après plusieurs échecs de connexion. Réessayez plus tard. |\n| `ACCOUNT_DISABLED` | 401 | Ce compte est désactivé. Contactez un administrateur. |\n| `INVALID_TOKEN` | 401 | Session expirée ou invalide. Veuillez vous reconnecter. |\n| `INVALID_REFRESH_TOKEN` | 401 | Session expirée. Veuillez vous reconnecter. |\n| `CURRENT_PASSWORD_INVALID` | 400 | Le mot de passe actuel est incorrect. |\n| `UNKNOWN_SORT_FIELD` | 400 | Critère de tri non autorisé. |\n| `USER_NOT_FOUND` | 404 | Utilisateur introuvable. |\n| `USERNAME_ALREADY_USED` | 409 | Ce nom d'utilisateur est déjà utilisé. |\n| `EMAIL_ALREADY_USED` | 409 | Cette adresse email est déjà utilisée. |\n| `LAST_ADMIN_REQUIRED` | 409 | Au moins un administrateur actif doit être conservé. |\n| `PASSWORD_POLICY_VIOLATION` | 400 | Le mot de passe ne respecte pas la politique de sécurité. |\n| `ROLE_NOT_FOUND` | 404 | Rôle introuvable. |\n| `ROLE_CODE_ALREADY_USED` | 409 | Ce code de rôle est déjà utilisé. |\n| `ROLE_IN_USE` | 409 | Ce rôle est attribué à des utilisateurs : retirez-le d'abord. |\n| `ROLE_NOT_EDITABLE` | 409 | Le rôle ADMIN détient toutes les permissions et ne peut pas être modifié. |\n| `ROLE_NOT_DELETABLE` | 409 | Les rôles système ne peuvent pas être supprimés. |\n| `UNKNOWN_PERMISSION` | 400 | Permission inconnue. |\n| `PRIVILEGE_ESCALATION` | 403 | Vous ne pouvez pas accorder des permissions que vous ne possédez pas vous-même. |\n| `CATEGORY_NOT_FOUND` | 404 | Catégorie introuvable. |\n| `CATEGORY_NAME_ALREADY_USED` | 409 | Une catégorie porte déjà ce nom. |\n| `CATEGORY_INACTIVE` | 422 | Cette catégorie est désactivée : choisissez une catégorie active. |\n| `BRAND_NOT_FOUND` | 404 | Marque introuvable. |\n| `BRAND_NAME_ALREADY_USED` | 409 | Une marque porte déjà ce nom. |\n| `BRAND_INACTIVE` | 422 | Cette marque est désactivée : choisissez une marque active. |\n| `PRODUCT_NOT_FOUND` | 404 | Produit introuvable. |\n| `SKU_ALREADY_USED` | 409 | Cette référence (SKU) est déjà utilisée. |\n| `BARCODE_ALREADY_USED` | 409 | Ce code-barres est déjà attribué à un autre produit. |\n| `PRODUCT_INACTIVE` | 422 | Ce produit est désactivé. |\n| `SUPPLIER_NOT_FOUND` | 404 | Fournisseur introuvable. |\n| `SUPPLIER_NAME_ALREADY_USED` | 409 | Un fournisseur porte déjà ce nom. |\n| `SUPPLIER_CODE_ALREADY_USED` | 409 | Ce code fournisseur est déjà utilisé. |\n| `SUPPLIER_INACTIVE` | 422 | Ce fournisseur est désactivé : choisissez un fournisseur actif. |\n| `CUSTOMER_NOT_FOUND` | 404 | Client introuvable. |\n| `CUSTOMER_CODE_ALREADY_USED` | 409 | Ce code client est déjà utilisé. |\n| `CUSTOMER_INACTIVE` | 422 | Ce client est désactivé. |\n| `CREDIT_LIMIT_CHANGE_FORBIDDEN` | 403 | Vous n'êtes pas autorisé à accorder ou modifier un plafond de crédit. |\n| `CREDIT_LIMIT_EXCEEDED` | 422 | Plafond de crédit du client dépassé. |\n| `AMOUNT_EXCEEDS_CUSTOMER_BALANCE` | 422 | Montant supérieur au solde dû par le client. |\n| `CUSTOMER_ACCOUNT_ENTRY_ALREADY_RECORDED` | 409 | Cette pièce est déjà imputée au compte du client. |\n| `SALE_NOT_FOUND` | 404 | Vente introuvable. |\n| `SALE_DUPLICATE_PRODUCT` | 400 | Un même produit figure sur plusieurs lignes : regroupez les quantités sur une seule ligne. |\n| `PRODUCT_PRICE_NOT_SET` | 422 | Ce produit n'a pas de prix de vente pour ce tarif. |\n| `DISCOUNT_NOT_ALLOWED` | 422 | Remise supérieure au maximum autorisé. |\n| `PAID_AMOUNT_EXCEEDS_TOTAL` | 400 | Le montant payé dépasse le total de la vente : la monnaie rendue ne s'enregistre pas. |\n| `PAYMENT_METHOD_REQUIRED` | 400 | Mode de paiement requis pour un montant payé. |\n| `CUSTOMER_REQUIRED_FOR_CREDIT` | 422 | Une vente avec un reste à payer exige un client identifié. |\n| `SALE_AMOUNT_OUT_OF_RANGE` | 400 | Montant de vente trop élevé. |\n| `SALE_NOT_CANCELLABLE` | 409 | Cette vente est déjà annulée. |\n| `SALE_CREDIT_ALREADY_SETTLED` | 409 | Le client a déjà réglé tout ou partie du crédit de cette vente : passez par un retour avec avoir. |\n| `CASH_SESSION_NOT_FOUND` | 404 | Session de caisse introuvable. |\n| `CASH_SESSION_ALREADY_OPEN` | 409 | Vous avez déjà une caisse ouverte : clôturez-la d'abord. |\n| `NO_OPEN_CASH_SESSION` | 409 | Aucune caisse ouverte : ouvrez votre caisse avant d'encaisser. |\n| `CASH_SESSION_OTHER_WAREHOUSE` | 409 | Votre caisse est ouverte dans un autre dépôt : clôturez-la ou travaillez dans ce dépôt. |\n| `CASH_INSUFFICIENT` | 422 | Espèces insuffisantes dans la caisse pour cette sortie. |\n| `CASH_ENTRY_ALREADY_RECORDED` | 409 | Cette pièce est déjà enregistrée en caisse. |\n| `CASH_ENTRY_NOT_FOUND` | 404 | Opération de caisse introuvable. |\n| `CASH_ENTRY_NOT_REVERSIBLE` | 409 | Seuls les apports et sorties manuels se corrigent ici : une vente se corrige par annulation ou retour. |\n| `CASH_ENTRY_ALREADY_REVERSED` | 409 | Cette opération a déjà été corrigée. |\n| `RETURN_NOT_FOUND` | 404 | Retour introuvable. |\n| `AUDIT_LOG_NOT_FOUND` | 404 | Entrée du journal d'audit introuvable. |\n| `SALE_NOT_RETURNABLE` | 409 | Une vente annulée ne peut pas faire l'objet d'un retour. |\n| `SALE_HAS_RETURNS` | 409 | Cette vente a déjà fait l'objet d'un retour : elle ne peut plus être annulée, enregistrez un retour. |\n| `RETURN_PRODUCT_NOT_SOLD` | 400 | Ce produit ne figure pas sur la vente. |\n| `RETURN_DUPLICATE_PRODUCT` | 400 | Un même produit figure plusieurs fois dans le retour. |\n| `RETURN_QUANTITY_EXCEEDS_SOLD` | 422 | Quantité retournée supérieure à la quantité vendue restant à retourner. |\n| `RETURN_CUSTOMER_REQUIRED` | 422 | Un avoir sur compte exige une vente faite à un client identifié. |\n| `RETURN_REFUND_EXCEEDS_PAID` | 422 | Remboursement supérieur à ce que le client a payé sur cette vente : imputez le reste sur son compte. |\n| `INVENTORY_NOT_FOUND` | 404 | Inventaire introuvable. |\n| `INVENTORY_ALREADY_OPEN` | 409 | Un inventaire est déjà en cours dans ce dépôt : terminez-le ou annulez-le d'abord. |\n| `INVENTORY_INVALID_TRANSITION` | 409 | Action impossible à cette étape de l'inventaire. |\n| `INVENTORY_EMPTY` | 422 | Aucun produit dans le périmètre de l'inventaire. |\n| `INVENTORY_LINES_NOT_COUNTED` | 422 | Tous les produits de l'inventaire doivent être comptés avant la validation. |\n| `INVENTORY_PRODUCT_NOT_IN_SCOPE` | 400 | Ce produit ne fait pas partie de l'inventaire. |\n| `INVENTORY_DUPLICATE_PRODUCT` | 400 | Un même produit figure plusieurs fois dans la demande. |\n| `PURCHASE_ORDER_NOT_FOUND` | 404 | Commande fournisseur introuvable. |\n| `PURCHASE_DUPLICATE_PRODUCT` | 400 | Un même produit figure sur plusieurs lignes : regroupez les quantités sur une seule ligne. |\n| `PURCHASE_AMOUNT_OUT_OF_RANGE` | 400 | Montant de commande trop élevé. |\n| `PURCHASE_ORDER_NOT_RECEIVABLE` | 409 | Cette commande ne peut plus être réceptionnée : elle est déjà reçue, soldée ou annulée. |\n| `PURCHASE_ORDER_NOT_CANCELLABLE` | 409 | Seule une commande sans aucune réception peut être annulée. |\n| `PURCHASE_ORDER_NOT_CLOSABLE` | 409 | Seule une commande partiellement reçue peut être soldée. |\n| `RECEIPT_PRODUCT_NOT_ORDERED` | 400 | Ce produit ne figure pas sur la commande. |\n| `RECEIPT_QUANTITY_EXCEEDS_REMAINING` | 422 | Quantité reçue supérieure au reste à recevoir. |\n| `PURCHASE_ORDER_PREPAID` | 409 | Les paiements versés dépassent la valeur reçue : la commande ne peut être ni annulée ni soldée. |\n| `PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING` | 422 | Montant supérieur au reste à payer de la commande. |\n| `SUPPLIER_PAYMENT_EXCEEDS_BALANCE` | 422 | Montant supérieur au reste à payer à ce fournisseur. |\n| `SUPPLIER_PAYMENT_ORDER_MISMATCH` | 400 | Cette commande n'est pas de ce fournisseur. |\n| `SUPPLIER_PAYMENT_DATE_IN_FUTURE` | 400 | La date du paiement ne peut pas être dans le futur. |\n| `PURCHASE_ORDER_NOT_INVOICEABLE` | 409 | Facturation possible une fois la commande entièrement reçue ou soldée. |\n| `PURCHASE_ORDER_ALREADY_INVOICED` | 409 | Cette commande a déjà sa facture fournisseur. |\n| `SUPPLIER_INVOICE_NUMBER_ALREADY_USED` | 409 | Ce numéro de facture existe déjà pour ce fournisseur. |\n| `SUPPLIER_INVOICE_DATE_INVALID` | 400 | La date de facture ne peut être ni dans le futur ni antérieure à la commande. |\n| `EXPENSE_NOT_FOUND` | 404 | Dépense introuvable. |\n| `EXPENSE_DATE_IN_FUTURE` | 400 | La date de la dépense ne peut pas être dans le futur. |\n| `EXPENSE_ALREADY_CANCELLED` | 409 | Cette dépense est déjà annulée. |\n| `APPOINTMENT_NOT_FOUND` | 404 | Rendez-vous introuvable. |\n| `APPOINTMENT_CONTACT_REQUIRED` | 400 | Indiquez un client du fichier, ou le nom et le téléphone du prospect. |\n| `APPOINTMENT_IN_PAST` | 400 | Un rendez-vous se planifie dans le futur. |\n| `APPOINTMENT_SLOT_TAKEN` | 409 | Un rendez-vous est déjà planifié à cette heure dans ce dépôt. |\n| `APPOINTMENT_CLOSED` | 409 | Ce rendez-vous est clos : il ne se modifie plus. |\n| `APPOINTMENT_NOT_YET_DUE` | 409 | Un rendez-vous ne peut être déclaré honoré ou manqué qu'à partir de son jour. |\n| `APPOINTMENT_CANCELLATION_REASON_REQUIRED` | 400 | Indiquez le motif de l'annulation. |\n| `WAREHOUSE_NOT_FOUND` | 404 | Dépôt introuvable. |\n| `WAREHOUSE_CODE_ALREADY_USED` | 409 | Ce code de dépôt est déjà utilisé. |\n| `WAREHOUSE_NAME_ALREADY_USED` | 409 | Un dépôt porte déjà ce nom. |\n| `WAREHOUSE_INACTIVE` | 422 | Ce dépôt est désactivé. |\n| `MAIN_WAREHOUSE_REQUIRED` | 409 | Le dépôt principal ne peut pas être désactivé : désignez d'abord un autre dépôt principal. |\n| `WAREHOUSE_ACCESS_DENIED` | 403 | Vous n'avez pas accès à ce dépôt. |\n| `NO_WAREHOUSE_AVAILABLE` | 403 | Aucun dépôt actif ne vous est attribué. |\n| `STOCK_INSUFFICIENT` | 422 | Stock insuffisant. |\n| `INVALID_STOCK_QUANTITY` | 400 | Quantité invalide. |\n| `STOCK_MOVEMENT_NOT_FOUND` | 404 | Mouvement de stock introuvable. |\n| `MOVEMENT_NOT_REVERSIBLE` | 409 | Ce mouvement ne peut pas être annulé ici : annulez la pièce qui l'a produit (vente, réception, transfert…). |\n| `MOVEMENT_ALREADY_REVERSED` | 409 | Ce mouvement a déjà été annulé. |\n| `SAME_WAREHOUSE_TRANSFER` | 400 | Magasins identiques. |\n| `UNKNOWN_ROLE` | 400 | Rôle inconnu. |\n| `UNKNOWN_WAREHOUSE` | 400 | Dépôt inconnu ou inactif. |\n| `INTERNAL_ERROR` | 500 | Une erreur interne est survenue. |\n| `SERVICE_UNAVAILABLE` | 503 | Service momentanément indisponible. |\n",
     "version" : "0.0.1-SNAPSHOT"
   },
   "servers" : [ {
@@ -30,6 +30,8 @@
   }, {
     "name" : "Clients"
   }, {
+    "name" : "Dépenses"
+  }, {
     "name" : "Dépôts"
   }, {
     "name" : "Fournisseurs"
@@ -39,6 +41,8 @@
     "name" : "Journal d'audit"
   }, {
     "name" : "Rapports"
+  }, {
+    "name" : "Rendez-vous"
   }, {
     "name" : "Retours clients"
   }, {
@@ -1733,6 +1737,117 @@
         "x-permissions" : [ "brand:manage" ]
       }
     },
+    "/api/appointments/{id}" : {
+      "get" : {
+        "tags" : [ "Rendez-vous" ],
+        "summary" : "Consulter un rendez-vous",
+        "description" : "**Permission** : `appointment:read`.",
+        "operationId" : "getAppointment",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Appointment"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "appointment:read" ]
+      },
+      "put" : {
+        "tags" : [ "Rendez-vous" ],
+        "summary" : "Modifier un rendez-vous",
+        "description" : "Remplacement complet, tant qu'il est planifié ; un nouvel horaire doit être futur et libre.\n\n**Permission** : `appointment:manage`.",
+        "operationId" : "updateAppointment",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppointmentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "Rendez-vous modifié",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Appointment"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "APPOINTMENT_CLOSED ou APPOINTMENT_SLOT_TAKEN",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "422" : {
+            "$ref" : "#/components/responses/UnprocessableContent"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "appointment:manage" ]
+      }
+    },
     "/api/alerts/settings" : {
       "get" : {
         "tags" : [ "Alertes" ],
@@ -2481,6 +2596,144 @@
           }
         },
         "x-permissions" : [ "supplier:create" ]
+      }
+    },
+    "/api/suppliers/{supplierId}/payments" : {
+      "get" : {
+        "tags" : [ "Fournisseurs" ],
+        "summary" : "Paiements d'un fournisseur",
+        "description" : "Du plus récent au plus ancien, avec leur répartition sur les commandes.\n\n**Permission** : `purchase:read`.",
+        "operationId" : "listSupplierPayment",
+        "parameters" : [ {
+          "name" : "supplierId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "sort",
+          "in" : "query",
+          "description" : "paymentDate | createdAt | amount | number, asc | desc",
+          "required" : false,
+          "schema" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "purchase:read" ]
+      },
+      "post" : {
+        "tags" : [ "Fournisseurs" ],
+        "summary" : "Payer un fournisseur",
+        "description" : "Imputé sur la commande indiquée, sinon sur les plus anciennes ayant un reste à payer. Refusé au-delà du reste dû (pas de trop-payé). En espèces, sort de ma caisse ouverte ; virement et mobile money n'y passent pas.\n\n**Permission** : `purchase:pay`.",
+        "operationId" : "paySupplierPayment",
+        "parameters" : [ {
+          "name" : "supplierId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SupplierPaymentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Paiement enregistré",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SupplierPayment"
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "SUPPLIER_PAYMENT_EXCEEDS_BALANCE, PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING ou CASH_INSUFFICIENT",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "409" : {
+            "$ref" : "#/components/responses/Conflict"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "purchase:pay" ]
       }
     },
     "/api/stock/movements" : {
@@ -3752,6 +4005,135 @@
         "x-permissions" : [ "purchase:receive" ]
       }
     },
+    "/api/purchases/orders/{id}/pay" : {
+      "post" : {
+        "tags" : [ "Achats" ],
+        "summary" : "Payer une commande",
+        "description" : "Même règle que le paiement d'un fournisseur, imputé sur cette commande ; renvoie la commande avec son montant payé à jour.\n\n**Permission** : `purchase:pay`.",
+        "operationId" : "payOrderSupplierPayment",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PurchaseOrderPaymentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "Commande à jour",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PurchaseOrder"
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING ou CASH_INSUFFICIENT",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "409" : {
+            "$ref" : "#/components/responses/Conflict"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "purchase:pay" ]
+      }
+    },
+    "/api/purchases/orders/{id}/invoice" : {
+      "post" : {
+        "tags" : [ "Achats" ],
+        "summary" : "Enregistrer la facture du fournisseur",
+        "description" : "Commande reçue ou soldée, une seule facture, figée. Montant facturé = valeur reçue ; numéro unique par fournisseur ; date ni future ni antérieure à la commande.\n\n**Permission** : `purchase:pay`.",
+        "operationId" : "invoicePurchaseOrder",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SupplierInvoiceRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Created",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SupplierInvoice"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "409" : {
+            "$ref" : "#/components/responses/Conflict"
+          },
+          "422" : {
+            "$ref" : "#/components/responses/UnprocessableContent"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "purchase:pay" ]
+      }
+    },
     "/api/purchases/orders/{id}/close" : {
       "post" : {
         "tags" : [ "Achats" ],
@@ -4934,6 +5316,269 @@
         "x-permissions" : [ "inventory:create" ]
       }
     },
+    "/api/expenses" : {
+      "get" : {
+        "tags" : [ "Dépenses" ],
+        "summary" : "Rechercher les dépenses",
+        "description" : "Du dépôt courant (allWarehouses=true exige warehouse:all), les plus récentes d'abord. Filtres dateFrom, dateTo (AAAA-MM-JJ inclus), category, paymentMethod, status, search.\n\n**Permission** : `expense:read`.",
+        "operationId" : "listExpense",
+        "parameters" : [ {
+          "name" : "dateFrom",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "dateTo",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "category",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "TRANSPORT", "SALARY", "RENT", "UTILITIES", "SUPPLIES", "MAINTENANCE", "TAXES", "OTHER" ]
+          }
+        }, {
+          "name" : "paymentMethod",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "CASH", "MOBILE_MONEY", "BANK_TRANSFER", "CHEQUE" ]
+          }
+        }, {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "PAID", "CANCELLED" ]
+          }
+        }, {
+          "name" : "search",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "allWarehouses",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean"
+          }
+        }, {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "sort",
+          "in" : "query",
+          "description" : "expenseDate | createdAt | amount | number | category, asc | desc",
+          "required" : false,
+          "schema" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }, {
+          "name" : "X-Warehouse-Id",
+          "in" : "header",
+          "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "expense:read" ]
+      },
+      "post" : {
+        "tags" : [ "Dépenses" ],
+        "summary" : "Enregistrer une dépense",
+        "description" : "Dans le dépôt courant. En espèces (défaut), elle sort de ma caisse ouverte dans ce dépôt ; mobile money, virement et chèque ne passent pas par la caisse.\n\n**Permission** : `expense:create`.",
+        "operationId" : "createExpense",
+        "parameters" : [ {
+          "name" : "X-Warehouse-Id",
+          "in" : "header",
+          "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExpenseRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Dépense enregistrée",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Expense"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "NO_OPEN_CASH_SESSION ou CASH_SESSION_OTHER_WAREHOUSE (espèces)",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "CASH_INSUFFICIENT",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "expense:create" ]
+      }
+    },
+    "/api/expenses/{id}/cancel" : {
+      "post" : {
+        "tags" : [ "Dépenses" ],
+        "summary" : "Annuler une dépense",
+        "description" : "Motif obligatoire ; la dépense reste visible et sort des totaux. En espèces, l'argent revient dans ma caisse ouverte du dépôt de la dépense.\n\n**Permission** : `expense:delete`.",
+        "operationId" : "cancelExpense",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CancelExpenseRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "Dépense annulée",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Expense"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "EXPENSE_ALREADY_CANCELLED, NO_OPEN_CASH_SESSION ou CASH_SESSION_OTHER_WAREHOUSE",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "422" : {
+            "$ref" : "#/components/responses/UnprocessableContent"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "expense:delete" ]
+      }
+    },
     "/api/customers" : {
       "get" : {
         "tags" : [ "Clients" ],
@@ -6077,6 +6722,179 @@
         "x-permissions" : [ ]
       }
     },
+    "/api/appointments" : {
+      "get" : {
+        "tags" : [ "Rendez-vous" ],
+        "summary" : "Rechercher les rendez-vous",
+        "description" : "Du dépôt courant, les plus proches d'abord. Filtres search (nom, téléphone), status, dateFrom, dateTo (AAAA-MM-JJ inclus, jour local), customerId.\n\n**Permission** : `appointment:read`.",
+        "operationId" : "listAppointment",
+        "parameters" : [ {
+          "name" : "search",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "SCHEDULED", "COMPLETED", "NO_SHOW", "CANCELLED" ]
+          }
+        }, {
+          "name" : "dateFrom",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "dateTo",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "customerId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "sort",
+          "in" : "query",
+          "description" : "dateTime | createdAt | customerName | status, asc | desc",
+          "required" : false,
+          "schema" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }, {
+          "name" : "X-Warehouse-Id",
+          "in" : "header",
+          "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "appointment:read" ]
+      },
+      "post" : {
+        "tags" : [ "Rendez-vous" ],
+        "summary" : "Prendre un rendez-vous",
+        "description" : "Dans le dépôt courant, dans le futur, sur un créneau libre. Client du fichier (customerId) ou prospect (customerName + phone).\n\n**Permission** : `appointment:manage`.",
+        "operationId" : "createAppointment",
+        "parameters" : [ {
+          "name" : "X-Warehouse-Id",
+          "in" : "header",
+          "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppointmentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Rendez-vous planifié",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Appointment"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "APPOINTMENT_SLOT_TAKEN",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "422" : {
+            "$ref" : "#/components/responses/UnprocessableContent"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "appointment:manage" ]
+      }
+    },
     "/api/warehouses/{id}/active" : {
       "patch" : {
         "tags" : [ "Dépôts" ],
@@ -6534,6 +7352,74 @@
         "x-permissions" : [ "brand:manage" ]
       }
     },
+    "/api/appointments/{id}/status" : {
+      "patch" : {
+        "tags" : [ "Rendez-vous" ],
+        "summary" : "Clore un rendez-vous",
+        "description" : "COMPLETED (honoré) ou NO_SHOW (absent) à partir du jour du rendez-vous ; CANCELLED avec un motif. Un rendez-vous clos ne change plus.\n\n**Permission** : `appointment:manage`.",
+        "operationId" : "changeStatusAppointment",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppointmentStatusRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "Rendez-vous clos",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Appointment"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "APPOINTMENT_CLOSED ou APPOINTMENT_NOT_YET_DUE",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "422" : {
+            "$ref" : "#/components/responses/UnprocessableContent"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "appointment:manage" ]
+      }
+    },
     "/api/warehouses/current" : {
       "get" : {
         "tags" : [ "Dépôts" ],
@@ -6642,6 +7528,51 @@
               "application/json" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "purchase:read" ]
+      }
+    },
+    "/api/suppliers/{supplierId}/account" : {
+      "get" : {
+        "tags" : [ "Fournisseurs" ],
+        "summary" : "Compte d'un fournisseur",
+        "description" : "Commandé, reçu, dû, payé et reste à payer, calculés par le serveur sur les commandes des dépôts visibles.\n\n**Permission** : `purchase:read`.",
+        "operationId" : "accountSupplierPayment",
+        "parameters" : [ {
+          "name" : "supplierId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SupplierAccount"
                 }
               }
             }
@@ -9564,6 +10495,148 @@
         "security" : [ ]
       }
     },
+    "/api/expenses/{id}" : {
+      "get" : {
+        "tags" : [ "Dépenses" ],
+        "summary" : "Consulter une dépense",
+        "description" : "**Permission** : `expense:read`.",
+        "operationId" : "getExpense",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Expense"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "404" : {
+            "$ref" : "#/components/responses/NotFound"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "expense:read" ]
+      }
+    },
+    "/api/expenses/summary" : {
+      "get" : {
+        "tags" : [ "Dépenses" ],
+        "summary" : "Totaux des dépenses",
+        "description" : "Total, nombre, part en espèces et répartition par catégorie des dépenses payées, sur les mêmes critères que la recherche ; les dépenses annulées sont seulement comptées à part.\n\n**Permission** : `expense:read`.",
+        "operationId" : "summaryExpense",
+        "parameters" : [ {
+          "name" : "dateFrom",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "dateTo",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "category",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "TRANSPORT", "SALARY", "RENT", "UTILITIES", "SUPPLIES", "MAINTENANCE", "TAXES", "OTHER" ]
+          }
+        }, {
+          "name" : "paymentMethod",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "CASH", "MOBILE_MONEY", "BANK_TRANSFER", "CHEQUE" ]
+          }
+        }, {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "PAID", "CANCELLED" ]
+          }
+        }, {
+          "name" : "search",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "allWarehouses",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean"
+          }
+        }, {
+          "name" : "X-Warehouse-Id",
+          "in" : "header",
+          "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ExpenseSummary"
+                }
+              }
+            }
+          },
+          "400" : {
+            "$ref" : "#/components/responses/BadRequest"
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "expense:read" ]
+      }
+    },
     "/api/dashboard" : {
       "get" : {
         "tags" : [ "Tableau de bord" ],
@@ -9998,6 +11071,36 @@
           }
         },
         "x-permissions" : [ "report:read" ]
+      }
+    },
+    "/api/dashboard/me" : {
+      "get" : {
+        "tags" : [ "Tableau de bord" ],
+        "summary" : "Ma journée de vente",
+        "description" : "Mes ventes du jour (fuseau de l'entreprise), tous dépôts : nombre, total, encaissé, à crédit, annulations. Ni marge ni chiffres du magasin.\n\n**Permission** : `sale:create`.",
+        "operationId" : "myDayMyDashboard",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MyDay"
+                }
+              }
+            }
+          },
+          "401" : {
+            "$ref" : "#/components/responses/Unauthorized"
+          },
+          "403" : {
+            "$ref" : "#/components/responses/Forbidden"
+          },
+          "500" : {
+            "$ref" : "#/components/responses/InternalError"
+          }
+        },
+        "x-permissions" : [ "sale:create" ]
       }
     },
     "/api/customers/{id}/account" : {
@@ -11382,7 +12485,7 @@
             "type" : "string",
             "description" : "Code d'erreur stable, à utiliser par le front (catalogue : description de l'API).",
             "example" : "VALIDATION_FAILED",
-            "enum" : [ "VALIDATION_FAILED", "MALFORMED_REQUEST", "INVALID_PARAMETER", "UNAUTHENTICATED", "ACCESS_DENIED", "RESOURCE_NOT_FOUND", "METHOD_NOT_ALLOWED", "NOT_ACCEPTABLE", "UNSUPPORTED_MEDIA_TYPE", "CONFLICT", "CONCURRENT_MODIFICATION", "DATA_INTEGRITY_VIOLATION", "BUSINESS_RULE_VIOLATION", "INVALID_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_DISABLED", "INVALID_TOKEN", "INVALID_REFRESH_TOKEN", "CURRENT_PASSWORD_INVALID", "UNKNOWN_SORT_FIELD", "USER_NOT_FOUND", "USERNAME_ALREADY_USED", "EMAIL_ALREADY_USED", "LAST_ADMIN_REQUIRED", "PASSWORD_POLICY_VIOLATION", "ROLE_NOT_FOUND", "ROLE_CODE_ALREADY_USED", "ROLE_IN_USE", "ROLE_NOT_EDITABLE", "ROLE_NOT_DELETABLE", "UNKNOWN_PERMISSION", "PRIVILEGE_ESCALATION", "CATEGORY_NOT_FOUND", "CATEGORY_NAME_ALREADY_USED", "CATEGORY_INACTIVE", "BRAND_NOT_FOUND", "BRAND_NAME_ALREADY_USED", "BRAND_INACTIVE", "PRODUCT_NOT_FOUND", "SKU_ALREADY_USED", "BARCODE_ALREADY_USED", "PRODUCT_INACTIVE", "SUPPLIER_NOT_FOUND", "SUPPLIER_NAME_ALREADY_USED", "SUPPLIER_CODE_ALREADY_USED", "SUPPLIER_INACTIVE", "CUSTOMER_NOT_FOUND", "CUSTOMER_CODE_ALREADY_USED", "CUSTOMER_INACTIVE", "CREDIT_LIMIT_CHANGE_FORBIDDEN", "CREDIT_LIMIT_EXCEEDED", "AMOUNT_EXCEEDS_CUSTOMER_BALANCE", "CUSTOMER_ACCOUNT_ENTRY_ALREADY_RECORDED", "SALE_NOT_FOUND", "SALE_DUPLICATE_PRODUCT", "PRODUCT_PRICE_NOT_SET", "DISCOUNT_NOT_ALLOWED", "PAID_AMOUNT_EXCEEDS_TOTAL", "PAYMENT_METHOD_REQUIRED", "CUSTOMER_REQUIRED_FOR_CREDIT", "SALE_AMOUNT_OUT_OF_RANGE", "SALE_NOT_CANCELLABLE", "SALE_CREDIT_ALREADY_SETTLED", "CASH_SESSION_NOT_FOUND", "CASH_SESSION_ALREADY_OPEN", "NO_OPEN_CASH_SESSION", "CASH_SESSION_OTHER_WAREHOUSE", "CASH_INSUFFICIENT", "CASH_ENTRY_ALREADY_RECORDED", "CASH_ENTRY_NOT_FOUND", "CASH_ENTRY_NOT_REVERSIBLE", "CASH_ENTRY_ALREADY_REVERSED", "RETURN_NOT_FOUND", "AUDIT_LOG_NOT_FOUND", "SALE_NOT_RETURNABLE", "SALE_HAS_RETURNS", "RETURN_PRODUCT_NOT_SOLD", "RETURN_DUPLICATE_PRODUCT", "RETURN_QUANTITY_EXCEEDS_SOLD", "RETURN_CUSTOMER_REQUIRED", "RETURN_REFUND_EXCEEDS_PAID", "INVENTORY_NOT_FOUND", "INVENTORY_ALREADY_OPEN", "INVENTORY_INVALID_TRANSITION", "INVENTORY_EMPTY", "INVENTORY_LINES_NOT_COUNTED", "INVENTORY_PRODUCT_NOT_IN_SCOPE", "INVENTORY_DUPLICATE_PRODUCT", "PURCHASE_ORDER_NOT_FOUND", "PURCHASE_DUPLICATE_PRODUCT", "PURCHASE_AMOUNT_OUT_OF_RANGE", "PURCHASE_ORDER_NOT_RECEIVABLE", "PURCHASE_ORDER_NOT_CANCELLABLE", "PURCHASE_ORDER_NOT_CLOSABLE", "RECEIPT_PRODUCT_NOT_ORDERED", "RECEIPT_QUANTITY_EXCEEDS_REMAINING", "WAREHOUSE_NOT_FOUND", "WAREHOUSE_CODE_ALREADY_USED", "WAREHOUSE_NAME_ALREADY_USED", "WAREHOUSE_INACTIVE", "MAIN_WAREHOUSE_REQUIRED", "WAREHOUSE_ACCESS_DENIED", "NO_WAREHOUSE_AVAILABLE", "STOCK_INSUFFICIENT", "INVALID_STOCK_QUANTITY", "STOCK_MOVEMENT_NOT_FOUND", "MOVEMENT_NOT_REVERSIBLE", "MOVEMENT_ALREADY_REVERSED", "SAME_WAREHOUSE_TRANSFER", "UNKNOWN_ROLE", "UNKNOWN_WAREHOUSE", "INTERNAL_ERROR", "SERVICE_UNAVAILABLE" ]
+            "enum" : [ "VALIDATION_FAILED", "MALFORMED_REQUEST", "INVALID_PARAMETER", "UNAUTHENTICATED", "ACCESS_DENIED", "RESOURCE_NOT_FOUND", "METHOD_NOT_ALLOWED", "NOT_ACCEPTABLE", "UNSUPPORTED_MEDIA_TYPE", "CONFLICT", "CONCURRENT_MODIFICATION", "DATA_INTEGRITY_VIOLATION", "BUSINESS_RULE_VIOLATION", "INVALID_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_DISABLED", "INVALID_TOKEN", "INVALID_REFRESH_TOKEN", "CURRENT_PASSWORD_INVALID", "UNKNOWN_SORT_FIELD", "USER_NOT_FOUND", "USERNAME_ALREADY_USED", "EMAIL_ALREADY_USED", "LAST_ADMIN_REQUIRED", "PASSWORD_POLICY_VIOLATION", "ROLE_NOT_FOUND", "ROLE_CODE_ALREADY_USED", "ROLE_IN_USE", "ROLE_NOT_EDITABLE", "ROLE_NOT_DELETABLE", "UNKNOWN_PERMISSION", "PRIVILEGE_ESCALATION", "CATEGORY_NOT_FOUND", "CATEGORY_NAME_ALREADY_USED", "CATEGORY_INACTIVE", "BRAND_NOT_FOUND", "BRAND_NAME_ALREADY_USED", "BRAND_INACTIVE", "PRODUCT_NOT_FOUND", "SKU_ALREADY_USED", "BARCODE_ALREADY_USED", "PRODUCT_INACTIVE", "SUPPLIER_NOT_FOUND", "SUPPLIER_NAME_ALREADY_USED", "SUPPLIER_CODE_ALREADY_USED", "SUPPLIER_INACTIVE", "CUSTOMER_NOT_FOUND", "CUSTOMER_CODE_ALREADY_USED", "CUSTOMER_INACTIVE", "CREDIT_LIMIT_CHANGE_FORBIDDEN", "CREDIT_LIMIT_EXCEEDED", "AMOUNT_EXCEEDS_CUSTOMER_BALANCE", "CUSTOMER_ACCOUNT_ENTRY_ALREADY_RECORDED", "SALE_NOT_FOUND", "SALE_DUPLICATE_PRODUCT", "PRODUCT_PRICE_NOT_SET", "DISCOUNT_NOT_ALLOWED", "PAID_AMOUNT_EXCEEDS_TOTAL", "PAYMENT_METHOD_REQUIRED", "CUSTOMER_REQUIRED_FOR_CREDIT", "SALE_AMOUNT_OUT_OF_RANGE", "SALE_NOT_CANCELLABLE", "SALE_CREDIT_ALREADY_SETTLED", "CASH_SESSION_NOT_FOUND", "CASH_SESSION_ALREADY_OPEN", "NO_OPEN_CASH_SESSION", "CASH_SESSION_OTHER_WAREHOUSE", "CASH_INSUFFICIENT", "CASH_ENTRY_ALREADY_RECORDED", "CASH_ENTRY_NOT_FOUND", "CASH_ENTRY_NOT_REVERSIBLE", "CASH_ENTRY_ALREADY_REVERSED", "RETURN_NOT_FOUND", "AUDIT_LOG_NOT_FOUND", "SALE_NOT_RETURNABLE", "SALE_HAS_RETURNS", "RETURN_PRODUCT_NOT_SOLD", "RETURN_DUPLICATE_PRODUCT", "RETURN_QUANTITY_EXCEEDS_SOLD", "RETURN_CUSTOMER_REQUIRED", "RETURN_REFUND_EXCEEDS_PAID", "INVENTORY_NOT_FOUND", "INVENTORY_ALREADY_OPEN", "INVENTORY_INVALID_TRANSITION", "INVENTORY_EMPTY", "INVENTORY_LINES_NOT_COUNTED", "INVENTORY_PRODUCT_NOT_IN_SCOPE", "INVENTORY_DUPLICATE_PRODUCT", "PURCHASE_ORDER_NOT_FOUND", "PURCHASE_DUPLICATE_PRODUCT", "PURCHASE_AMOUNT_OUT_OF_RANGE", "PURCHASE_ORDER_NOT_RECEIVABLE", "PURCHASE_ORDER_NOT_CANCELLABLE", "PURCHASE_ORDER_NOT_CLOSABLE", "RECEIPT_PRODUCT_NOT_ORDERED", "RECEIPT_QUANTITY_EXCEEDS_REMAINING", "PURCHASE_ORDER_PREPAID", "PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING", "SUPPLIER_PAYMENT_EXCEEDS_BALANCE", "SUPPLIER_PAYMENT_ORDER_MISMATCH", "SUPPLIER_PAYMENT_DATE_IN_FUTURE", "PURCHASE_ORDER_NOT_INVOICEABLE", "PURCHASE_ORDER_ALREADY_INVOICED", "SUPPLIER_INVOICE_NUMBER_ALREADY_USED", "SUPPLIER_INVOICE_DATE_INVALID", "EXPENSE_NOT_FOUND", "EXPENSE_DATE_IN_FUTURE", "EXPENSE_ALREADY_CANCELLED", "APPOINTMENT_NOT_FOUND", "APPOINTMENT_CONTACT_REQUIRED", "APPOINTMENT_IN_PAST", "APPOINTMENT_SLOT_TAKEN", "APPOINTMENT_CLOSED", "APPOINTMENT_NOT_YET_DUE", "APPOINTMENT_CANCELLATION_REASON_REQUIRED", "WAREHOUSE_NOT_FOUND", "WAREHOUSE_CODE_ALREADY_USED", "WAREHOUSE_NAME_ALREADY_USED", "WAREHOUSE_INACTIVE", "MAIN_WAREHOUSE_REQUIRED", "WAREHOUSE_ACCESS_DENIED", "NO_WAREHOUSE_AVAILABLE", "STOCK_INSUFFICIENT", "INVALID_STOCK_QUANTITY", "STOCK_MOVEMENT_NOT_FOUND", "MOVEMENT_NOT_REVERSIBLE", "MOVEMENT_ALREADY_REVERSED", "SAME_WAREHOUSE_TRANSFER", "UNKNOWN_ROLE", "UNKNOWN_WAREHOUSE", "INTERNAL_ERROR", "SERVICE_UNAVAILABLE" ]
           },
           "message" : {
             "type" : "string",
@@ -12295,6 +13398,100 @@
           }
         }
       },
+      "AppointmentRequest" : {
+        "required" : [ "dateTime" ],
+        "type" : "object",
+        "properties" : {
+          "customerId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "customerName" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string",
+            "example" : "Mamadou Diallo"
+          },
+          "phone" : {
+            "maxLength" : 30,
+            "minLength" : 0,
+            "pattern" : "^[0-9+() .-]*$",
+            "type" : "string",
+            "example" : "77 123 45 67"
+          },
+          "dateTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "note" : {
+            "maxLength" : 1000,
+            "minLength" : 0,
+            "type" : "string",
+            "example" : "Essayage des nouvelles montures"
+          }
+        }
+      },
+      "Appointment" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "warehouseId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "customerId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "customerName" : {
+            "type" : "string"
+          },
+          "phone" : {
+            "type" : "string"
+          },
+          "dateTime" : {
+            "type" : "string",
+            "example" : "2026-10-14T10:30:00"
+          },
+          "scheduledAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "SCHEDULED", "COMPLETED", "NO_SHOW", "CANCELLED" ]
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "cancellationReason" : {
+            "type" : "string"
+          },
+          "closedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "closedByUserId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "createdByUserId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
       "AlertSettings" : {
         "required" : [ "cashDifferenceLookbackDays", "cashDifferenceTolerance", "cashSessionMaxOpenHours", "creditLimitWarningPercent", "defaultMinStock", "defaultPaymentTermsDays", "dormantStockDays", "lowStockMarginPercent", "purchaseOverdueGraceDays" ],
         "type" : "object",
@@ -12559,6 +13756,109 @@
               "type" : "string",
               "format" : "uuid"
             }
+          }
+        }
+      },
+      "SupplierPaymentRequest" : {
+        "required" : [ "amount" ],
+        "type" : "object",
+        "properties" : {
+          "amount" : {
+            "minimum" : 0.01,
+            "exclusiveMinimum" : false,
+            "type" : "number",
+            "example" : 150000
+          },
+          "paymentDate" : {
+            "type" : "string",
+            "format" : "date",
+            "example" : "2026-10-10"
+          },
+          "paymentMethod" : {
+            "type" : "string",
+            "example" : "BANK_TRANSFER",
+            "enum" : [ "CASH", "MOBILE_MONEY", "BANK_TRANSFER" ]
+          },
+          "orderId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "externalReference" : {
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string",
+            "example" : "VIR-2026-1042"
+          },
+          "note" : {
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }
+      },
+      "SupplierPayment" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "number" : {
+            "type" : "string"
+          },
+          "supplierId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "paymentDateIso" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "amount" : {
+            "type" : "number"
+          },
+          "paymentMethod" : {
+            "type" : "string",
+            "enum" : [ "CASH", "MOBILE_MONEY", "BANK_TRANSFER" ]
+          },
+          "orderId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "allocations" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SupplierPaymentAllocation"
+            }
+          },
+          "externalReference" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "createdByUserId" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }
+      },
+      "SupplierPaymentAllocation" : {
+        "type" : "object",
+        "properties" : {
+          "orderId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "orderNumber" : {
+            "type" : "string"
+          },
+          "amount" : {
+            "type" : "number"
           }
         }
       },
@@ -13098,6 +14398,10 @@
           "paidAmount" : {
             "type" : "number"
           },
+          "remainingToPay" : {
+            "type" : "number",
+            "description" : "Reste à payer : dû (commandé, ou reçu si soldée ; rien si annulée) moins payé"
+          },
           "createdAt" : {
             "type" : "string",
             "format" : "date-time"
@@ -13124,6 +14428,9 @@
           "updatedAt" : {
             "type" : "string",
             "format" : "date-time"
+          },
+          "invoice" : {
+            "$ref" : "#/components/schemas/SupplierInvoice"
           }
         }
       },
@@ -13167,6 +14474,39 @@
             "type" : "number"
           }
         }
+      },
+      "SupplierInvoice" : {
+        "type" : "object",
+        "properties" : {
+          "purchaseOrderId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "supplierId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "invoiceNumber" : {
+            "type" : "string",
+            "example" : "FA-ESS-2026-0412"
+          },
+          "invoiceDateIso" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "totalAmount" : {
+            "type" : "number"
+          },
+          "invoicedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "invoicedByUserId" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        },
+        "description" : "Facture du fournisseur, absente tant qu'elle n'est pas enregistrée"
       },
       "ReceivePurchaseOrderLine" : {
         "required" : [ "productId", "quantity" ],
@@ -13212,6 +14552,55 @@
             "items" : {
               "$ref" : "#/components/schemas/ReceivePurchaseOrderLine"
             }
+          }
+        }
+      },
+      "PurchaseOrderPaymentRequest" : {
+        "required" : [ "amount" ],
+        "type" : "object",
+        "properties" : {
+          "amount" : {
+            "minimum" : 0.01,
+            "exclusiveMinimum" : false,
+            "type" : "number",
+            "example" : 150000
+          },
+          "paymentDate" : {
+            "type" : "string",
+            "format" : "date",
+            "example" : "2026-10-10"
+          },
+          "paymentMethod" : {
+            "type" : "string",
+            "example" : "CASH",
+            "enum" : [ "CASH", "MOBILE_MONEY", "BANK_TRANSFER" ]
+          },
+          "externalReference" : {
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "note" : {
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }
+      },
+      "SupplierInvoiceRequest" : {
+        "required" : [ "invoiceDate", "invoiceNumber" ],
+        "type" : "object",
+        "properties" : {
+          "invoiceNumber" : {
+            "maxLength" : 50,
+            "minLength" : 1,
+            "type" : "string",
+            "example" : "FA-ESS-2026-0412"
+          },
+          "invoiceDate" : {
+            "type" : "string",
+            "format" : "date",
+            "example" : "2026-10-10"
           }
         }
       },
@@ -13316,6 +14705,125 @@
               "type" : "string",
               "format" : "uuid"
             }
+          }
+        }
+      },
+      "ExpenseRequest" : {
+        "required" : [ "amount", "category", "label" ],
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "example" : "TRANSPORT",
+            "enum" : [ "TRANSPORT", "SALARY", "RENT", "UTILITIES", "SUPPLIES", "MAINTENANCE", "TAXES", "OTHER" ]
+          },
+          "label" : {
+            "maxLength" : 200,
+            "minLength" : 1,
+            "type" : "string",
+            "example" : "Livraison des montures"
+          },
+          "amount" : {
+            "minimum" : 0.01,
+            "exclusiveMinimum" : false,
+            "type" : "number",
+            "example" : 15000
+          },
+          "expenseDate" : {
+            "type" : "string",
+            "format" : "date",
+            "example" : "2026-10-11"
+          },
+          "paymentMethod" : {
+            "type" : "string",
+            "example" : "CASH",
+            "enum" : [ "CASH", "MOBILE_MONEY", "BANK_TRANSFER", "CHEQUE" ]
+          },
+          "externalReference" : {
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string",
+            "example" : "REC-0042"
+          },
+          "note" : {
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }
+      },
+      "Expense" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "number" : {
+            "type" : "string"
+          },
+          "warehouseId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "category" : {
+            "type" : "string",
+            "enum" : [ "TRANSPORT", "SALARY", "RENT", "UTILITIES", "SUPPLIES", "MAINTENANCE", "TAXES", "OTHER" ]
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "amount" : {
+            "type" : "number"
+          },
+          "expenseDateIso" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "paymentMethod" : {
+            "type" : "string",
+            "enum" : [ "CASH", "MOBILE_MONEY", "BANK_TRANSFER", "CHEQUE" ]
+          },
+          "externalReference" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "PAID", "CANCELLED" ]
+          },
+          "cancelledAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "cancelledByUserId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "cancellationReason" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "createdByUserId" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }
+      },
+      "CancelExpenseRequest" : {
+        "required" : [ "reason" ],
+        "type" : "object",
+        "properties" : {
+          "reason" : {
+            "maxLength" : 500,
+            "minLength" : 1,
+            "type" : "string",
+            "example" : "Montant saisi deux fois"
           }
         }
       },
@@ -13425,7 +14933,7 @@
           },
           "entryType" : {
             "type" : "string",
-            "enum" : [ "SALE", "CUSTOMER_PAYMENT", "CASH_IN", "CORRECTION_IN", "SALE_REFUND", "RETURN_REFUND", "CASH_OUT", "CORRECTION_OUT" ]
+            "enum" : [ "SALE", "CUSTOMER_PAYMENT", "CASH_IN", "CORRECTION_IN", "EXPENSE_CANCELLATION", "SALE_REFUND", "RETURN_REFUND", "CASH_OUT", "CORRECTION_OUT", "SUPPLIER_PAYMENT", "EXPENSE" ]
           },
           "paymentMethod" : {
             "type" : "string",
@@ -13795,6 +15303,23 @@
           }
         }
       },
+      "AppointmentStatusRequest" : {
+        "required" : [ "status" ],
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string",
+            "example" : "COMPLETED",
+            "enum" : [ "SCHEDULED", "COMPLETED", "NO_SHOW", "CANCELLED" ]
+          },
+          "reason" : {
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string",
+            "example" : "Client indisponible"
+          }
+        }
+      },
       "PageResponse" : {
         "type" : "object",
         "properties" : {
@@ -13827,6 +15352,37 @@
           }
         },
         "description" : "Liste paginée"
+      },
+      "SupplierAccount" : {
+        "type" : "object",
+        "properties" : {
+          "supplierId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "orderedAmount" : {
+            "type" : "number"
+          },
+          "receivedAmount" : {
+            "type" : "number"
+          },
+          "payableAmount" : {
+            "type" : "number"
+          },
+          "paidAmount" : {
+            "type" : "number"
+          },
+          "remainingToPay" : {
+            "type" : "number"
+          },
+          "advanceAmount" : {
+            "type" : "number"
+          },
+          "ordersToPay" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
       },
       "ReportPage" : {
         "type" : "object",
@@ -14127,6 +15683,47 @@
           }
         }
       },
+      "ExpenseCategoryTotal" : {
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "enum" : [ "TRANSPORT", "SALARY", "RENT", "UTILITIES", "SUPPLIES", "MAINTENANCE", "TAXES", "OTHER" ]
+          },
+          "count" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "total" : {
+            "type" : "number"
+          }
+        }
+      },
+      "ExpenseSummary" : {
+        "type" : "object",
+        "properties" : {
+          "total" : {
+            "type" : "number"
+          },
+          "count" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "cashTotal" : {
+            "type" : "number"
+          },
+          "cancelledCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "byCategory" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ExpenseCategoryTotal"
+            }
+          }
+        }
+      },
       "Dashboard" : {
         "type" : "object",
         "properties" : {
@@ -14356,6 +15953,71 @@
           }
         }
       },
+      "MyDay" : {
+        "type" : "object",
+        "properties" : {
+          "date" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "salesCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "salesTotal" : {
+            "type" : "number"
+          },
+          "paidAmount" : {
+            "type" : "number"
+          },
+          "creditAmount" : {
+            "type" : "number"
+          },
+          "customerPaymentsAmount" : {
+            "type" : "number"
+          },
+          "customerPaymentsCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "collectedAmount" : {
+            "type" : "number"
+          },
+          "cancelledCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lastSaleAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "last7Days" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SellerDayPoint"
+            }
+          }
+        }
+      },
+      "SellerDayPoint" : {
+        "type" : "object",
+        "properties" : {
+          "date" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "count" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "total" : {
+            "type" : "number"
+          }
+        }
+      },
       "CustomerAccount" : {
         "type" : "object",
         "properties" : {
@@ -14459,59 +16121,6 @@
       "JsonNode" : {
         "type" : "object",
         "properties" : {
-          "floatingPointNumber" : {
-            "type" : "boolean"
-          },
-          "binary" : {
-            "type" : "boolean"
-          },
-          "short" : {
-            "type" : "boolean"
-          },
-          "number" : {
-            "type" : "boolean"
-          },
-          "int" : {
-            "type" : "boolean"
-          },
-          "long" : {
-            "type" : "boolean"
-          },
-          "textual" : {
-            "type" : "boolean",
-            "deprecated" : true
-          },
-          "object" : {
-            "type" : "boolean"
-          },
-          "pojo" : {
-            "type" : "boolean"
-          },
-          "double" : {
-            "type" : "boolean"
-          },
-          "boolean" : {
-            "type" : "boolean"
-          },
-          "missingNode" : {
-            "type" : "boolean"
-          },
-          "valueNode" : {
-            "type" : "boolean"
-          },
-          "integralNumber" : {
-            "type" : "boolean"
-          },
-          "nodeType" : {
-            "type" : "string",
-            "enum" : [ "ARRAY", "BINARY", "BOOLEAN", "MISSING", "NULL", "NUMBER", "OBJECT", "POJO", "STRING" ]
-          },
-          "bigInteger" : {
-            "type" : "boolean"
-          },
-          "bigDecimal" : {
-            "type" : "boolean"
-          },
           "array" : {
             "type" : "boolean"
           },
@@ -14529,6 +16138,59 @@
           },
           "string" : {
             "type" : "boolean"
+          },
+          "number" : {
+            "type" : "boolean"
+          },
+          "boolean" : {
+            "type" : "boolean"
+          },
+          "long" : {
+            "type" : "boolean"
+          },
+          "pojo" : {
+            "type" : "boolean"
+          },
+          "object" : {
+            "type" : "boolean"
+          },
+          "int" : {
+            "type" : "boolean"
+          },
+          "binary" : {
+            "type" : "boolean"
+          },
+          "short" : {
+            "type" : "boolean"
+          },
+          "textual" : {
+            "type" : "boolean",
+            "deprecated" : true
+          },
+          "double" : {
+            "type" : "boolean"
+          },
+          "floatingPointNumber" : {
+            "type" : "boolean"
+          },
+          "missingNode" : {
+            "type" : "boolean"
+          },
+          "integralNumber" : {
+            "type" : "boolean"
+          },
+          "valueNode" : {
+            "type" : "boolean"
+          },
+          "bigInteger" : {
+            "type" : "boolean"
+          },
+          "bigDecimal" : {
+            "type" : "boolean"
+          },
+          "nodeType" : {
+            "type" : "string",
+            "enum" : [ "ARRAY", "BINARY", "BOOLEAN", "MISSING", "NULL", "NUMBER", "OBJECT", "POJO", "STRING" ]
           },
           "embeddedValue" : {
             "type" : "boolean"
@@ -14684,8 +16346,8 @@
               "message" : "Données invalides : quantity doit être supérieur ou égal à 1",
               "detail" : "Données invalides : quantity doit être supérieur ou égal à 1",
               "errors" : [ {
-                "field" : "items[0].quantity",
-                "message" : "doit être supérieur ou égal à 1"
+                "message" : "doit être supérieur ou égal à 1",
+                "field" : "items[0].quantity"
               } ],
               "details" : { },
               "traceId" : "4bf92f3577b34da6a3ce929d0e0e4736",

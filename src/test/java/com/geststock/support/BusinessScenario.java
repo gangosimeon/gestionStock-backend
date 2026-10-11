@@ -30,8 +30,9 @@ public final class BusinessScenario {
 
 	/** Tables purgées, filles avant mères. */
 	private static final List<String> TABLES = List.of("customer_return_line", "customer_return", "cash_entry",
-			"cash_session", "sale_line", "sale", "goods_receipt_line", "goods_receipt", "purchase_order_line",
-			"purchase_order", "inventory_line", "inventory_session", "customer_account_entry", "audit_log");
+			"cash_session", "sale_line", "sale", "goods_receipt_line", "goods_receipt", "supplier_payment_allocation",
+			"supplier_payment", "purchase_order_line", "purchase_order", "inventory_line", "inventory_session",
+			"customer_account_entry", "audit_log");
 
 	private final JdbcTemplate jdbc;
 
@@ -116,6 +117,11 @@ public final class BusinessScenario {
 					delete from goods_receipt_line where goods_receipt_id in
 					    (select id from goods_receipt where warehouse_id = any(?))""", (Object) w);
 			this.jdbc.update("delete from goods_receipt where warehouse_id = any(?)", (Object) w);
+			this.jdbc.update("""
+					delete from supplier_payment_allocation where purchase_order_id in
+					    (select id from purchase_order where warehouse_id = any(?))
+					   or payment_id in (select id from supplier_payment where supplier_id = any(?))""", (Object) w, (Object) s);
+			this.jdbc.update("delete from supplier_payment where supplier_id = any(?)", (Object) s);
 			this.jdbc.update("""
 					delete from purchase_order_line where purchase_order_id in
 					    (select id from purchase_order where warehouse_id = any(?))""", (Object) w);

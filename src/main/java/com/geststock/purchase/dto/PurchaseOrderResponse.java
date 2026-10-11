@@ -18,7 +18,7 @@ import com.geststock.purchase.PurchaseOrderStatus;
  *                       {@code DELIVERED} (plus rien d'attendu) ou {@code CANCELLED}
  * @param documentStatus statut détaillé du document
  * @param deliveredAt    dernière réception, une fois la commande reçue ou soldée
- * @param paidAmount     0 tant que le module des paiements fournisseurs n'existe pas
+ * @param paidAmount     montant réglé au fournisseur sur cette commande (paiements imputés)
  */
 @Schema(name = "PurchaseOrder")
 public record PurchaseOrderResponse(
@@ -36,13 +36,16 @@ public record PurchaseOrderResponse(
 		BigDecimal totalAmount,
 		BigDecimal receivedAmount,
 		BigDecimal paidAmount,
+		@Schema(description = "Reste à payer : dû (commandé, ou reçu si soldée ; rien si annulée) moins payé")
+		BigDecimal remainingToPay,
 		Instant createdAt,
 		UUID createdByUserId,
 		Instant deliveredAt,
 		Instant lastReceiptAt,
 		Instant closedAt,
 		String closeReason,
-		Instant updatedAt) {
+		Instant updatedAt,
+		@Schema(description = "Facture du fournisseur, absente tant qu'elle n'est pas enregistrée") SupplierInvoiceResponse invoice) {
 
 	/**
 	 * Ligne de commande.

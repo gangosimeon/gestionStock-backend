@@ -69,6 +69,54 @@ class DashboardQueries {
 						rs.getBigDecimal("cost"), rs.getBigDecimal("returns"), rs.getBigDecimal("restocked")));
 	}
 
+	/** Ventes d'un vendeur sur une période : {@code [validées, total, payé, crédit, annulées, dernière vente]}. */
+	Object[] sellerDay(UUID sellerId, LocalDate day, ZoneId zone) {
+		String sql = """
+				select count(*) filter (where s.status = 'COMPLETED' and s.created_at >= :from and s.created_at < :to) as cnt,
+				       coalesce(sum(s.total) filter (where s.status = 'COMPLETED' and s.created_at >= :from and s.created_at < :to), 0) as total,
+				       coalesce(sum(s.paid_amount) filter (where s.status = 'COMPLETED' and s.created_at >= :from and s.created_at < :to), 0) as paid,
+				       coalesce(sum(s.credit_amount) filter (where s.status = 'COMPLETED' and s.created_at >= :from and s.created_at < :to), 0) as credit,
+				       count(*) filter (where s.status = 'CANCELLED' and s.cancelled_at >= :from and s.cancelled_at < :to) as cancelled,
+				       max(s.created_at) filter (where s.status = 'COMPLETED' and s.created_at >= :from and s.created_at < :to) as last_sale
+				from sale s
+				where s.created_by = :sellerId
+				  and ((s.created_at >= :from and s.created_at < :to) or (s.cancelled_at >= :from and s.cancelled_at < :to))""";
+		MapSqlParameterSource params = period(day, day, zone, null).addValue("sellerId", sellerId);
+		return this.jdbc.queryForObject(sql, params, (rs, i) -> new Object[] { rs.getLong("cnt"), rs.getBigDecimal("total"),
+				rs.getBigDecimal("paid"), rs.getBigDecimal("credit"), rs.getLong("cancelled"),
+				rs.getObject("last_sale", OffsetDateTime.class) });
+	}
+
+	/** Règlements de dettes clients encaissés par l'utilisateur sur la journée : {montant, nombre}. */
+	Object[] sellerCustomerPayments(UUID sellerId, LocalDate day, ZoneId zone) {
+		String sql = """
+				select coalesce(sum(e.amount), 0) as amount, count(*) as cnt
+				from customer_account_entry e
+				where e.entry_type = 'PAYMENT' and e.created_by = :sellerId
+				  and e.created_at >= :from and e.created_at < :to""";
+		MapSqlParameterSource params = period(day, day, zone, null).addValue("sellerId", sellerId);
+		return this.jdbc.queryForObject(sql, params,
+				(rs, i) -> new Object[] { rs.getBigDecimal("amount"), rs.getLong("cnt") });
+	}
+
+	/** Ventes validées d'un vendeur, jour par jour sur la période (jours sans vente compris). */
+	List<Object[]> sellerSalesByDay(UUID sellerId, LocalDate from, LocalDate to, ZoneId zone) {
+		String sql = """
+				with days as (
+				    select cast(generate_series(cast(:fromDate as date), cast(:toDate as date), interval '1 day') as date) as day),
+				sales as (
+				    select cast(s.created_at at time zone :zone as date) as day, count(*) as cnt, sum(s.total) as total
+				    from sale s
+				    where s.created_by = :sellerId and s.status = 'COMPLETED' and s.created_at >= :from and s.created_at < :to
+				    group by 1)
+				select d.day, coalesce(s.cnt, 0) as cnt, coalesce(s.total, 0) as total
+				from days d left join sales s on s.day = d.day
+				order by d.day""";
+		MapSqlParameterSource params = period(from, to, zone, null).addValue("sellerId", sellerId);
+		return this.jdbc.query(sql, params, (rs, i) -> new Object[] { rs.getObject("day", LocalDate.class),
+				rs.getLong("cnt"), rs.getBigDecimal("total") });
+	}
+
 	long cancelledSales(LocalDate from, LocalDate to, ZoneId zone, UUID warehouseId) {
 		String sql = """
 				select count(*) from sale s

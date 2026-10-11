@@ -11,7 +11,8 @@ import java.util.Map;
  * <li>{@code cashSalesTotal} : ventes encaissées en espèces − remboursements (annulations et
  * retours) en espèces ;</li>
  * <li>{@code totalIn} : apports et règlements clients en espèces, nets des apports corrigés ;</li>
- * <li>{@code totalOut} : sorties manuelles d'espèces, nettes des sorties corrigées ;</li>
+ * <li>{@code totalOut} : sorties manuelles et paiements fournisseurs en espèces, nets des sorties
+ * corrigées ;</li>
  * <li>{@code expectedCash} = fond + ventes espèces + entrées − sorties ;</li>
  * <li>{@code totalsByMethod} : solde net par moyen de paiement (rapprochement Mobile Money,
  * virements).</li>
@@ -48,8 +49,8 @@ record CashSummary(BigDecimal cashSalesTotal, BigDecimal totalIn, BigDecimal tot
 				case SALE_REFUND, RETURN_REFUND -> sales = sales.subtract(amount);
 				case CUSTOMER_PAYMENT, CASH_IN -> in = in.add(amount);
 				case CORRECTION_OUT -> in = in.subtract(amount);
-				case CASH_OUT -> out = out.add(amount);
-				case CORRECTION_IN -> out = out.subtract(amount);
+				case CASH_OUT, SUPPLIER_PAYMENT, EXPENSE -> out = out.add(amount);
+				case CORRECTION_IN, EXPENSE_CANCELLATION -> out = out.subtract(amount);
 			}
 		}
 		BigDecimal expected = openingBalance.add(sales).add(in).subtract(out);

@@ -26,6 +26,7 @@ import com.geststock.alert.dto.AlertResponse;
 import com.geststock.common.security.Permissions;
 import com.geststock.exception.InvalidRequestException;
 import com.geststock.report.dto.DashboardResponse;
+import com.geststock.report.dto.MyDayResponse;
 import com.geststock.report.dto.DashboardSummaryResponse;
 import com.geststock.report.dto.PurchaseKpis;
 import com.geststock.report.dto.SalesDayPoint;
@@ -146,6 +147,25 @@ public class DashboardService {
 				salesByDay(Period.lastDays(today, 14), warehouseId),
 				topProducts(Period.lastDays(today, 30), 8, warehouseId),
 				stockEvolution(Period.lastDays(today, 7), warehouseId), summary);
+	}
+
+	/** Journée du vendeur {@code sellerId} : ses ventes du jour, sans marge ni chiffres du magasin. */
+	public MyDayResponse myDay(UUID sellerId) {
+		LocalDate today = today();
+		Object[] row = this.queries.sellerDay(sellerId, today, this.zone);
+		java.time.OffsetDateTime last = (java.time.OffsetDateTime) row[5];
+		List<MyDayResponse.SellerDayPoint> last7Days = this.queries
+			.sellerSalesByDay(sellerId, today.minusDays(6), today, this.zone)
+			.stream()
+			.map(r -> new MyDayResponse.SellerDayPoint((LocalDate) r[0], ((LocalDate) r[0]).format(LABEL), (Long) r[1],
+					((BigDecimal) r[2]).setScale(2)))
+			.toList();
+		Object[] payments = this.queries.sellerCustomerPayments(sellerId, today, this.zone);
+		BigDecimal paid = ((BigDecimal) row[2]).setScale(2);
+		BigDecimal received = ((BigDecimal) payments[0]).setScale(2);
+		return new MyDayResponse(today, (Long) row[0], ((BigDecimal) row[1]).setScale(2), paid,
+				((BigDecimal) row[3]).setScale(2), received, (Long) payments[1], paid.add(received), (Long) row[4],
+				last != null ? last.toInstant() : null, last7Days);
 	}
 
 	// --- Calculs --------------------------------------------------------------------------------------

@@ -135,8 +135,10 @@ class OperationsReportService {
 				                                  and ce.entry_type in ('CUSTOMER_PAYMENT', 'CASH_IN') then ce.amount
 				                             when ce.payment_method = 'CASH' and ce.entry_type = 'CORRECTION_OUT' then -ce.amount
 				                             else 0 end), 0) as cash_in,
-				           coalesce(sum(case when ce.payment_method = 'CASH' and ce.entry_type = 'CASH_OUT' then ce.amount
-				                             when ce.payment_method = 'CASH' and ce.entry_type = 'CORRECTION_IN' then -ce.amount
+				           coalesce(sum(case when ce.payment_method = 'CASH'
+				                                  and ce.entry_type in ('CASH_OUT', 'SUPPLIER_PAYMENT', 'EXPENSE') then ce.amount
+				                             when ce.payment_method = 'CASH'
+				                                  and ce.entry_type in ('CORRECTION_IN', 'EXPENSE_CANCELLATION') then -ce.amount
 				                             else 0 end), 0) as cash_out,
 				           coalesce(sum(case when ce.payment_method <> 'CASH'
 				                             then case when ce.direction = 'IN' then ce.amount else -ce.amount end

@@ -1,5 +1,7 @@
 package com.geststock.purchase;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -21,6 +23,45 @@ interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UUID>, Jp
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select o from PurchaseOrder o where o.id = :id")
 	Optional<PurchaseOrder> findForUpdate(@Param("id") UUID id);
+
+	/**
+	 * Commandes d'un fournisseur non annulées, verrouillées, des plus anciennes aux plus récentes
+	 * (ordre d'imputation d'un paiement global, et ordre constant des verrous).
+	 */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+			select o from PurchaseOrder o
+			where o.supplierId = :supplierId and o.status <> com.geststock.purchase.PurchaseOrderStatus.CANCELLED
+			order by o.createdAt, o.id""")
+	List<PurchaseOrder> findPayableForUpdate(@Param("supplierId") UUID supplierId);
+
+	/**
+	 * Totaux d'un fournisseur : {@code [commandé (hors annulées), reçu, dû, payé, commandes avec
+	 * reste à payer]}, sur tous les dépôts ou ceux donnés. Le dû suit
+	 * {@link PurchaseOrder#payableAmount()}.
+	 */
+	@Query("""
+			select coalesce(sum(case when o.status <> com.geststock.purchase.PurchaseOrderStatus.CANCELLED
+			                         then o.totalAmount else 0 end), 0),
+			       coalesce(sum(o.receivedAmount), 0),
+			       coalesce(sum(case when o.status = com.geststock.purchase.PurchaseOrderStatus.CLOSED then o.receivedAmount
+			                         when o.status = com.geststock.purchase.PurchaseOrderStatus.CANCELLED then 0
+			                         else o.totalAmount end), 0),
+			       coalesce(sum(o.paidAmount), 0),
+			       coalesce(sum(case when (case when o.status = com.geststock.purchase.PurchaseOrderStatus.CLOSED
+			                                         then o.receivedAmount
+			                                    when o.status = com.geststock.purchase.PurchaseOrderStatus.CANCELLED then 0
+			                                    else o.totalAmount end) > o.paidAmount then 1 else 0 end), 0)
+			from PurchaseOrder o
+			where o.supplierId = :supplierId and (:allWarehouses = true or o.warehouseId in :warehouseIds)""")
+	List<Object[]> accountTotals(@Param("supplierId") UUID supplierId, @Param("allWarehouses") boolean allWarehouses,
+			@Param("warehouseIds") Collection<UUID> warehouseIds);
+
+	/** {@code true} si le fournisseur a déjà une facture de ce numéro (sans tenir compte de la casse). */
+	@Query("""
+			select count(o) > 0 from PurchaseOrder o
+			where o.supplierId = :supplierId and lower(o.invoiceNumber) = lower(:number)""")
+	boolean existsInvoiceNumber(@Param("supplierId") UUID supplierId, @Param("number") String number);
 
 	/** Prochaine valeur de la numérotation des commandes (jamais {@code max() + 1}). */
 	@Query(value = "select nextval('seq_purchase_order_number')", nativeQuery = true)

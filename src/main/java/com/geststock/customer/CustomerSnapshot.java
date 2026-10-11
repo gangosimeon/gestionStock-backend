@@ -9,12 +9,12 @@ import java.util.UUID;
  * l'entité. La dette se lit par {@link CustomerAccountService#creditStatus}.
  */
 public record CustomerSnapshot(UUID id, String code, String name, CustomerType type, PriceCategory priceCategory,
-		BigDecimal creditLimit, int paymentTermsDays, boolean active) {
+		BigDecimal creditLimit, int paymentTermsDays, boolean active, String phone) {
 
 	static CustomerSnapshot of(Customer customer) {
 		return new CustomerSnapshot(customer.getId(), customer.getCode(), customer.getName(), customer.getType(),
 				customer.getPriceCategory(), customer.getCreditLimit(), customer.getPaymentTermsDays(),
-				customer.isActive());
+				customer.isActive(), customer.getPhone());
 	}
 
 }

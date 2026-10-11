@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -21,6 +22,7 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.BatchSize;
 
 import com.geststock.common.jpa.AuditableEntity;
+import com.geststock.exception.BusinessRuleException;
 import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
 
@@ -66,6 +68,10 @@ public class PurchaseOrder extends AuditableEntity {
 	@Column(name = "received_amount", nullable = false, precision = 14, scale = 2)
 	private BigDecimal receivedAmount = BigDecimal.ZERO.setScale(2);
 
+	/** Somme des imputations de paiements (V025), tenue par {@link SupplierPaymentService}. */
+	@Column(name = "paid_amount", nullable = false, precision = 14, scale = 2)
+	private BigDecimal paidAmount = BigDecimal.ZERO.setScale(2);
+
 	@Column(name = "last_receipt_at")
 	private Instant lastReceiptAt;
 
@@ -77,6 +83,22 @@ public class PurchaseOrder extends AuditableEntity {
 
 	@Column(name = "close_reason", length = 500)
 	private String closeReason;
+
+	// Facture fournisseur (V026) : au plus une, figée une fois enregistrée.
+	@Column(name = "invoice_number", length = 50)
+	private String invoiceNumber;
+
+	@Column(name = "invoice_date")
+	private LocalDate invoiceDate;
+
+	@Column(name = "invoiced_amount", precision = 14, scale = 2)
+	private BigDecimal invoicedAmount;
+
+	@Column(name = "invoiced_at")
+	private Instant invoicedAt;
+
+	@Column(name = "invoiced_by")
+	private UUID invoicedBy;
 
 	@OneToMany(mappedBy = "purchaseOrder", cascade = CascadeType.ALL)
 	@OrderBy("lineNumber")
@@ -126,22 +148,88 @@ public class PurchaseOrder extends AuditableEntity {
 				: PurchaseOrderStatus.PARTIALLY_RECEIVED;
 	}
 
-	/** Annulation : seulement si rien n'a été reçu. */
+	/**
+	 * Annulation : seulement si rien n'a été reçu ni payé (un acompte versé n'aurait plus de
+	 * contrepartie).
+	 */
 	void cancel(Instant at, UUID actor, String reason) {
 		if (this.status != PurchaseOrderStatus.ORDERED) {
 			throw new ConflictException(ErrorCode.PURCHASE_ORDER_NOT_CANCELLABLE,
 					ErrorCode.PURCHASE_ORDER_NOT_CANCELLABLE.defaultMessage());
 		}
+		requirePaidCoveredBy(this.receivedAmount);
 		close(PurchaseOrderStatus.CANCELLED, at, actor, reason);
 	}
 
-	/** Solde du reliquat : la commande reçue en partie n'attend plus rien. */
+	/**
+	 * Solde du reliquat : la commande reçue en partie n'attend plus rien. Refusé si les
+	 * paiements dépassent déjà la valeur reçue.
+	 */
 	void closeRemainder(Instant at, UUID actor, String reason) {
 		if (this.status != PurchaseOrderStatus.PARTIALLY_RECEIVED) {
 			throw new ConflictException(ErrorCode.PURCHASE_ORDER_NOT_CLOSABLE,
 					ErrorCode.PURCHASE_ORDER_NOT_CLOSABLE.defaultMessage());
 		}
+		requirePaidCoveredBy(this.receivedAmount);
 		close(PurchaseOrderStatus.CLOSED, at, actor, reason);
+	}
+
+	// --- Paiements ----------------------------------------------------------------------------
+
+	/**
+	 * Montant dû au fournisseur pour cette commande : le total commandé tant qu'elle est en cours
+	 * ou reçue (un acompte est possible), la valeur reçue une fois soldée, rien si annulée.
+	 */
+	BigDecimal payableAmount() {
+		return switch (this.status) {
+			case ORDERED, PARTIALLY_RECEIVED, RECEIVED -> this.totalAmount;
+			case CLOSED -> this.receivedAmount;
+			case CANCELLED -> BigDecimal.ZERO.setScale(2);
+		};
+	}
+
+	/** Reste à payer (jamais négatif : pas de trop-payé). */
+	BigDecimal remainingToPay() {
+		return payableAmount().subtract(this.paidAmount).max(BigDecimal.ZERO).setScale(2);
+	}
+
+	/** Impute un paiement ; seul {@link SupplierPaymentService} l'appelle, sous verrou de la commande. */
+	void recordPayment(BigDecimal amount) {
+		if (amount.signum() <= 0 || amount.compareTo(remainingToPay()) > 0) {
+			throw new BusinessRuleException(ErrorCode.PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING,
+					ErrorCode.PURCHASE_ORDER_PAYMENT_EXCEEDS_REMAINING.defaultMessage(),
+					Map.<String, Object>of("orderNumber", this.number, "remainingToPay", remainingToPay(), "requested", amount));
+		}
+		this.paidAmount = this.paidAmount.add(amount).setScale(2);
+	}
+
+	// --- Facture -----------------------------------------------------------------------------
+
+	/**
+	 * Enregistre la facture du fournisseur : seulement quand plus rien n'est attendu (reçue ou
+	 * soldée), une seule fois. Le montant facturé est la valeur reçue.
+	 */
+	void recordInvoice(String number, LocalDate date, Instant at, UUID actor) {
+		if (this.invoiceNumber != null) {
+			throw new ConflictException(ErrorCode.PURCHASE_ORDER_ALREADY_INVOICED,
+					ErrorCode.PURCHASE_ORDER_ALREADY_INVOICED.defaultMessage());
+		}
+		if (this.status != PurchaseOrderStatus.RECEIVED && this.status != PurchaseOrderStatus.CLOSED) {
+			throw new ConflictException(ErrorCode.PURCHASE_ORDER_NOT_INVOICEABLE,
+					ErrorCode.PURCHASE_ORDER_NOT_INVOICEABLE.defaultMessage());
+		}
+		this.invoiceNumber = Objects.requireNonNull(number, "number");
+		this.invoiceDate = Objects.requireNonNull(date, "date");
+		this.invoicedAmount = this.receivedAmount;
+		this.invoicedAt = Objects.requireNonNull(at, "at");
+		this.invoicedBy = actor;
+	}
+
+	private void requirePaidCoveredBy(BigDecimal due) {
+		if (this.paidAmount.compareTo(due) > 0) {
+			throw new ConflictException(ErrorCode.PURCHASE_ORDER_PREPAID,
+					ErrorCode.PURCHASE_ORDER_PREPAID.defaultMessage());
+		}
 	}
 
 	static ConflictException notReceivable() {
@@ -190,6 +278,30 @@ public class PurchaseOrder extends AuditableEntity {
 
 	public BigDecimal getTotalAmount() {
 		return this.totalAmount;
+	}
+
+	public String getInvoiceNumber() {
+		return this.invoiceNumber;
+	}
+
+	public LocalDate getInvoiceDate() {
+		return this.invoiceDate;
+	}
+
+	public BigDecimal getInvoicedAmount() {
+		return this.invoicedAmount;
+	}
+
+	public Instant getInvoicedAt() {
+		return this.invoicedAt;
+	}
+
+	public UUID getInvoicedBy() {
+		return this.invoicedBy;
+	}
+
+	public BigDecimal getPaidAmount() {
+		return this.paidAmount;
 	}
 
 	public BigDecimal getReceivedAmount() {

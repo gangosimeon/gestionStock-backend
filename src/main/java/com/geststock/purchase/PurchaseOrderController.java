@@ -36,6 +36,8 @@ import com.geststock.purchase.dto.GoodsReceiptResponse;
 import com.geststock.purchase.dto.PurchaseOrderFilter;
 import com.geststock.purchase.dto.PurchaseOrderResponse;
 import com.geststock.purchase.dto.ReceivePurchaseOrderRequest;
+import com.geststock.purchase.dto.SupplierInvoiceRequest;
+import com.geststock.purchase.dto.SupplierInvoiceResponse;
 import com.geststock.warehouse.CurrentWarehouse;
 import com.geststock.warehouse.WarehouseAccess;
 import com.geststock.warehouse.WarehouseContext;
@@ -139,6 +141,19 @@ class PurchaseOrderController {
 	PurchaseOrderResponse close(@PathVariable UUID id,
 			@Valid @RequestBody(required = false) ClosePurchaseOrderRequest request) {
 		return this.orders.closeRemainder(id, request);
+	}
+
+	@PostMapping("/{id}/invoice")
+	@ResponseStatus(HttpStatus.CREATED)
+	@Audited(action = "INVOICE", entityType = "PURCHASE_ORDER")
+	@RequiresPermission(Permissions.PURCHASE_PAY)
+	@Operation(summary = "Enregistrer la facture du fournisseur",
+			description = "Commande reçue ou soldée, une seule facture, figée. Montant facturé = valeur reçue ; numéro "
+					+ "unique par fournisseur ; date ni future ni antérieure à la commande.")
+	ResponseEntity<SupplierInvoiceResponse> invoice(@PathVariable UUID id,
+			@Valid @RequestBody SupplierInvoiceRequest request) {
+		SupplierInvoiceResponse created = this.orders.invoice(id, request);
+		return ResponseEntity.created(URI.create("/api/purchases/orders/" + id)).body(created);
 	}
 
 }

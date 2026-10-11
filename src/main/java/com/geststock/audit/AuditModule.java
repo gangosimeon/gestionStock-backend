@@ -6,7 +6,7 @@ import java.util.Map;
 public enum AuditModule {
 
 	AUTH, USER, SECURITY, CATALOG, WAREHOUSE, STOCK, SUPPLIER, PURCHASE, CUSTOMER, SALE, RETURN, INVENTORY, CASH,
-	ALERT, AUDIT, SYSTEM;
+	EXPENSE, APPOINTMENT, ALERT, AUDIT, SYSTEM;
 
 	private static final Map<String, AuditModule> BY_ENTITY_TYPE = Map.ofEntries(
 			Map.entry("USER", USER),
@@ -21,12 +21,15 @@ public enum AuditModule {
 			Map.entry("SUPPLIER", SUPPLIER),
 			Map.entry("PURCHASE_ORDER", PURCHASE),
 			Map.entry("GOODS_RECEIPT", PURCHASE),
+			Map.entry("SUPPLIER_PAYMENT", PURCHASE),
 			Map.entry("CUSTOMER", CUSTOMER),
 			Map.entry("SALE", SALE),
 			Map.entry("CUSTOMER_RETURN", RETURN),
 			Map.entry("INVENTORY_SESSION", INVENTORY),
 			Map.entry("CASH_SESSION", CASH),
 			Map.entry("CASH_ENTRY", CASH),
+			Map.entry("EXPENSE", EXPENSE),
+			Map.entry("APPOINTMENT", APPOINTMENT),
 			Map.entry("ALERT_SETTING", ALERT),
 			Map.entry("AUDIT_LOG", AUDIT),
 			Map.entry("SYSTEM", SYSTEM));
