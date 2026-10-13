@@ -143,6 +143,10 @@ class SupplierPaymentApiIT {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.total").value(1))
 			.andExpect(jsonPath("$.items[0].allocations.length()").value(2));
+		this.mvc.perform(get("/api/suppliers/{id}/payments", this.supplier).with(manager()).param("q", "paf-"))
+			.andExpect(jsonPath("$.total").value(1));
+		this.mvc.perform(get("/api/suppliers/{id}/payments", this.supplier).with(manager()).param("q", "introuvable"))
+			.andExpect(jsonPath("$.total").value(0));
 		assertThat(this.jdbc.queryForObject(
 				"select sum(paid_amount) from purchase_order where supplier_id = ?", Integer.class, this.supplier))
 			.isEqualTo(45000);

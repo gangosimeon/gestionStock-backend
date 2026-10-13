@@ -50,7 +50,9 @@ class SupplierPurchaseHistoryController {
 					+ "(tous avec allWarehouses=true et warehouse:all).")
 	ResponseEntity<PageResponse<SupplierPurchaseHistoryResponse>> history(@PathVariable UUID supplierId,
 			@CurrentWarehouse WarehouseContext warehouse,
-			@RequestParam(required = false) Boolean allWarehouses, @RequestParam(required = false) Integer page,
+			@RequestParam(required = false) Boolean allWarehouses,
+			@Parameter(description = "Recherche texte : n° de réception, n° de commande") @RequestParam(required = false) String q,
+			@RequestParam(required = false) Integer page,
 			@RequestParam(required = false) Integer size,
 			@Parameter(description = "purchaseDateIso | totalAmount, asc | desc") @RequestParam(
 					required = false) List<String> sort) {
@@ -63,7 +65,7 @@ class SupplierPurchaseHistoryController {
 			scope = null;
 		}
 		PageQuery query = new PageQuery(page, size, sort);
-		return PageResponse.toResponse(this.orders.supplierHistory(supplierId, scope, query), query);
+		return PageResponse.toResponse(this.orders.supplierHistory(supplierId, scope, q, query), query);
 	}
 
 }

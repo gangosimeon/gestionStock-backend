@@ -121,6 +121,23 @@ public class UserAccountService {
 			.details("Mot de passe changé par l'utilisateur ; autres sessions fermées"));
 	}
 
+	/**
+	 * Identifiants des utilisateurs dont l'identifiant de connexion, le prénom ou le nom contient le
+	 * texte : recherches des autres modules (historiques). 500 au plus.
+	 */
+	public java.util.Set<UUID> idsMatching(String text) {
+		String pattern = com.geststock.common.api.SearchText.pattern(text);
+		org.springframework.data.jpa.domain.Specification<AppUser> spec = (root, q, cb) -> cb.or(
+				cb.like(cb.lower(root.get("username")), pattern, '\\'),
+				cb.like(cb.lower(cb.coalesce(root.get("firstName"), "")), pattern, '\\'),
+				cb.like(cb.lower(cb.coalesce(root.get("lastName"), "")), pattern, '\\'));
+		return this.repository.findAll(spec, org.springframework.data.domain.PageRequest.of(0, 500))
+			.getContent()
+			.stream()
+			.map(AppUser::getId)
+			.collect(Collectors.toUnmodifiableSet());
+	}
+
 	/** Identifiants de connexion des utilisateurs demandés (affichage des historiques). */
 	public Map<UUID, String> usernames(Collection<UUID> ids) {
 		if (ids.isEmpty()) {

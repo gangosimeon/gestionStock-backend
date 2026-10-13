@@ -49,9 +49,11 @@ public class CustomerPaymentService {
 	}
 
 	/** Règlements d'un client, des plus récents aux plus anciens. */
-	public Page<CustomerPaymentResponse> list(UUID customerId, PageQuery query) {
+	public Page<CustomerPaymentResponse> list(UUID customerId, String text, PageQuery query) {
 		this.customers.getForAssignment(customerId, false);
-		return this.entries.findCustomerPayments(customerId, query.toPageable(CashService.ENTRY_SORTS))
+		return this.entries
+			.findCustomerPayments(customerId, com.geststock.common.api.SearchText.pattern(text),
+					query.toPageable(CashService.ENTRY_SORTS))
 			.map(CustomerPaymentService::toResponse);
 	}
 

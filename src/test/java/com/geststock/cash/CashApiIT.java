@@ -178,6 +178,10 @@ class CashApiIT {
 		RequestPostProcessor supervisor = actor(this.alice, Permissions.CASH_READ, Permissions.WAREHOUSE_READ);
 		this.mvc.perform(get("/api/cash-register/sessions").with(supervisor))
 			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/cash-register/sessions").with(supervisor).param("q", "cai-"))
+			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/cash-register/sessions").with(supervisor).param("q", "introuvable"))
+			.andExpect(jsonPath("$.total").value(0));
 		this.mvc.perform(get("/api/cash-register/sessions").with(supervisor).param("cashierId", this.bruno.toString()))
 			.andExpect(jsonPath("$.total").value(1))
 			.andExpect(jsonPath("$.items[0].openedByUserId").value(this.bruno.toString()));
@@ -246,6 +250,12 @@ class CashApiIT {
 		this.mvc.perform(get("/api/customers/{id}/payments", this.customer).with(cashier(this.alice)))
 			.andExpect(jsonPath("$.total").value(1))
 			.andExpect(jsonPath("$.items[0].amount").value(20000));
+		this.mvc.perform(get("/api/customers/{id}/payments", this.customer).with(cashier(this.alice)).param("q", "ACOMPTE"))
+			.andExpect(jsonPath("$.total").value(1));
+		this.mvc.perform(get("/api/customers/{id}/payments", this.customer).with(cashier(this.alice)).param("q", "opc-"))
+			.andExpect(jsonPath("$.total").value(1));
+		this.mvc.perform(get("/api/customers/{id}/payments", this.customer).with(cashier(this.alice)).param("q", "100%"))
+			.andExpect(jsonPath("$.total").value(0));
 		this.mvc.perform(get("/api/cash-register/current").with(cashier(this.alice)))
 			.andExpect(jsonPath("$.totalIn").value(20000))
 			.andExpect(jsonPath("$.expectedCash").value(20000));

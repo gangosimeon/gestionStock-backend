@@ -112,6 +112,10 @@ class InventoryApiIT {
 		action(counter(), id, "submit").andExpect(jsonPath("$.status").value("VALIDATION"));
 		counts(counter(), id, this.cloth, 6).andExpect(status().isConflict());
 
+		this.mvc.perform(get("/api/inventories").with(manager()).param("q", "inv-"))
+			.andExpect(jsonPath("$.items[*].id", org.hamcrest.Matchers.hasItem(id)));
+		this.mvc.perform(get("/api/inventories").with(manager()).param("q", "introuvable"))
+			.andExpect(jsonPath("$.total").value(0));
 		this.mvc.perform(get("/api/inventories/{id}", id).with(counter()))
 			.andExpect(jsonPath("$.lines[?(@.productSku == 'INV-ETU-1')].systemQuantity").value(10))
 			.andExpect(jsonPath("$.lines[?(@.productSku == 'INV-ETU-1')].physicalQuantity").value(8))

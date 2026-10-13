@@ -47,7 +47,8 @@ public class CategoryService {
 			String escaped = text.trim().toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%")
 				.replace("_", "\\_");
 			String pattern = "%" + escaped + "%";
-			spec = spec.and((root, q, cb) -> cb.like(cb.lower(root.get("name")), pattern, '\\'));
+			spec = spec.and((root, q, cb) -> cb.or(cb.like(cb.lower(root.get("name")), pattern, '\\'),
+					cb.like(cb.lower(cb.coalesce(root.get("description"), "")), pattern, '\\')));
 		}
 		Boolean active = (status != null ? status : ActiveStatus.ACTIVE).asActiveFlag();
 		if (active != null) {

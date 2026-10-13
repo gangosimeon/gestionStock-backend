@@ -51,6 +51,10 @@ class CatalogReferenceApiIT {
 	@WithPermissions(all = true)
 	void categoryLifecycleWithCaseInsensitiveUniqueness() throws Exception {
 		String id = idOf(create("/api/categories", "{\"name\": \"Lunettes de soleil\", \"description\": \"Solaires\"}"));
+		// La recherche couvre aussi la description.
+		this.mvc.perform(get("/api/categories").param("q", "solaires"))
+			.andExpect(jsonPath("$.items[*].name", hasItem("Lunettes de soleil")));
+		this.mvc.perform(get("/api/categories").param("q", "introuvable")).andExpect(jsonPath("$.total").value(0));
 
 		create("/api/categories", "{\"name\": \"LUNETTES DE SOLEIL\"}")
 			.andExpect(status().isConflict())

@@ -13,6 +13,8 @@ import com.geststock.cash.CashSessionStatus;
  * @param to            sessions ouvertes avant cet instant (exclu)
  * @param allWarehouses tous les dépôts (exige {@code warehouse:all}) au lieu du dépôt courant
  */
-public record CashSessionFilter(CashSessionStatus status, UUID cashierId, Instant from, Instant to,
+public record CashSessionFilter(
+		@io.swagger.v3.oas.annotations.media.Schema(description = "Recherche texte : n° de caisse", example = "CAI-2026") String q,
+		CashSessionStatus status, UUID cashierId, Instant from, Instant to,
 		Boolean allWarehouses) {
 }

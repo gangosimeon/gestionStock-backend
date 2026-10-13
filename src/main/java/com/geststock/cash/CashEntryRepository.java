@@ -43,8 +43,13 @@ interface CashEntryRepository extends Repository<CashEntry, UUID> {
 	@Query("select e from CashEntry e where e.sessionId = :sessionId")
 	Page<CashEntry> findBySession(@Param("sessionId") UUID sessionId, Pageable pageable);
 
-	@Query("select e from CashEntry e where e.customerId = :customerId and e.type = com.geststock.cash.CashEntryType.CUSTOMER_PAYMENT")
-	Page<CashEntry> findCustomerPayments(@Param("customerId") UUID customerId, Pageable pageable);
+	/** Règlements d'un client ; {@code pattern} : motif LIKE (référence, note), « % » pour tous. */
+	@Query("""
+			select e from CashEntry e
+			where e.customerId = :customerId and e.type = com.geststock.cash.CashEntryType.CUSTOMER_PAYMENT
+			  and (lower(e.number) like :pattern escape '\\' or lower(coalesce(e.note, '')) like :pattern escape '\\')""")
+	Page<CashEntry> findCustomerPayments(@Param("customerId") UUID customerId, @Param("pattern") String pattern,
+			Pageable pageable);
 
 	/** Prochaine valeur de la numérotation des écritures (référence OPC-…). */
 	@Query(value = "select nextval('seq_cash_entry_number')", nativeQuery = true)

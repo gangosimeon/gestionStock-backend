@@ -93,6 +93,19 @@ public class StockQueryService implements ProductStockReader {
 		if (filter.type() != null && !filter.type().isEmpty()) {
 			spec = spec.and((root, q, cb) -> root.get("type").in(filter.type()));
 		}
+		if (com.geststock.common.api.SearchText.present(filter.q())) {
+			String pattern = com.geststock.common.api.SearchText.pattern(filter.q());
+			Set<UUID> productIds = this.products.idsMatching(filter.q());
+			Set<UUID> userIds = this.users.idsMatching(filter.q());
+			spec = spec.and((root, q, cb) -> {
+				List<jakarta.persistence.criteria.Predicate> any = new java.util.ArrayList<>();
+				any.add(cb.like(cb.lower(cb.coalesce(root.get("reason"), "")), pattern, '\\'));
+				any.add(cb.like(cb.lower(cb.coalesce(root.get("sourceReference"), "")), pattern, '\\'));
+				if (!productIds.isEmpty()) any.add(root.get("productId").in(productIds));
+				if (!userIds.isEmpty()) any.add(root.get("createdBy").in(userIds));
+				return cb.or(any.toArray(jakarta.persistence.criteria.Predicate[]::new));
+			});
+		}
 		Page<StockMovement> page = this.search.findAll(StockMovement.class, spec, query.toPageable(MOVEMENT_SORTS));
 		List<StockMovementResponse> responses = toResponses(page.getContent());
 		Map<UUID, StockMovementResponse> byId = responses.stream()

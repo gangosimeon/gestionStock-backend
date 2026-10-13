@@ -358,6 +358,15 @@ class PurchaseApiIT {
 			.andExpect(jsonPath("$.items[0].itemsCount").value(6))
 			.andExpect(jsonPath("$.items[0].totalAmount").value(90000))
 			.andExpect(jsonPath("$.items[0].purchaseDateIso").isString());
+		// Recherche : n° de réception ou n° de commande.
+		for (String q : new String[] { "rec-", "CMD-" }) {
+			this.mvc.perform(get("/api/suppliers/{id}/purchases", this.supplier).with(manager())
+				.param("allWarehouses", "true").param("q", q))
+				.andExpect(jsonPath("$.total").value(1));
+		}
+		this.mvc.perform(get("/api/suppliers/{id}/purchases", this.supplier).with(manager())
+			.param("allWarehouses", "true").param("q", "introuvable"))
+			.andExpect(jsonPath("$.total").value(0));
 		checkDeferredConstraints();
 	}
 

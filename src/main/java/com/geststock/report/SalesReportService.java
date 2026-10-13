@@ -130,6 +130,10 @@ class SalesReportService {
 			productFilters.append(" and p.category_id = :categoryId");
 			params.addValue("categoryId", f.categoryId());
 		}
+		if (com.geststock.common.api.SearchText.present(f.q())) {
+			productFilters.append(" and (lower(p.name) like :q or lower(p.sku) like :q)");
+			params.addValue("q", com.geststock.common.api.SearchText.pattern(f.q()));
+		}
 		String rows = """
 				with sold as (
 				    select l.product_id, sum(l.quantity) as qty, sum(l.line_total) as revenue, sum(l.cost_total) as cost

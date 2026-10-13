@@ -231,6 +231,10 @@ class SaleApiIT {
 			.andExpect(jsonPath("$.creditAmount").value(50000));
 		this.mvc.perform(get("/api/customers/{id}/sales", this.customer).with(manager()))
 			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/customers/{id}/sales", this.customer).with(manager()).param("q", "vte-"))
+			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/customers/{id}/sales", this.customer).with(manager()).param("q", "introuvable"))
+			.andExpect(jsonPath("$.total").value(0));
 		checkDeferredConstraints();
 	}
 

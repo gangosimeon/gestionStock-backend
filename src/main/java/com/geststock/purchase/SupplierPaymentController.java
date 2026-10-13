@@ -55,11 +55,12 @@ class SupplierPaymentController {
 	@Operation(summary = "Paiements d'un fournisseur", description = "Du plus récent au plus ancien, avec leur "
 			+ "répartition sur les commandes.")
 	ResponseEntity<PageResponse<SupplierPaymentResponse>> list(@PathVariable UUID supplierId,
+			@Parameter(description = "Recherche texte : n° de paiement, référence externe, note") @RequestParam(required = false) String q,
 			@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
 			@Parameter(description = "paymentDate | createdAt | amount | number, asc | desc") @RequestParam(
 					required = false) List<String> sort) {
 		PageQuery query = new PageQuery(page, size, sort);
-		return PageResponse.toResponse(this.payments.list(supplierId, query), query);
+		return PageResponse.toResponse(this.payments.list(supplierId, q, query), query);
 	}
 
 	@PostMapping("/api/suppliers/{supplierId}/payments")

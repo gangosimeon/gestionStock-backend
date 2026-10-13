@@ -13,7 +13,15 @@ import org.springframework.data.repository.query.Param;
 /** Accès aux paiements fournisseurs et à leurs imputations, réservé au module {@code purchase}. */
 interface SupplierPaymentRepository extends JpaRepository<SupplierPayment, UUID> {
 
-	Page<SupplierPayment> findBySupplierId(UUID supplierId, Pageable pageable);
+	/** Paiements d'un fournisseur ; {@code pattern} : motif LIKE (n°, référence externe, note), « % » pour tous. */
+	@Query("""
+			select p from SupplierPayment p
+			where p.supplierId = :supplierId
+			  and (lower(p.number) like :pattern escape '\\'
+			       or lower(coalesce(p.externalReference, '')) like :pattern escape '\\'
+			       or lower(coalesce(p.note, '')) like :pattern escape '\\')""")
+	Page<SupplierPayment> findBySupplier(@Param("supplierId") UUID supplierId, @Param("pattern") String pattern,
+			Pageable pageable);
 
 	/** Imputations des paiements donnés, avec le numéro de la commande. */
 	@Query("""

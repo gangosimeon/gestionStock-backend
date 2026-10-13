@@ -190,6 +190,9 @@ class ReportApiIT {
 		perform(get("/api/reports/sales/by-product").param("categoryId", this.category.toString()), null)
 			.andExpect(jsonPath("$.total").value(1))
 			.andExpect(jsonPath("$.items[0].profit").value(6000));
+		perform(get("/api/reports/sales/by-product").param("q", "rpt-a"), null)
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].sku").value("RPT-A"));
 
 		String today = LocalDate.now(ZoneId.of("Africa/Abidjan")).toString();
 		perform(get("/api/reports/sales/by-period").param("from", today).param("to", today), null)

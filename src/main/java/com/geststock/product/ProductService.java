@@ -194,6 +194,20 @@ public class ProductService {
 	}
 
 	/**
+	 * Identifiants des produits (actifs ou non) dont la référence, le nom ou le code-barres contient
+	 * le texte : recherches des autres modules (historiques, rapports). 500 au plus.
+	 */
+	public java.util.Set<UUID> idsMatching(String text) {
+		return this.repository
+			.findAll(ProductSpecifications.matching(new ProductFilter(text, null, null, null, ActiveStatus.ALL)),
+					org.springframework.data.domain.PageRequest.of(0, 500))
+			.getContent()
+			.stream()
+			.map(Product::getId)
+			.collect(Collectors.toUnmodifiableSet());
+	}
+
+	/**
 	 * Produits existants (actifs ou non) parmi les identifiants demandés, pour les autres
 	 * modules. Les identifiants inconnus sont absents du résultat.
 	 */

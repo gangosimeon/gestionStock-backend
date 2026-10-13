@@ -43,7 +43,7 @@ union TypeScript.
 | Droits | Afficher les menus d'après `GET /api/auth/me` (`permissions`) ; chaque opération documente sa permission (`x-permissions`, description). Le serveur reste l'autorité (`403 ACCESS_DENIED`). |
 | Dépôt courant | En-tête `X-Warehouse-Id` sur les routes qui le déclarent (intercepteur, depuis le sélecteur de dépôt). |
 | Erreurs | Lire `error.code` (stable) pour la logique, afficher `error.message` (français), `error.errors[]` pour surligner les champs, `error.details` pour le contexte (stock disponible, plafond…). Catalogue complet : description du document. |
-| Listes | `{items, total, page, size, totalPages}` ; passer `page`/`size` pour paginer côté serveur. Rapports : `summary` = totaux de tout le filtre. |
+| Listes | `{items, total, page, size, totalPages}` ; passer `page`/`size` pour paginer côté serveur, `sort=champ,asc` ou `desc` (champs autorisés : description de chaque route) et `q` pour la recherche texte quand la route le déclare (insensible à la casse, champs cherchés indiqués dans sa description). Rapports : `summary` = totaux de tout le filtre. |
 | Montants | Le serveur calcule prix, remises, coûts et totaux ; ne pas envoyer de prix calculés (ils sont ignorés). Afficher les montants renvoyés. |
 | Dates | Instants ISO-8601 UTC ; dates seules `AAAA-MM-JJ`. |
 | Créations | `201` + en-tête `Location` ; corps = ressource créée. |

@@ -11,5 +11,7 @@ import com.geststock.inventory.InventoryStatus;
  * @param to            inventaires créés avant cet instant (exclu)
  * @param allWarehouses tous les dépôts (exige {@code warehouse:all}) au lieu du dépôt courant
  */
-public record InventoryFilter(InventoryStatus status, Instant from, Instant to, Boolean allWarehouses) {
+public record InventoryFilter(
+		@io.swagger.v3.oas.annotations.media.Schema(description = "Recherche texte : n° d'inventaire", example = "INV-2026") String q,
+		InventoryStatus status, Instant from, Instant to, Boolean allWarehouses) {
 }

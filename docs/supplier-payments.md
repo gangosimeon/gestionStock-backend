@@ -8,7 +8,7 @@ Un paiement règle une dette d'achat. Il est toujours imputé sur des commandes,
 
 | Méthode | URL | Permission | Rôle |
 |---|---|---|---|
-| GET | `/api/suppliers/{id}/payments` | `purchase:read` | Paiements du fournisseur, du plus récent au plus ancien, avec leur répartition par commande. |
+| GET | `/api/suppliers/{id}/payments` | `purchase:read` | Paiements du fournisseur, du plus récent au plus ancien, avec leur répartition par commande. Recherche `q` : n°, référence externe, note. |
 | POST | `/api/suppliers/{id}/payments` | `purchase:pay` | Payer un fournisseur. La commande est facultative. Réponse : 201 `SupplierPayment`. |
 | GET | `/api/suppliers/{id}/account` | `purchase:read` | Compte du fournisseur, calculé par le serveur. |
 | POST | `/api/purchases/orders/{id}/pay` | `purchase:pay` | Payer une commande. Même règle que ci-dessus. Réponse : 200 avec la commande et son `paidAmount` à jour. |

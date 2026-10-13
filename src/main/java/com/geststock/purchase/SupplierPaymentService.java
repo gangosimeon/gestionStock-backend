@@ -90,9 +90,10 @@ public class SupplierPaymentService {
 	}
 
 	/** Paiements d'un fournisseur, des plus récents aux plus anciens. */
-	public Page<SupplierPaymentResponse> list(UUID supplierId, PageQuery query) {
+	public Page<SupplierPaymentResponse> list(UUID supplierId, String text, PageQuery query) {
 		this.suppliers.getForAssignment(supplierId, false);
-		Page<SupplierPayment> page = this.payments.findBySupplierId(supplierId, query.toPageable(SORTS));
+		Page<SupplierPayment> page = this.payments.findBySupplier(supplierId,
+				com.geststock.common.api.SearchText.pattern(text), query.toPageable(SORTS));
 		Map<UUID, List<SupplierPaymentResponse.Allocation>> allocated = allocationsOf(
 				page.getContent().stream().map(SupplierPayment::getId).toList());
 		return page.map(p -> toResponse(p, allocated.getOrDefault(p.getId(), List.of())));

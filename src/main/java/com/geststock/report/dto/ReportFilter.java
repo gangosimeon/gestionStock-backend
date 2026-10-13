@@ -24,5 +24,6 @@ public record ReportFilter(
 		@DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
 		@DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
 		UUID warehouseId, Boolean allWarehouses, UUID productId, UUID categoryId, UUID userId, UUID customerId,
-		UUID supplierId, String status, String type, String stockState, Boolean withBalance, String groupBy) {
+		UUID supplierId, String status, String type, String stockState, Boolean withBalance, String groupBy,
+		@io.swagger.v3.oas.annotations.media.Schema(description = "Recherche texte (rapport par produit : nom, référence)") String q) {
 }

@@ -156,6 +156,15 @@ class StockApiIT {
 		this.mvc.perform(get("/api/stock/movements").with(manager()).param("productId", this.product.toString())
 			.param("allWarehouses", "true"))
 			.andExpect(jsonPath("$.total").value(3));
+		// Recherche texte : produit (référence, nom), utilisateur.
+		this.mvc.perform(get("/api/stock/movements").with(manager()).param("q", "stk-api"))
+			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/stock/movements").with(manager()).param("q", "monture api"))
+			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/stock/movements").with(manager()).param("q", "gestionnaire"))
+			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/stock/movements").with(manager()).param("q", "introuvable"))
+			.andExpect(jsonPath("$.total").value(0));
 		this.mvc.perform(get("/api/stock/levels").with(manager()).param("productId", this.product.toString()))
 			.andExpect(jsonPath("$.items[0].quantity").value(3))
 			.andExpect(jsonPath("$.items[0].warehouseId").value(this.main.toString()));

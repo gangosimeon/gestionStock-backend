@@ -145,10 +145,12 @@ public class PurchaseOrderService {
 	}
 
 	/** Historique d'achats d'un fournisseur : ses réceptions, dans un dépôt ou dans tous. */
-	public Page<SupplierPurchaseHistoryResponse> supplierHistory(UUID supplierId, UUID warehouseId, PageQuery query) {
+	public Page<SupplierPurchaseHistoryResponse> supplierHistory(UUID supplierId, UUID warehouseId, String text,
+			PageQuery query) {
 		this.suppliers.getForAssignment(supplierId, false);
 		return this.receipts
-			.findSupplierHistory(supplierId, warehouseId, query.toPageable(GoodsReceiptService.HISTORY_SORTS))
+			.findSupplierHistory(supplierId, warehouseId, com.geststock.common.api.SearchText.pattern(text),
+					query.toPageable(GoodsReceiptService.HISTORY_SORTS))
 			.map(PurchaseMapper::toHistory);
 	}
 

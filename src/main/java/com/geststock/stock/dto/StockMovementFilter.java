@@ -19,6 +19,7 @@ import com.geststock.stock.StockMovementType;
  * @param allWarehouses tous les dépôts au lieu du dépôt courant ({@code warehouse:all} requis)
  */
 public record StockMovementFilter(
+		@Schema(description = "Recherche texte : produit (nom, référence, code-barres), motif, pièce source, utilisateur", example = "ray-ban") String q,
 		@Schema(example = "2026-10-01T00:00:00Z") Instant from,
 		@Schema(example = "2026-10-31T23:59:59Z") Instant to,
 		UUID productId,

@@ -30,13 +30,16 @@ interface GoodsReceiptRepository extends Repository<GoodsReceipt, UUID> {
 	/** Réceptions d'un fournisseur (historique d'achats), éventuellement limitées à un dépôt. */
 	@Query(value = """
 			select r from GoodsReceipt r join fetch r.purchaseOrder o
-			where o.supplierId = :supplierId and (:warehouseId is null or r.warehouseId = :warehouseId)""",
+			where o.supplierId = :supplierId and (:warehouseId is null or r.warehouseId = :warehouseId)
+			  and (lower(r.number) like :pattern escape '\\' or lower(o.number) like :pattern escape '\\')""",
 			countQuery = """
 					select count(r) from GoodsReceipt r
 					where r.purchaseOrder.supplierId = :supplierId
-					  and (:warehouseId is null or r.warehouseId = :warehouseId)""")
+					  and (:warehouseId is null or r.warehouseId = :warehouseId)
+					  and (lower(r.number) like :pattern escape '\\'
+					       or lower(r.purchaseOrder.number) like :pattern escape '\\')""")
 	Page<GoodsReceipt> findSupplierHistory(@Param("supplierId") UUID supplierId,
-			@Param("warehouseId") UUID warehouseId, Pageable pageable);
+			@Param("warehouseId") UUID warehouseId, @Param("pattern") String pattern, Pageable pageable);
 
 	/** Prochaine valeur de la numérotation des réceptions. */
 	@Query(value = "select nextval('seq_goods_receipt_number')", nativeQuery = true)

@@ -2613,6 +2613,14 @@
             "format" : "uuid"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : n° de paiement, référence externe, note",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
           "name" : "page",
           "in" : "query",
           "required" : false,
@@ -2743,6 +2751,17 @@
         "description" : "Mouvements du dépôt courant, du plus récent au plus ancien. Sans page ni size : liste complète (compatibilité front, plafond 5 000). allWarehouses=true exige warehouse:all.\n\n**Permission** : `stock:read`.",
         "operationId" : "listStockMovements",
         "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : produit (nom, référence, code-barres), motif, pièce source, utilisateur",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte : produit (nom, référence, code-barres), motif, pièce source, utilisateur",
+            "example" : "ray-ban"
+          },
+          "example" : "ray-ban"
+        }, {
           "name" : "from",
           "in" : "query",
           "required" : false,
@@ -4513,6 +4532,17 @@
         "description" : "**Permission** : `inventory:read`.",
         "operationId" : "listLegacyInventory",
         "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : n° d'inventaire",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte : n° d'inventaire",
+            "example" : "INV-2026"
+          },
+          "example" : "INV-2026"
+        }, {
           "name" : "status",
           "in" : "query",
           "required" : false,
@@ -4670,6 +4700,17 @@
         "description" : "Inventaires du dépôt courant, plus récents d'abord ; filtres status, from, to. allWarehouses=true exige warehouse:all.\n\n**Permission** : `inventory:read`.",
         "operationId" : "listInventory",
         "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : n° d'inventaire",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte : n° d'inventaire",
+            "example" : "INV-2026"
+          },
+          "example" : "INV-2026"
+        }, {
           "name" : "status",
           "in" : "query",
           "required" : false,
@@ -5764,6 +5805,14 @@
           "schema" : {
             "type" : "string",
             "format" : "uuid"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : référence, note",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
           }
         }, {
           "name" : "page",
@@ -7485,6 +7534,14 @@
             "type" : "boolean"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : n° de réception, n° de commande",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
           "name" : "page",
           "in" : "query",
           "required" : false,
@@ -8054,6 +8111,15 @@
             "type" : "string"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
+          }
+        }, {
           "name" : "page",
           "in" : "query",
           "required" : false,
@@ -8227,6 +8293,15 @@
           "required" : false,
           "schema" : {
             "type" : "string"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
           }
         }, {
           "name" : "page",
@@ -8445,6 +8520,15 @@
             "type" : "string"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
+          }
+        }, {
           "name" : "page",
           "in" : "query",
           "required" : false,
@@ -8620,6 +8704,15 @@
             "type" : "string"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
+          }
+        }, {
           "name" : "X-Warehouse-Id",
           "in" : "header",
           "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
@@ -8770,6 +8863,15 @@
           "required" : false,
           "schema" : {
             "type" : "string"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
           }
         }, {
           "name" : "page",
@@ -9002,6 +9104,15 @@
             "type" : "string"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
+          }
+        }, {
           "name" : "X-Warehouse-Id",
           "in" : "header",
           "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
@@ -9154,6 +9265,15 @@
             "type" : "string"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
+          }
+        }, {
           "name" : "X-Warehouse-Id",
           "in" : "header",
           "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
@@ -9304,6 +9424,15 @@
           "required" : false,
           "schema" : {
             "type" : "string"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
           }
         }, {
           "name" : "page",
@@ -9481,6 +9610,15 @@
             "type" : "string"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
+          }
+        }, {
           "name" : "X-Warehouse-Id",
           "in" : "header",
           "description" : "Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.",
@@ -9631,6 +9769,15 @@
           "required" : false,
           "schema" : {
             "type" : "string"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
           }
         }, {
           "name" : "page",
@@ -9808,6 +9955,15 @@
             "type" : "string"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
+          }
+        }, {
           "name" : "page",
           "in" : "query",
           "required" : false,
@@ -9981,6 +10137,15 @@
           "required" : false,
           "schema" : {
             "type" : "string"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
           }
         }, {
           "name" : "page",
@@ -10185,6 +10350,15 @@
           "required" : false,
           "schema" : {
             "type" : "string"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte (rapport par produit : nom, référence)",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte (rapport par produit : nom, référence)"
           }
         }, {
           "name" : "page",
@@ -11243,6 +11417,14 @@
             "format" : "uuid"
           }
         }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : n° de vente",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
           "name" : "page",
           "in" : "query",
           "required" : false,
@@ -11307,6 +11489,17 @@
         "description" : "Ses propres caisses ; toutes celles du dépôt courant avec cash:read (filtre cashierId). Plus récentes d'abord. allWarehouses=true exige warehouse:all.\n\n**Permission** : une parmi `cash:operate`, `cash:read`.",
         "operationId" : "listCashSessions",
         "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Recherche texte : n° de caisse",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "description" : "Recherche texte : n° de caisse",
+            "example" : "CAI-2026"
+          },
+          "example" : "CAI-2026"
+        }, {
           "name" : "status",
           "in" : "query",
           "required" : false,
@@ -16139,50 +16332,47 @@
           "string" : {
             "type" : "boolean"
           },
-          "number" : {
-            "type" : "boolean"
-          },
-          "boolean" : {
-            "type" : "boolean"
-          },
-          "long" : {
-            "type" : "boolean"
-          },
-          "pojo" : {
-            "type" : "boolean"
-          },
-          "object" : {
-            "type" : "boolean"
-          },
-          "int" : {
+          "floatingPointNumber" : {
             "type" : "boolean"
           },
           "binary" : {
-            "type" : "boolean"
-          },
-          "short" : {
             "type" : "boolean"
           },
           "textual" : {
             "type" : "boolean",
             "deprecated" : true
           },
+          "int" : {
+            "type" : "boolean"
+          },
+          "pojo" : {
+            "type" : "boolean"
+          },
+          "long" : {
+            "type" : "boolean"
+          },
+          "number" : {
+            "type" : "boolean"
+          },
+          "short" : {
+            "type" : "boolean"
+          },
+          "boolean" : {
+            "type" : "boolean"
+          },
           "double" : {
             "type" : "boolean"
           },
-          "floatingPointNumber" : {
+          "object" : {
             "type" : "boolean"
           },
           "missingNode" : {
             "type" : "boolean"
           },
-          "integralNumber" : {
+          "bigInteger" : {
             "type" : "boolean"
           },
           "valueNode" : {
-            "type" : "boolean"
-          },
-          "bigInteger" : {
             "type" : "boolean"
           },
           "bigDecimal" : {
@@ -16191,6 +16381,9 @@
           "nodeType" : {
             "type" : "string",
             "enum" : [ "ARRAY", "BINARY", "BOOLEAN", "MISSING", "NULL", "NUMBER", "OBJECT", "POJO", "STRING" ]
+          },
+          "integralNumber" : {
+            "type" : "boolean"
           },
           "embeddedValue" : {
             "type" : "boolean"
@@ -16346,8 +16539,8 @@
               "message" : "Données invalides : quantity doit être supérieur ou égal à 1",
               "detail" : "Données invalides : quantity doit être supérieur ou égal à 1",
               "errors" : [ {
-                "message" : "doit être supérieur ou égal à 1",
-                "field" : "items[0].quantity"
+                "field" : "items[0].quantity",
+                "message" : "doit être supérieur ou égal à 1"
               } ],
               "details" : { },
               "traceId" : "4bf92f3577b34da6a3ce929d0e0e4736",

@@ -48,10 +48,11 @@ class CustomerPaymentController {
 	@RequiresPermission(Permissions.CUSTOMER_READ)
 	@Operation(summary = "Règlements d'un client")
 	ResponseEntity<PageResponse<CustomerPaymentResponse>> list(@PathVariable UUID customerId,
+			@Parameter(description = "Recherche texte : référence, note") @RequestParam(required = false) String q,
 			@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
 			@Parameter(description = "createdAt | amount, asc | desc") @RequestParam(required = false) List<String> sort) {
 		PageQuery query = new PageQuery(page, size, sort);
-		return PageResponse.toResponse(this.payments.list(customerId, query), query);
+		return PageResponse.toResponse(this.payments.list(customerId, q, query), query);
 	}
 
 	@PostMapping

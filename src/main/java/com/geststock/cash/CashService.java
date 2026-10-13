@@ -121,6 +121,10 @@ public class CashService {
 		if (filter.status() != null) {
 			spec = spec.and((root, q, cb) -> cb.equal(root.get("status"), filter.status()));
 		}
+		if (com.geststock.common.api.SearchText.present(filter.q())) {
+			String pattern = com.geststock.common.api.SearchText.pattern(filter.q());
+			spec = spec.and((root, q, cb) -> cb.like(cb.lower(root.get("number")), pattern, '\\'));
+		}
 		if (filter.from() != null) {
 			spec = spec.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("openedAt"), filter.from()));
 		}

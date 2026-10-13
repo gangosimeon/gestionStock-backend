@@ -40,11 +40,12 @@ class CustomerSalesController {
 	@Operation(summary = "Ventes d'un client", description = "Dans tous les dépôts que l'utilisateur peut consulter (tous avec warehouse:all), "
 			+ "des plus récentes aux plus anciennes.")
 	ResponseEntity<PageResponse<SaleResponse>> list(@PathVariable UUID customerId,
+			@Parameter(description = "Recherche texte : n° de vente") @RequestParam(required = false) String q,
 			@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
 			@Parameter(description = "createdAt | number | total, asc | desc") @RequestParam(
 					required = false) List<String> sort) {
 		PageQuery query = new PageQuery(page, size, sort);
-		return PageResponse.toResponse(this.sales.customerSales(customerId, query), query);
+		return PageResponse.toResponse(this.sales.customerSales(customerId, q, query), query);
 	}
 
 }

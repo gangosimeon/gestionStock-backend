@@ -173,10 +173,14 @@ public class SaleService {
 	 * {@code warehouse:all}) : la dette du client est globale, mais les ventes d'un magasin restent
 	 * invisibles à qui n'y a pas accès.
 	 */
-	public Page<SaleResponse> customerSales(UUID customerId, PageQuery query) {
+	public Page<SaleResponse> customerSales(UUID customerId, String text, PageQuery query) {
 		this.customers.getForAssignment(customerId, false);
 		java.util.Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
 		Specification<Sale> spec = (root, q, cb) -> cb.equal(root.get("customerId"), customerId);
+		if (com.geststock.common.api.SearchText.present(text)) {
+			String pattern = com.geststock.common.api.SearchText.pattern(text);
+			spec = spec.and((root, q, cb) -> cb.like(cb.lower(root.get("number")), pattern, '\\'));
+		}
 		if (visible != null) {
 			spec = spec.and((root, q, cb) -> visible.isEmpty() ? cb.disjunction() : root.get("warehouseId").in(visible));
 		}
