@@ -182,6 +182,31 @@ public class CustomerService {
 		return CustomerSnapshot.of(customer);
 	}
 
+	/**
+	 * Client saisi à la caisse pendant une vente (module {@code sale}) : réutilise un client actif
+	 * de même nom et de même téléphone, sinon le crée — dans la transaction de la vente (aucun
+	 * client créé si la vente échoue). Client comptant : plafond de crédit 0.
+	 *
+	 * @throws ForbiddenOperationException {@code CUSTOMER_CREATE_FORBIDDEN} sans {@code customer:create}
+	 */
+	@Transactional
+	public CustomerSnapshot findOrCreateForSale(String name, String phone) {
+		if (!ActorPermissions.current().contains(Permissions.CUSTOMER_CREATE)) {
+			throw new ForbiddenOperationException(ErrorCode.CUSTOMER_CREATE_FORBIDDEN,
+					ErrorCode.CUSTOMER_CREATE_FORBIDDEN.defaultMessage());
+		}
+		String digits = phone == null ? "" : phone.replaceAll("[^0-9]", "");
+		if (!digits.isEmpty()) {
+			java.util.Optional<UUID> existing = this.repository.findActiveByNameAndPhoneDigits(name, digits);
+			if (existing.isPresent()) {
+				return getForAssignment(existing.get(), true);
+			}
+		}
+		CustomerResponse created = create(new CustomerRequest(null, null, name, phone, null, null, null, null, null,
+				null, null, null));
+		return getForAssignment(created.id(), true);
+	}
+
 	// --- Outils -------------------------------------------------------------------------
 
 	Customer load(UUID id) {

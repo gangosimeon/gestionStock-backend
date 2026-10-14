@@ -207,8 +207,13 @@ public class SaleService {
 						ErrorCode.SALE_DUPLICATE_PRODUCT.defaultMessage());
 			}
 		}
+		// Client existant, client saisi à la caisse (créé ou retrouvé, dans cette transaction) ou comptoir.
 		CustomerSnapshot customer = request.customerId() != null
-				? this.customers.getForAssignment(request.customerId(), true) : null;
+				? this.customers.getForAssignment(request.customerId(), true)
+				: request.newCustomer() != null
+						? this.customers.findOrCreateForSale(request.newCustomer().name().trim(),
+								request.newCustomer().phone())
+						: null;
 		PriceCategory priceType = request.type() != null ? request.type()
 				: customer != null ? customer.priceCategory() : PriceCategory.RETAIL;
 

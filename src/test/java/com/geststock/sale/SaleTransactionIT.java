@@ -119,6 +119,23 @@ class SaleTransactionIT {
 	}
 
 	@Test
+	void aCustomerEnteredAtTheTillIsNotCreatedWhenTheSaleIsRefused() {
+		String name = "Client Fantôme " + UUID.randomUUID();
+		CreateSaleRequest request = new CreateSaleRequest(null, null, null, PaymentMethod.CASH, null, null,
+				List.of(item(this.frame, 999)), new CreateSaleRequest.NewCustomer(name, "0700000000"));
+
+		assertThatThrownBy(() -> asSeller(() -> this.sales.create(request, this.warehouse)))
+			.extracting(ex -> ((ApiException) ex).getCode())
+			.isEqualTo(ErrorCode.STOCK_INSUFFICIENT);
+
+		assertThat(this.jdbc.queryForObject("select count(*) from customer where name = ?", Integer.class, name))
+			.as("vente et client : tout ou rien").isZero();
+		assertThat(this.jdbc.queryForObject("select count(*) from audit_log where entity_label like ?", Integer.class,
+				"%" + name)).as("aucune trace de création").isZero();
+		assertThat(saleCount()).isZero();
+	}
+
+	@Test
 	void aCreditLimitRefusalRollsBackTheStockAlreadyTaken() {
 		// 2 montures = 60 000 à crédit pour un plafond de 50 000 : refus après les sorties de stock.
 		assertThatThrownBy(() -> sell(this.customer, BigDecimal.ZERO, item(this.frame, 2)))

@@ -398,6 +398,65 @@ class SaleApiIT {
 		assertThat(level(this.main, this.frame)).isEqualTo(9);
 	}
 
+	// --- Client saisi à la caisse ------------------------------------------------------------------
+
+	@Test
+	void aCustomerUnknownToTheBaseIsCreatedWithTheSaleAndReusedNextTime() throws Exception {
+		String first = idOf(sell(manager(), """
+				{"paymentMethod": "CASH", "newCustomer": {"name": "Koffi Yao", "phone": "+225 07 01 02 03"},
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.frame))
+			.andExpect(jsonPath("$.customerId").isString())
+			.andExpect(jsonPath("$.customerName").value("Koffi Yao")));
+		UUID created = this.jdbc.queryForObject("select customer_id from sale where id = ?::uuid", UUID.class, first);
+		assertThat(this.jdbc.queryForMap("select name, phone, credit_limit, active from customer where id = ?", created))
+			.containsEntry("name", "Koffi Yao")
+			.containsEntry("phone", "+225 07 01 02 03")
+			.containsEntry("active", true);
+		assertThat(this.jdbc.queryForObject("select credit_limit from customer where id = ?", java.math.BigDecimal.class,
+				created)).as("client comptant").isZero();
+
+		// Même client ressaisi autrement (casse, espaces, séparateurs) : retrouvé, pas recréé.
+		sell(manager(), """
+				{"paymentMethod": "CASH", "newCustomer": {"name": "  koffi YAO ", "phone": "+225-07.01.02.03"},
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.frame))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.customerId").value(created.toString()));
+		// Homonyme avec un autre numéro : un autre client.
+		sell(manager(), """
+				{"paymentMethod": "CASH", "newCustomer": {"name": "Koffi Yao", "phone": "+225 05 99 99 99"},
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.frame))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.customerId").value(org.hamcrest.Matchers.not(created.toString())));
+		assertThat(this.jdbc.queryForObject("select count(*) from customer where lower(name) = 'koffi yao'",
+				Integer.class)).isEqualTo(2);
+		assertThat(this.jdbc.queryForObject("""
+				select count(*) from audit_log where action = 'CREATE' and entity_type = 'CUSTOMER' and entity_id = ?""",
+				Integer.class, created.toString())).as("création tracée").isEqualTo(1);
+		checkDeferredConstraints();
+	}
+
+	@Test
+	void newCustomerRequestsAreValidatedAndRequireTheCreatePermission() throws Exception {
+		sell(manager(), """
+				{"paymentMethod": "CASH", "customerId": "%s", "newCustomer": {"name": "Double"},
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.customer, this.frame))
+			.andExpect(status().isBadRequest());
+		sell(manager(), """
+				{"paymentMethod": "CASH", "newCustomer": {"name": " ", "phone": "appeler"},
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.frame))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[*].field", hasItem("newCustomer.name")))
+			.andExpect(jsonPath("$.errors[*].field", hasItem("newCustomer.phone")));
+
+		RequestPostProcessor seller = actor(Permissions.SALE_CREATE, Permissions.SALE_READ, Permissions.CUSTOMER_READ);
+		sell(seller, """
+				{"paymentMethod": "CASH", "newCustomer": {"name": "Sans Droit"},
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.frame))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("CUSTOMER_CREATE_FORBIDDEN"));
+		assertThat(level(this.main, this.frame)).as("aucune sortie de stock").isEqualTo(10);
+	}
+
 	// --- Outils ------------------------------------------------------------------------------------
 
 	/** Déclenche les contraintes différées de V017 avant le rollback du test. */

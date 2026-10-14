@@ -90,6 +90,8 @@ public enum ErrorCode {
 	CUSTOMER_NOT_FOUND(HttpStatus.NOT_FOUND, "Client introuvable."),
 	CUSTOMER_CODE_ALREADY_USED(HttpStatus.CONFLICT, "Ce code client est déjà utilisé."),
 	CUSTOMER_INACTIVE(HttpStatus.UNPROCESSABLE_CONTENT, "Ce client est désactivé."),
+	CUSTOMER_CREATE_FORBIDDEN(HttpStatus.FORBIDDEN,
+			"Vous n'avez pas le droit d'ajouter un client : choisissez un client existant ou vendez au comptoir."),
 	CREDIT_LIMIT_CHANGE_FORBIDDEN(HttpStatus.FORBIDDEN,
 			"Vous n'êtes pas autorisé à accorder ou modifier un plafond de crédit."),
 	CREDIT_LIMIT_EXCEEDED(HttpStatus.UNPROCESSABLE_CONTENT, "Plafond de crédit du client dépassé."),

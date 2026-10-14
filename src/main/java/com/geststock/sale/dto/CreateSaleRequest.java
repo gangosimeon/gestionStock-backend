@@ -5,13 +5,16 @@ import java.util.List;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
@@ -30,6 +33,8 @@ import com.geststock.customer.PriceCategory;
  * @param warehouseId   dépôt de vente ; dépôt courant (X-Warehouse-Id) s'il est absent
  * @param paidAmount    montant encaissé, de 0 au total ; total s'il est absent
  * @param paymentMethod obligatoire dès qu'un montant est payé
+ * @param newCustomer   client absent de la base (nom, téléphone) : créé avec la vente, dans la
+ *                      même transaction ; exclusif de {@code customerId}
  */
 @Schema(name = "CreateSaleRequest")
 public record CreateSaleRequest(
@@ -39,7 +44,31 @@ public record CreateSaleRequest(
 		PaymentMethod paymentMethod,
 		@DecimalMin("0") @Digits(integer = 12, fraction = 2) BigDecimal paidAmount,
 		@Size(max = 500) String note,
-		@NotEmpty(message = "le panier est vide") @Size(max = 200) @JsonAlias("lines") List<@Valid @NotNull Item> items) {
+		@NotEmpty(message = "le panier est vide") @Size(max = 200) @JsonAlias("lines") List<@Valid @NotNull Item> items,
+		@Valid NewCustomer newCustomer) {
+
+	/** Vente à un client existant ou au comptoir (signature d'origine). */
+	public CreateSaleRequest(PriceCategory type, UUID customerId, UUID warehouseId, PaymentMethod paymentMethod,
+			BigDecimal paidAmount, String note, List<Item> items) {
+		this(type, customerId, warehouseId, paymentMethod, paidAmount, note, items, null);
+	}
+
+	@AssertTrue(message = "choisir un client existant ou en saisir un nouveau, pas les deux")
+	@Schema(hidden = true)
+	public boolean isSingleCustomerChoice() {
+		return this.customerId == null || this.newCustomer == null;
+	}
+
+	/**
+	 * Client saisi à la caisse. Réutilisé s'il existe déjà un client actif de même nom et de
+	 * même téléphone ; sinon créé (comptant, sans plafond de crédit).
+	 */
+	@Schema(name = "SaleNewCustomer")
+	public record NewCustomer(
+			@NotBlank @Size(max = 200) @Schema(example = "Koffi Yao") String name,
+			@Size(max = 30) @Pattern(regexp = "^[0-9+() .-]*$", message = "numéro de téléphone invalide")
+			@Schema(example = "+225 07 01 02 03") String phone) {
+	}
 
 	/**
 	 * Article vendu.
