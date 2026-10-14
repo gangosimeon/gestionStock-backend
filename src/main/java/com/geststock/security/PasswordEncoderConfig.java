@@ -12,6 +12,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * Hachage des mots de passe. Les hachés sont préfixés par leur algorithme
  * ({@code {bcrypt}$2a$12$...}) : un changement d'algorithme futur (Argon2) ne nécessitera
  * aucune migration, les anciens hachés restant vérifiables.
+ *
+ * <p>Un haché bcrypt <b>sans préfixe</b> ({@code $2a$12$...}, typiquement posé à la main
+ * en SQL) reste vérifié par bcrypt ; tout autre haché non reconnu est simplement refusé.
+ * Sans ce repli, {@code matches()} lève une {@code IllegalArgumentException} et la
+ * connexion répond 500 au lieu de 401.
  */
 @Configuration(proxyBeanMethods = false)
 public class PasswordEncoderConfig {
@@ -21,7 +26,10 @@ public class PasswordEncoderConfig {
 
 	@Bean
 	PasswordEncoder passwordEncoder() {
-		return new DelegatingPasswordEncoder("bcrypt", Map.of("bcrypt", new BCryptPasswordEncoder(BCRYPT_STRENGTH)));
+		BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder(BCRYPT_STRENGTH);
+		DelegatingPasswordEncoder encoder = new DelegatingPasswordEncoder("bcrypt", Map.of("bcrypt", bcrypt));
+		encoder.setDefaultPasswordEncoderForMatches(bcrypt);
+		return encoder;
 	}
 
 }
