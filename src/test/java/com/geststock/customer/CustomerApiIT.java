@@ -168,6 +168,35 @@ class CustomerApiIT {
 	}
 
 	@Test
+	void filtersCustomersWithAnUnpaidDebtServerSide() throws Exception {
+		String owing = idOf(create(manager(), "{\"name\": \"Dette Ouverte\", \"creditLimit\": 100000}"));
+		String settled = idOf(create(manager(), "{\"name\": \"Dette Soldée\", \"creditLimit\": 100000}"));
+		idOf(create(manager(), "{\"name\": \"Dette Jamais\"}"));
+		entry(owing, "CREDIT_SALE", "DEBIT", 40000, 40000, "SALE", 60);
+		entry(owing, "PAYMENT", "CREDIT", 15000, 25000, "CUSTOMER_PAYMENT", 30);
+		// Dette entièrement réglée : solde 0, donc plus « impayée ».
+		entry(settled, "CREDIT_SALE", "DEBIT", 10000, 10000, "SALE", 60);
+		entry(settled, "PAYMENT", "CREDIT", 10000, 0, "CUSTOMER_PAYMENT", 30);
+
+		this.mvc.perform(get("/api/customers").with(manager()).param("q", "Dette").param("withDebt", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].name").value("Dette Ouverte"))
+			.andExpect(jsonPath("$.items[0].balance").value(25000));
+		this.mvc.perform(get("/api/customers").with(manager()).param("q", "Dette").param("withDebt", "false"))
+			.andExpect(jsonPath("$.total").value(2))
+			.andExpect(jsonPath("$.items[*].name", containsInAnyOrder("Dette Soldée", "Dette Jamais")));
+		this.mvc.perform(get("/api/customers").with(manager()).param("q", "Dette"))
+			.andExpect(jsonPath("$.total").value(3));
+		// Combiné à la pagination : le total compte bien les seuls débiteurs.
+		this.mvc.perform(get("/api/customers").with(manager()).param("q", "Dette").param("withDebt", "true")
+			.param("page", "0").param("size", "10"))
+			.andExpect(jsonPath("$.total").value(1));
+		this.mvc.perform(get("/api/customers").with(manager()).param("withDebt", "peut-être"))
+			.andExpect(status().isBadRequest());
+	}
+
+	@Test
 	void validatesServerSide() throws Exception {
 		create(manager(), """
 				{"code": "CLI 01", "name": "", "phone": "appeler", "email": "pas-un-email", "creditLimit": -1,

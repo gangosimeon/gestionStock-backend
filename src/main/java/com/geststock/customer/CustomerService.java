@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
@@ -214,6 +216,23 @@ public class CustomerService {
 		}
 		if (filter.priceCategory() != null) {
 			spec = spec.and((root, query, cb) -> cb.equal(root.get("priceCategory"), filter.priceCategory()));
+		}
+		if (filter.withDebt() != null) {
+			boolean withDebt = filter.withDebt();
+			spec = spec.and((root, query, cb) -> {
+				// Solde dû = débits − crédits du relevé client : même règle que la colonne « Dette »
+				// (CustomerAccountEntryRepository.balancesOf), calculée en base pour filtrer et paginer.
+				Subquery<BigDecimal> balance = query.subquery(BigDecimal.class);
+				Root<CustomerAccountEntry> entry = balance.from(CustomerAccountEntry.class);
+				Expression<BigDecimal> amount = entry.get("amount");
+				Expression<BigDecimal> signed = cb.<BigDecimal>selectCase()
+					.when(cb.equal(entry.get("direction"), CustomerAccountEntryType.Direction.DEBIT), amount)
+					.otherwise(cb.neg(amount));
+				balance.select(cb.coalesce(cb.sum(signed), BigDecimal.ZERO))
+					.where(cb.equal(entry.get("customerId"), root.get("id")));
+				return withDebt ? cb.greaterThan(balance, BigDecimal.ZERO)
+						: cb.lessThanOrEqualTo(balance, BigDecimal.ZERO);
+			});
 		}
 		return spec;
 	}
