@@ -55,8 +55,8 @@ class WarehouseController {
 	@GetMapping
 	@RequiresPermission(Permissions.WAREHOUSE_READ)
 	@Operation(summary = "Lister les dépôts accessibles",
-			description = "Dépôts actifs du périmètre de l'utilisateur ; tous avec warehouse:all ou warehouse:manage "
-					+ "(seuls ces derniers peuvent filtrer status = INACTIVE ou ALL). Sans page ni size : liste "
+			description = "Dépôts actifs du périmètre de l'utilisateur ; tous avec warehouse:all. warehouse:all ou "
+					+ "warehouse:manage filtrent status = INACTIVE ou ALL, dans leur périmètre. Sans page ni size : liste "
 					+ "complète (compatibilité front).")
 	ResponseEntity<PageResponse<WarehouseResponse>> list(@ParameterObject WarehouseFilter filter,
 			@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
@@ -110,7 +110,10 @@ class WarehouseController {
 	@PostMapping("/{id}/main")
 	@Audited(action = "SET_MAIN", entityType = "WAREHOUSE")
 	@RequiresPermission(Permissions.WAREHOUSE_MANAGE)
-	@Operation(summary = "Désigner le dépôt principal")
+	@Operation(summary = "Désigner le dépôt principal",
+			description = "Choix valable pour toute l'entreprise (dépôt de repli des utilisateurs sans affectation) : "
+					+ "exige aussi warehouse:all (403 WAREHOUSE_ACCESS_DENIED sinon). Dépôt désactivé : "
+					+ "422 MAIN_WAREHOUSE_INACTIVE.")
 	WarehouseResponse setMain(@PathVariable UUID id) {
 		return this.service.setMain(id);
 	}

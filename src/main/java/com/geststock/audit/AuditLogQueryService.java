@@ -9,6 +9,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import jakarta.persistence.criteria.Predicate;
@@ -29,10 +30,17 @@ import com.geststock.audit.dto.AuditLogStatsResponse;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.exception.ErrorCode;
+import com.geststock.exception.ForbiddenOperationException;
 import com.geststock.exception.InvalidRequestException;
 import com.geststock.exception.NotFoundException;
+import com.geststock.warehouse.WarehouseAccess;
 
-/** Consultation du journal d'audit : recherche, détail, statistiques, export CSV. */
+/**
+ * Consultation du journal d'audit : recherche, détail, statistiques, export CSV (D9). Sans
+ * {@code warehouse:all}, le lecteur ne voit que les entrées de ses dépôts ; les entrées sans
+ * dépôt (catalogue, utilisateurs, connexions) lui restent invisibles. Un filtre sur un dépôt
+ * hors de son périmètre est refusé.
+ */
 @Service
 @Transactional(readOnly = true)
 class AuditLogQueryService {
@@ -51,12 +59,16 @@ class AuditLogQueryService {
 
 	private final JsonMapper json;
 
+	private final WarehouseAccess warehouseAccess;
+
 	private final Clock clock;
 
-	AuditLogQueryService(AuditLogRepository repository, AuditService audit, JsonMapper json, Clock clock) {
+	AuditLogQueryService(AuditLogRepository repository, AuditService audit, JsonMapper json,
+			WarehouseAccess warehouseAccess, Clock clock) {
 		this.repository = repository;
 		this.audit = audit;
 		this.json = json;
+		this.warehouseAccess = warehouseAccess;
 		this.clock = clock;
 	}
 
@@ -64,30 +76,44 @@ class AuditLogQueryService {
 		return this.repository.findAll(specification(filter), query.toPageable(SORTS)).map(this::toResponse);
 	}
 
+	/** Entrée hors du périmètre du lecteur : « introuvable » (existence non révélée). */
 	AuditLogResponse get(UUID id) {
+		Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
 		return this.repository.findById(id)
+			.filter(entry -> visible == null || (entry.getWarehouseId() != null && visible.contains(entry.getWarehouseId())))
 			.map(this::toResponse)
 			.orElseThrow(() -> new NotFoundException(ErrorCode.AUDIT_LOG_NOT_FOUND,
 					ErrorCode.AUDIT_LOG_NOT_FOUND.defaultMessage()));
 	}
 
+	/** Statistiques calculées sur le périmètre du lecteur seulement. */
 	AuditLogStatsResponse stats() {
 		Instant now = Instant.now(this.clock);
 		Instant startOfDay = LocalDate.now(this.clock).atStartOfDay(this.clock.getZone()).toInstant();
 		Instant last30Days = now.minus(Duration.ofDays(30));
+		Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
+		if (visible != null && visible.isEmpty()) {
+			return new AuditLogStatsResponse(0, 0, "-", null);
+		}
+		boolean all = visible == null;
+		Set<UUID> ids = all ? Set.of(UUID.randomUUID()) : visible;
 		PageRequest first = PageRequest.of(0, 1);
-		String mostActiveUser = this.repository.mostActiveUsers(last30Days, first).stream()
+		String mostActiveUser = this.repository.mostActiveUsers(last30Days, all, ids, first).stream()
 			.map(row -> (String) row[0])
 			.findFirst()
 			.orElse("-");
-		String mostFrequentAction = this.repository.mostFrequentActions(last30Days, first).stream()
+		String mostFrequentAction = this.repository.mostFrequentActions(last30Days, all, ids, first).stream()
 			.map(row -> (String) row[0])
 			.findFirst()
 			.orElse(null);
-		return new AuditLogStatsResponse(this.repository.countByCreatedAtGreaterThanEqual(startOfDay),
-				this.repository.countByStatusAndCreatedAtGreaterThanEqual(AuditStatus.FAILURE,
-						now.minus(Duration.ofDays(7))),
-				mostActiveUser, mostFrequentAction);
+		Specification<AuditLog> perimeter = perimeter(visible);
+		Specification<AuditLog> today = perimeter.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"),
+				startOfDay));
+		Specification<AuditLog> failures = perimeter
+			.and((root, q, cb) -> cb.equal(root.get("status"), AuditStatus.FAILURE))
+			.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), now.minus(Duration.ofDays(7))));
+		return new AuditLogStatsResponse(this.repository.count(today), this.repository.count(failures), mostActiveUser,
+				mostFrequentAction);
 	}
 
 	/**
@@ -120,7 +146,27 @@ class AuditLogQueryService {
 
 	// --- Critères -------------------------------------------------------------------------------------
 
+	/**
+	 * Entrées des dépôts du lecteur ({@code null} : tout le journal) ; les entrées sans dépôt n'en
+	 * font pas partie.
+	 */
+	private static Specification<AuditLog> perimeter(Set<UUID> visible) {
+		if (visible == null) {
+			return Specification.unrestricted();
+		}
+		return visible.isEmpty() ? (root, q, cb) -> cb.disjunction() : (root, q, cb) -> root.get("warehouseId").in(visible);
+	}
+
 	private Specification<AuditLog> specification(AuditLogFilter filter) {
+		Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
+		if (filter.warehouseId() != null && !this.warehouseAccess.canSee(filter.warehouseId())) {
+			throw new ForbiddenOperationException(ErrorCode.WAREHOUSE_ACCESS_DENIED,
+					ErrorCode.WAREHOUSE_ACCESS_DENIED.defaultMessage());
+		}
+		return perimeter(visible).and(criteria(filter));
+	}
+
+	private Specification<AuditLog> criteria(AuditLogFilter filter) {
 		Instant from = parseBound(filter.dateFrom(), false);
 		Instant to = parseBound(filter.dateTo(), true);
 		List<String> actions = upper(filter.actions());
@@ -148,6 +194,9 @@ class AuditLogQueryService {
 			}
 			if (filter.userId() != null) {
 				predicates.add(cb.equal(root.get("userId"), filter.userId()));
+			}
+			if (filter.warehouseId() != null) {
+				predicates.add(cb.equal(root.get("warehouseId"), filter.warehouseId()));
 			}
 			if (status != null) {
 				predicates.add(cb.equal(root.get("status"), status));

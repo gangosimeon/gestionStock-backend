@@ -47,7 +47,8 @@ import com.geststock.warehouse.CurrentWarehouse;
  * comme noms de méthodes par les générateurs de clients Angular ;</li>
  * <li>permission(s) exigée(s), lue(s) sur {@code @RequiresPermission} / {@code @PreAuthorize} :
  * extension {@code x-permissions} et rappel dans la description ;</li>
- * <li>en-tête {@code X-Warehouse-Id} sur les routes qui dépendent du dépôt courant ;</li>
+ * <li>en-tête {@code X-Warehouse-Id} sur les routes qui dépendent du dépôt courant, et règle
+ * commune du paramètre {@code allWarehouses} (vue tous dépôts) ;</li>
  * <li>réponses d'erreur standard ({@code ApiError}) avec exemples, et catalogue des codes
  * d'erreur généré depuis {@link ErrorCode} ;</li>
  * <li>exemples de requête et de réponse lus dans {@code classpath:openapi/examples/{operationId}.json}.</li>
@@ -59,6 +60,12 @@ class OpenApiCustomization {
 	static final String PERMISSIONS_EXTENSION = "x-permissions";
 
 	static final String WAREHOUSE_HEADER = "X-Warehouse-Id";
+
+	static final String ALL_WAREHOUSES_PARAMETER = "allWarehouses";
+
+	/** Même règle partout ({@code WarehouseAccess#seesAllWarehouses}) : une seule description. */
+	static final String ALL_WAREHOUSES_DESCRIPTION = "true : tous les dépôts au lieu du dépôt courant. Exige la "
+			+ "permission warehouse:all, sinon 403 WAREHOUSE_ACCESS_DENIED.";
 
 	private static final String ERROR_REF = "#/components/schemas/ApiError";
 
@@ -132,8 +139,17 @@ class OpenApiCustomization {
 				operation.addParametersItem(new HeaderParameter().name(WAREHOUSE_HEADER)
 					.required(false)
 					.description("Dépôt courant (identifiant). Absent : dépôt par défaut de l'utilisateur, sinon "
-							+ "dépôt principal. 403 WAREHOUSE_ACCESS_DENIED si le dépôt n'est pas accessible.")
+							+ "dépôt principal (403 NO_WAREHOUSE_AVAILABLE si aucun n'est utilisable). Jamais "
+							+ "remplacé par un autre : 400 INVALID_WAREHOUSE_ID (pas un UUID), "
+							+ "400 UNKNOWN_WAREHOUSE (inconnu), 403 WAREHOUSE_ACCESS_DENIED (hors périmètre), "
+							+ "403 WAREHOUSE_INACTIVE (désactivé).")
 					.schema(new UUIDSchema()));
+			}
+			if (operation.getParameters() != null) {
+				operation.getParameters()
+					.stream()
+					.filter(p -> ALL_WAREHOUSES_PARAMETER.equals(p.getName()))
+					.forEach(p -> p.setDescription(ALL_WAREHOUSES_DESCRIPTION));
 			}
 			return operation;
 		};

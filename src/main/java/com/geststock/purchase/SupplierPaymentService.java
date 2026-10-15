@@ -89,18 +89,31 @@ public class SupplierPaymentService {
 		this.clock = clock;
 	}
 
-	/** Paiements d'un fournisseur, des plus récents aux plus anciens. */
+	/**
+	 * Paiements d'un fournisseur, des plus récents aux plus anciens. Sans {@code warehouse:all} :
+	 * seulement ceux des dépôts de l'utilisateur (un paiement n'est imputé que sur les commandes de
+	 * son dépôt : ses imputations ne révèlent rien d'un autre dépôt).
+	 */
 	public Page<SupplierPaymentResponse> list(UUID supplierId, String text, PageQuery query) {
 		this.suppliers.getForAssignment(supplierId, false);
-		Page<SupplierPayment> page = this.payments.findBySupplier(supplierId,
-				com.geststock.common.api.SearchText.pattern(text), query.toPageable(SORTS));
+		String pattern = com.geststock.common.api.SearchText.pattern(text);
+		Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
+		if (visible != null && visible.isEmpty()) {
+			return Page.empty(query.toPageable(SORTS));
+		}
+		Page<SupplierPayment> page = visible == null
+				? this.payments.findBySupplier(supplierId, pattern, query.toPageable(SORTS))
+				: this.payments.findBySupplierInWarehouses(supplierId, pattern, visible, query.toPageable(SORTS));
 		Map<UUID, List<SupplierPaymentResponse.Allocation>> allocated = allocationsOf(
 				page.getContent().stream().map(SupplierPayment::getId).toList());
 		return page.map(p -> toResponse(p, allocated.getOrDefault(p.getId(), List.of())));
 	}
 
-	/** Compte du fournisseur (commandé, reçu, dû, payé, reste à payer) sur les dépôts visibles. */
-	public SupplierAccountResponse account(UUID supplierId) {
+	/**
+	 * Compte du fournisseur (commandé, reçu, dû, payé, reste à payer) sur les dépôts visibles, et
+	 * reste à payer dans le dépôt courant (seul réglable par un paiement global depuis ce dépôt).
+	 */
+	public SupplierAccountResponse account(UUID supplierId, UUID currentWarehouseId) {
 		SupplierSnapshot supplier = this.suppliers.getForAssignment(supplierId, false);
 		Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
 		boolean all = visible == null;
@@ -110,13 +123,21 @@ public class SupplierPaymentService {
 		BigDecimal received = money(totals[1]);
 		BigDecimal payable = money(totals[2]);
 		BigDecimal paid = money(totals[3]);
+		List<Object[]> here = this.orders.accountTotals(supplier.id(), false, Set.of(currentWarehouseId));
+		BigDecimal hereRemaining = here.isEmpty() ? ZERO
+				: money(here.get(0)[2]).subtract(money(here.get(0)[3])).max(ZERO);
 		return new SupplierAccountResponse(supplier.id(), ordered, received, payable, paid,
-				payable.subtract(paid).max(ZERO), paid.subtract(received).max(ZERO), ((Number) totals[4]).longValue());
+				payable.subtract(paid).max(ZERO), paid.subtract(received).max(ZERO), ((Number) totals[4]).longValue(),
+				hereRemaining);
 	}
 
-	/** Paiement d'un fournisseur, imputé sur la commande désignée ou sur les plus anciennes. */
+	/**
+	 * Paiement d'un fournisseur, imputé sur la commande désignée ou sur les plus anciennes. En
+	 * espèces, il sort de la caisse ouverte de l'utilisateur dans le dépôt courant
+	 * ({@code CASH_SESSION_OTHER_WAREHOUSE} si elle est ailleurs).
+	 */
 	@Transactional
-	public SupplierPaymentResponse pay(UUID supplierId, SupplierPaymentRequest request) {
+	public SupplierPaymentResponse pay(UUID supplierId, SupplierPaymentRequest request, UUID currentWarehouseId) {
 		SupplierSnapshot supplier = this.suppliers.getForAssignment(supplierId, false);
 		LocalDate today = LocalDate.now(this.clock);
 		LocalDate paymentDate = request.paymentDate() != null ? request.paymentDate() : today;
@@ -128,24 +149,24 @@ public class SupplierPaymentService {
 		BigDecimal amount = request.amount().setScale(2);
 		if (method == PaymentMethod.CASH) {
 			// Avant toute écriture : caisse ouverte et espèces suffisantes (revérifié à la sortie).
-			this.cash.requireCashAvailable(null, amount);
+			this.cash.requireCashAvailable(currentWarehouseId, amount);
 		}
 
 		Map<PurchaseOrder, BigDecimal> split = request.orderId() != null
-				? Map.of(orderOf(supplier, request.orderId()), amount)
-				: oldestFirst(supplier, amount);
+				? Map.of(orderOf(supplier, request.orderId(), currentWarehouseId), amount)
+				: oldestFirst(supplier, amount, currentWarehouseId);
 		split.forEach(PurchaseOrder::recordPayment);
 
 		SupplierPayment payment = this.payments.saveAndFlush(new SupplierPayment(nextNumber(), supplier.id(), paymentDate,
 				amount, method, trimToNull(request.externalReference()), trimToNull(request.note()),
-				Instant.now(this.clock), ActorIdentity.currentUserId().orElse(null)));
+				Instant.now(this.clock), ActorIdentity.currentUserId().orElse(null), currentWarehouseId));
 		List<SupplierPaymentResponse.Allocation> allocated = new ArrayList<>();
 		split.forEach((order, part) -> {
 			this.allocations.save(new SupplierPaymentAllocation(payment.getId(), order.getId(), part));
 			allocated.add(new SupplierPaymentResponse.Allocation(order.getId(), order.getNumber(), part));
 		});
 		if (method == PaymentMethod.CASH) {
-			this.cash.recordSupplierPayment(null, payment.getId(), payment.getNumber(), amount,
+			this.cash.recordSupplierPayment(currentWarehouseId, payment.getId(), payment.getNumber(), amount,
 					"Paiement fournisseur " + supplier.name());
 		}
 		this.orders.flush();
@@ -156,23 +177,27 @@ public class SupplierPaymentService {
 					+ method + ") sur " + allocated.stream()
 						.map(SupplierPaymentResponse.Allocation::orderNumber)
 						.collect(Collectors.joining(", ")))
-			.after(response));
+			.after(response)
+			.warehouse(currentWarehouseId));
 		return response;
 	}
 
-	/** Paiement d'une commande ({@code POST /purchases/orders/{id}/pay}) ; renvoie la commande à jour. */
+	/**
+	 * Paiement d'une commande ({@code POST /purchases/orders/{id}/pay}), depuis son dépôt ; renvoie
+	 * la commande à jour.
+	 */
 	@Transactional
-	public PurchaseOrderResponse payOrder(UUID orderId, PurchaseOrderPaymentRequest request) {
-		PurchaseOrder order = this.orderService.loadForUpdate(orderId);
-		pay(order.getSupplierId(), request.forOrder(orderId));
+	public PurchaseOrderResponse payOrder(UUID orderId, PurchaseOrderPaymentRequest request, UUID currentWarehouseId) {
+		PurchaseOrder order = this.orderService.loadForUpdate(orderId, currentWarehouseId);
+		pay(order.getSupplierId(), request.forOrder(orderId), currentWarehouseId);
 		return PurchaseMapper.toResponse(order);
 	}
 
 	// --- Imputation ------------------------------------------------------------------------
 
-	/** Commande désignée : du fournisseur, visible, verrouillée. */
-	private PurchaseOrder orderOf(SupplierSnapshot supplier, UUID orderId) {
-		PurchaseOrder order = this.orderService.loadForUpdate(orderId);
+	/** Commande désignée : du fournisseur, visible, verrouillée, du dépôt courant ({@code WAREHOUSE_MISMATCH} sinon). */
+	private PurchaseOrder orderOf(SupplierSnapshot supplier, UUID orderId, UUID currentWarehouseId) {
+		PurchaseOrder order = this.orderService.loadForUpdate(orderId, currentWarehouseId);
 		if (!order.getSupplierId().equals(supplier.id())) {
 			throw new InvalidRequestException(ErrorCode.SUPPLIER_PAYMENT_ORDER_MISMATCH,
 					ErrorCode.SUPPLIER_PAYMENT_ORDER_MISMATCH.defaultMessage());
@@ -181,19 +206,20 @@ public class SupplierPaymentService {
 	}
 
 	/**
-	 * Paiement global : solde les commandes visibles les plus anciennes ayant un reste à payer.
-	 * Refusé s'il dépasse le reste dû au fournisseur.
+	 * Paiement global : solde les commandes les plus anciennes du dépôt courant ayant un reste à
+	 * payer. Refusé s'il dépasse ce qui reste dû au fournisseur dans ce dépôt.
 	 */
-	private Map<PurchaseOrder, BigDecimal> oldestFirst(SupplierSnapshot supplier, BigDecimal amount) {
-		List<PurchaseOrder> payable = this.orders.findPayableForUpdate(supplier.id())
+	private Map<PurchaseOrder, BigDecimal> oldestFirst(SupplierSnapshot supplier, BigDecimal amount,
+			UUID currentWarehouseId) {
+		List<PurchaseOrder> payable = this.orders.findPayableForUpdate(supplier.id(), currentWarehouseId)
 			.stream()
-			.filter(o -> this.warehouseAccess.canSee(o.getWarehouseId()))
 			.filter(o -> o.remainingToPay().signum() > 0)
 			.toList();
 		BigDecimal balance = payable.stream().map(PurchaseOrder::remainingToPay).reduce(ZERO, BigDecimal::add);
 		if (amount.compareTo(balance) > 0) {
 			Map<String, Object> details = new LinkedHashMap<>();
 			details.put("supplierId", supplier.id());
+			details.put("warehouseId", currentWarehouseId);
 			details.put("remainingToPay", balance);
 			details.put("requested", amount);
 			throw new BusinessRuleException(ErrorCode.SUPPLIER_PAYMENT_EXCEEDS_BALANCE,
@@ -232,7 +258,7 @@ public class SupplierPaymentService {
 		return new SupplierPaymentResponse(payment.getId(), payment.getNumber(), payment.getSupplierId(),
 				payment.getPaymentDate(), payment.getAmount(), payment.getPaymentMethod(), singleOrder,
 				List.copyOf(allocated), payment.getExternalReference(), payment.getNote(), payment.getCreatedAt(),
-				payment.getCreatedBy());
+				payment.getCreatedBy(), payment.getWarehouseId());
 	}
 
 	private String nextNumber() {

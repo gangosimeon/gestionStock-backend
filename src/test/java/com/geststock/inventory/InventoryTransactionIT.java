@@ -107,7 +107,7 @@ class InventoryTransactionIT {
 		UUID id = submitted(12, 0); // monture +2, verre −2
 		move(this.lens, StockMovementType.SALE, -2); // verres vendus après le comptage : 0 en stock
 
-		assertThatThrownBy(() -> as(() -> this.inventories.validate(id, null)))
+		assertThatThrownBy(() -> as(() -> this.inventories.validate(id, null, this.warehouse)))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.STOCK_INSUFFICIENT);
 		assertThat(this.fixtures.level(this.warehouse, this.frame)).as("écart de la monture non appliqué").isEqualTo(10);
@@ -116,10 +116,10 @@ class InventoryTransactionIT {
 			.isZero();
 
 		// Reprise : recomptage du verre (théorique 0, compté 0), puis validation.
-		as(() -> this.inventories.reopen(id, "Recompter les verres"));
-		as(() -> this.inventories.recordCounts(id, List.of(new InventoryCountsRequest.Count(this.lens, 0, null))));
-		as(() -> this.inventories.submit(id));
-		as(() -> this.inventories.validate(id, null));
+		as(() -> this.inventories.reopen(id, "Recompter les verres", this.warehouse));
+		as(() -> this.inventories.recordCounts(id, List.of(new InventoryCountsRequest.Count(this.lens, 0, null)), this.warehouse));
+		as(() -> this.inventories.submit(id, this.warehouse));
+		as(() -> this.inventories.validate(id, null, this.warehouse));
 		assertThat(this.fixtures.level(this.warehouse, this.frame)).isEqualTo(12);
 		assertThat(status(id)).isEqualTo("COMPLETED");
 	}
@@ -132,7 +132,7 @@ class InventoryTransactionIT {
 		for (int i = 0; i < 5; i++) {
 			attempts.add(() -> {
 				try {
-					as(() -> this.inventories.validate(id, null));
+					as(() -> this.inventories.validate(id, null, this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -167,7 +167,7 @@ class InventoryTransactionIT {
 	@Test
 	void theDatabaseFreezesACompletedInventory() {
 		UUID id = submitted(9, 2);
-		as(() -> this.inventories.validate(id, null));
+		as(() -> this.inventories.validate(id, null, this.warehouse));
 
 		assertThatThrownBy(() -> this.jdbc.update("update inventory_session set note = 'retouche' where id = ?", id))
 			.hasStackTraceContaining("un inventaire terminé ou annulé ne se modifie plus");
@@ -203,10 +203,10 @@ class InventoryTransactionIT {
 	/** Inventaire des deux produits, compté (monture, verre) et soumis à validation. */
 	private UUID submitted(int frameCount, int lensCount) {
 		UUID id = create();
-		as(() -> this.inventories.start(id));
+		as(() -> this.inventories.start(id, this.warehouse));
 		as(() -> this.inventories.recordCounts(id, List.of(new InventoryCountsRequest.Count(this.frame, frameCount, null),
-				new InventoryCountsRequest.Count(this.lens, lensCount, null))));
-		as(() -> this.inventories.submit(id));
+				new InventoryCountsRequest.Count(this.lens, lensCount, null)), this.warehouse));
+		as(() -> this.inventories.submit(id, this.warehouse));
 		return id;
 	}
 

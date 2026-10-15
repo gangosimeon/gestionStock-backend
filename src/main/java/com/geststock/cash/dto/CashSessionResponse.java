@@ -15,8 +15,11 @@ import com.geststock.cash.PaymentMethod;
  * openingBalance, closedAt, closedByUserId, countedCash, cashSalesTotal, totalIn, totalOut,
  * expectedCash, difference}) ; montants calculés par le serveur à partir des écritures.
  *
- * @param difference     écart figé à la clôture ; 0 tant que la caisse est ouverte
- * @param totalsByMethod solde net par moyen de paiement (rapprochement)
+ * @param difference          écart figé à la clôture ; 0 tant que la caisse est ouverte
+ * @param totalsByMethod      solde net par moyen de paiement (rapprochement)
+ * @param inCurrentWarehouse  caisse du dépôt courant, donc utilisable ({@code GET /current} seulement ;
+ *                            {@code null} ailleurs). {@code false} : ouverte dans un autre dépôt, aucune
+ *                            opération possible depuis le dépôt courant ({@code CASH_SESSION_OTHER_WAREHOUSE})
  */
 @Schema(name = "CashRegisterSession")
 public record CashSessionResponse(
@@ -38,5 +41,15 @@ public record CashSessionResponse(
 		BigDecimal expectedCash,
 		BigDecimal difference,
 		Map<PaymentMethod, BigDecimal> totalsByMethod,
-		String closingNote) {
+		String closingNote,
+		@Schema(description = "Caisse du dépôt courant (GET /current seulement)") Boolean inCurrentWarehouse) {
+
+	/** Même session, située par rapport au dépôt courant. */
+	public CashSessionResponse locatedIn(UUID currentWarehouseId) {
+		return new CashSessionResponse(this.id, this.number, this.status, this.warehouseId, this.terminal, this.openedAt,
+				this.openedByUserId, this.openingBalance, this.openingNote, this.closedAt, this.closedByUserId,
+				this.countedCash, this.cashSalesTotal, this.totalIn, this.totalOut, this.expectedCash, this.difference,
+				this.totalsByMethod, this.closingNote, this.warehouseId.equals(currentWarehouseId));
+	}
+
 }

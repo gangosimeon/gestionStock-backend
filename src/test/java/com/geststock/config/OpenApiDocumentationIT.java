@@ -176,6 +176,24 @@ class OpenApiDocumentationIT {
 	}
 
 	@Test
+	void theAllWarehousesViewStatesItsPermissionEverywhere() {
+		int found = 0;
+		for (Map.Entry<String, JsonNode> path : this.spec.path("paths").properties()) {
+			for (Map.Entry<String, JsonNode> op : path.getValue().properties()) {
+				for (JsonNode parameter : op.getValue().path("parameters")) {
+					if (OpenApiCustomization.ALL_WAREHOUSES_PARAMETER.equals(parameter.path("name").asString())) {
+						found++;
+						assertThat(parameter.path("description").asString())
+							.as(op.getKey() + " " + path.getKey() + " : allWarehouses")
+							.isEqualTo(OpenApiCustomization.ALL_WAREHOUSES_DESCRIPTION);
+					}
+				}
+			}
+		}
+		assertThat(found).as("routes avec vue tous dépôts").isGreaterThan(20);
+	}
+
+	@Test
 	void creationAndEmptyResponsesUseTheirRealStatus() throws IOException {
 		// Source : une méthode qui renvoie ResponseEntity.created / noContent porte le @ResponseStatus
 		// correspondant, qui fixe le code documenté (201 / 204).

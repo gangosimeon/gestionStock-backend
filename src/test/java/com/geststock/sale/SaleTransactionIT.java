@@ -152,11 +152,11 @@ class SaleTransactionIT {
 		SaleResponse sale = sell(this.customer, BigDecimal.ZERO, item(this.frame, 1));
 		asSeller(() -> this.jdbc.update("""
 				insert into customer_account_entry (customer_id, entry_type, direction, amount, balance_after, source_type,
-				                                    source_id, created_by)
-				values (?, 'CREDIT_NOTE', 'CREDIT', 20000, 10000, 'CUSTOMER_RETURN', ?, ?)""", this.customer,
-				UUID.randomUUID(), this.actor));
+				                                    source_id, created_by, warehouse_id)
+				values (?, 'CREDIT_NOTE', 'CREDIT', 20000, 10000, 'CUSTOMER_RETURN', ?, ?, ?)""", this.customer,
+				UUID.randomUUID(), this.actor, this.warehouse));
 
-		assertThatThrownBy(() -> asSeller(() -> this.sales.cancel(sale.id(), new CancelSaleRequest("Retour"))))
+		assertThatThrownBy(() -> asSeller(() -> this.sales.cancel(sale.id(), new CancelSaleRequest("Retour"), this.warehouse)))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.SALE_CREDIT_ALREADY_SETTLED);
 
@@ -198,7 +198,7 @@ class SaleTransactionIT {
 		for (int i = 0; i < 5; i++) {
 			attempts.add(() -> {
 				try {
-					asSeller(() -> this.sales.cancel(sale.id(), new CancelSaleRequest("Doublon")));
+					asSeller(() -> this.sales.cancel(sale.id(), new CancelSaleRequest("Doublon"), this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -259,7 +259,7 @@ class SaleTransactionIT {
 
 		assertThat(sale.creditAmount()).isEqualByComparingTo("20000");
 		assertThat(balance()).isEqualByComparingTo("20000");
-		SaleResponse cancelled = asSeller(() -> this.sales.cancel(sale.id(), new CancelSaleRequest("Erreur")));
+		SaleResponse cancelled = asSeller(() -> this.sales.cancel(sale.id(), new CancelSaleRequest("Erreur"), this.warehouse));
 		assertThat(cancelled.status()).isEqualTo(SaleStatus.CANCELLED);
 		assertThat(balance()).isZero();
 		assertThat(this.fixtures.level(this.warehouse, this.frame)).isEqualTo(10);

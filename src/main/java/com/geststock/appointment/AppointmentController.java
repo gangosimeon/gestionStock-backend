@@ -36,7 +36,10 @@ import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
 import com.geststock.common.security.RequiresPermission;
 import com.geststock.exception.ApiError;
+import com.geststock.exception.ErrorCode;
+import com.geststock.exception.ForbiddenOperationException;
 import com.geststock.warehouse.CurrentWarehouse;
+import com.geststock.warehouse.WarehouseAccess;
 import com.geststock.warehouse.WarehouseContext;
 
 /**
@@ -50,22 +53,34 @@ class AppointmentController {
 
 	private final AppointmentService appointments;
 
-	AppointmentController(AppointmentService appointments) {
+	private final WarehouseAccess warehouseAccess;
+
+	AppointmentController(AppointmentService appointments, WarehouseAccess warehouseAccess) {
+		this.warehouseAccess = warehouseAccess;
 		this.appointments = appointments;
 	}
 
 	@GetMapping
 	@RequiresPermission(Permissions.APPOINTMENT_READ)
 	@Operation(summary = "Rechercher les rendez-vous",
-			description = "Du dépôt courant, les plus proches d'abord. Filtres search (nom, téléphone), status, "
-					+ "dateFrom, dateTo (AAAA-MM-JJ inclus, jour local), customerId.")
+			description = "Du dépôt courant, les plus proches d'abord ; tous les dépôts avec allWarehouses=true "
+					+ "(warehouse:all, sinon 403). Filtres search (nom, téléphone), status, dateFrom, dateTo "
+					+ "(AAAA-MM-JJ inclus, jour local), customerId.")
 	ResponseEntity<PageResponse<AppointmentResponse>> list(@ParameterObject AppointmentFilter filter,
 			@CurrentWarehouse WarehouseContext warehouse, @RequestParam(required = false) Integer page,
 			@RequestParam(required = false) Integer size,
 			@Parameter(description = "dateTime | createdAt | customerName | status, asc | desc") @RequestParam(
 					required = false) List<String> sort) {
 		PageQuery query = new PageQuery(page, size, sort);
-		return PageResponse.toResponse(this.appointments.list(filter, warehouse.id(), query), query);
+		UUID scope = warehouse.id();
+		if (Boolean.TRUE.equals(filter.allWarehouses())) {
+			if (!this.warehouseAccess.seesAllWarehouses()) {
+				throw new ForbiddenOperationException(ErrorCode.WAREHOUSE_ACCESS_DENIED,
+						ErrorCode.WAREHOUSE_ACCESS_DENIED.defaultMessage());
+			}
+			scope = null;
+		}
+		return PageResponse.toResponse(this.appointments.list(filter, scope, query), query);
 	}
 
 	@GetMapping("/{id}")
@@ -97,10 +112,12 @@ class AppointmentController {
 	@Operation(summary = "Modifier un rendez-vous",
 			description = "Remplacement complet, tant qu'il est planifié ; un nouvel horaire doit être futur et libre.")
 	@ApiResponse(responseCode = "200", description = "Rendez-vous modifié")
-	@ApiResponse(responseCode = "409", description = "APPOINTMENT_CLOSED ou APPOINTMENT_SLOT_TAKEN",
+	@ApiResponse(responseCode = "409", description = "APPOINTMENT_CLOSED, APPOINTMENT_SLOT_TAKEN ou WAREHOUSE_MISMATCH "
+			+ "(rendez-vous d'un autre dépôt que le dépôt courant)",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
-	AppointmentResponse update(@PathVariable UUID id, @Valid @RequestBody AppointmentRequest request) {
-		return this.appointments.update(id, request);
+	AppointmentResponse update(@PathVariable UUID id, @Valid @RequestBody AppointmentRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.appointments.update(id, request, warehouse.id());
 	}
 
 	@PatchMapping("/{id}/status")
@@ -110,10 +127,11 @@ class AppointmentController {
 			description = "COMPLETED (honoré) ou NO_SHOW (absent) à partir du jour du rendez-vous ; CANCELLED avec un "
 					+ "motif. Un rendez-vous clos ne change plus.")
 	@ApiResponse(responseCode = "200", description = "Rendez-vous clos")
-	@ApiResponse(responseCode = "409", description = "APPOINTMENT_CLOSED ou APPOINTMENT_NOT_YET_DUE",
+	@ApiResponse(responseCode = "409", description = "APPOINTMENT_CLOSED, APPOINTMENT_NOT_YET_DUE ou WAREHOUSE_MISMATCH",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
-	AppointmentResponse changeStatus(@PathVariable UUID id, @Valid @RequestBody AppointmentStatusRequest request) {
-		return this.appointments.changeStatus(id, request);
+	AppointmentResponse changeStatus(@PathVariable UUID id, @Valid @RequestBody AppointmentStatusRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.appointments.changeStatus(id, request, warehouse.id());
 	}
 
 }

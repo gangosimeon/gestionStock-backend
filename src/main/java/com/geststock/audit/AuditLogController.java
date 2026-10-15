@@ -47,7 +47,8 @@ class AuditLogController {
 	@Operation(summary = "Rechercher dans le journal",
 			description = "Du plus récent au plus ancien. Filtres dateFrom, dateTo (AAAA-MM-JJ inclus ou instant ISO), "
 					+ "actions, entityTypes, modules (A,B ou répétés), userId, status (SUCCESS | FAILURE), entityId, "
-					+ "search. page (défaut 0) et size (défaut 20, max 200).")
+					+ "search, warehouseId. page (défaut 0) et size (défaut 20, max 200). Sans warehouse:all : seules les "
+					+ "entrées de vos dépôts (pas celles sans dépôt) ; warehouseId hors de vos dépôts : 403.")
 	ResponseEntity<PageResponse<AuditLogResponse>> list(@ParameterObject AuditLogFilter filter,
 			@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
 			@Parameter(description = "createdAt | action | module | username | status, asc | desc") @RequestParam(
@@ -59,7 +60,7 @@ class AuditLogController {
 	@GetMapping("/stats")
 	@Operation(summary = "Statistiques du journal",
 			description = "Entrées du jour, échecs des 7 derniers jours, utilisateur et action les plus fréquents sur "
-					+ "30 jours.")
+					+ "30 jours, sur les entrées que vous pouvez consulter.")
 	AuditLogStatsResponse stats() {
 		return this.journal.stats();
 	}
@@ -67,7 +68,7 @@ class AuditLogController {
 	@GetMapping(value = "/export", produces = "text/csv")
 	@Operation(summary = "Exporter le journal (CSV)",
 			description = "Mêmes filtres que la recherche ; 50 000 lignes au plus (en-tête X-Result-Truncated au-delà). "
-					+ "L'export est lui-même tracé.")
+					+ "Même périmètre que la recherche. L'export est lui-même tracé.")
 	ResponseEntity<byte[]> export(@ParameterObject AuditLogFilter filter) {
 		AuditLogQueryService.Export export = this.journal.export(filter);
 		ResponseEntity.BodyBuilder response = ResponseEntity.ok()
@@ -80,7 +81,8 @@ class AuditLogController {
 	}
 
 	@GetMapping("/{id}")
-	@Operation(summary = "Consulter une entrée du journal")
+	@Operation(summary = "Consulter une entrée du journal",
+			description = "Entrée hors de vos dépôts (ou sans dépôt, sans warehouse:all) : 404.")
 	AuditLogResponse get(@PathVariable UUID id) {
 		return this.journal.get(id);
 	}

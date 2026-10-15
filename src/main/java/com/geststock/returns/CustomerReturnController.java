@@ -58,10 +58,11 @@ class CustomerReturnController {
 			description = "Montants calculés au prix net de la vente ; jamais plus que vendu (retours précédents compris). "
 					+ "Articles revendables remis en stock, défectueux non. Règlement : REFUND (sortie de la caisse "
 					+ "ouverte de l'utilisateur, plafonné à ce que le client a payé) ou ACCOUNT_CREDIT (avoir imputé "
-					+ "sur la dette du client). La vente d'origine est conservée et ne peut plus être annulée.")
+					+ "sur la dette du client). La vente d'origine est conservée et ne peut plus être annulée. "
+					+ "Depuis le dépôt de la vente (409 WAREHOUSE_MISMATCH sinon).")
 	ResponseEntity<CustomerReturnResponse> create(@PathVariable UUID saleId,
-			@Valid @RequestBody CreateCustomerReturnRequest request) {
-		CustomerReturnResponse created = this.returns.create(saleId, request);
+			@Valid @RequestBody CreateCustomerReturnRequest request, @CurrentWarehouse WarehouseContext warehouse) {
+		CustomerReturnResponse created = this.returns.create(saleId, request, warehouse.id());
 		return ResponseEntity.created(URI.create("/api/returns/" + created.id())).body(created);
 	}
 

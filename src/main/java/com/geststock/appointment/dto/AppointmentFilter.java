@@ -13,5 +13,7 @@ import com.geststock.appointment.AppointmentStatus;
  * @param dateTo   rendez-vous de ce jour ou avant (jour local du dépôt)
  */
 public record AppointmentFilter(String search, AppointmentStatus status, LocalDate dateFrom, LocalDate dateTo,
-		UUID customerId) {
+		UUID customerId,
+		@io.swagger.v3.oas.annotations.media.Schema(description = "Agenda de tous les dépôts (permission warehouse:all)")
+		Boolean allWarehouses) {
 }

@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.geststock.common.security.ActorWarehouseScope;
+import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.ForbiddenOperationException;
 import com.geststock.exception.InvalidRequestException;
@@ -27,15 +28,18 @@ import com.geststock.exception.InvalidRequestException;
  * actuel du front).</li>
  * </ul>
  *
- * <p>Résolution du dépôt courant ({@code X-Warehouse-Id}) :
+ * <p>Résolution du dépôt courant ({@code X-Warehouse-Id}). Un dépôt désigné n'est jamais
+ * remplacé par un autre :
  * <ol>
- * <li>en-tête désignant un dépôt actif accessible : ce dépôt ;</li>
- * <li>dépôt actif <b>non</b> accessible : refus 403 {@code WAREHOUSE_ACCESS_DENIED}, jamais de
- * repli silencieux ;</li>
- * <li>en-tête absent, non-UUID (ancien identifiant du mock {@code wh_1}), inconnu ou dépôt
- * désactivé : dépôt par défaut de l'utilisateur, puis premier dépôt attribué actif, puis
- * dépôt principal s'il lui est accessible ;</li>
- * <li>aucun : 403 {@code NO_WAREHOUSE_AVAILABLE}.</li>
+ * <li>en-tête absent : dépôt par défaut de l'utilisateur, puis premier dépôt attribué actif,
+ * puis dépôt principal s'il lui est accessible ; aucun : 403 {@code NO_WAREHOUSE_AVAILABLE} ;</li>
+ * <li>en-tête qui n'est pas un UUID (ex. ancien identifiant du mock {@code wh_1}) : 400
+ * {@code INVALID_WAREHOUSE_ID} ;</li>
+ * <li>dépôt inconnu : 400 {@code UNKNOWN_WAREHOUSE} ;</li>
+ * <li>dépôt hors du périmètre de l'utilisateur, actif ou non : 403
+ * {@code WAREHOUSE_ACCESS_DENIED} (l'état d'un dépôt inaccessible n'est pas révélé) ;</li>
+ * <li>dépôt accessible mais désactivé : 403 {@code WAREHOUSE_INACTIVE} ;</li>
+ * <li>sinon : ce dépôt.</li>
  * </ol>
  */
 @Component
@@ -67,6 +71,33 @@ public class WarehouseAccess {
 	}
 
 	/**
+	 * Écriture ou action métier sur une pièce existante (ou dépôt envoyé dans un corps de
+	 * requête) : elle se fait depuis son dépôt. Le dépôt courant est celui résolu par le serveur
+	 * ({@code @CurrentWarehouse}) ; un dépôt différent, même accessible, est refusé.
+	 *
+	 * <p>À appeler <b>après</b> le contrôle de visibilité : une pièce hors périmètre reste
+	 * introuvable (404), seule une pièce visible d'un autre dépôt reçoit ce refus.
+	 * @throws ConflictException 409 {@code WAREHOUSE_MISMATCH}
+	 */
+	public void requireCurrent(UUID recordWarehouseId, UUID currentWarehouseId) {
+		if (currentWarehouseId == null || !currentWarehouseId.equals(recordWarehouseId)) {
+			throw new ConflictException(ErrorCode.WAREHOUSE_MISMATCH, ErrorCode.WAREHOUSE_MISMATCH.defaultMessage());
+		}
+	}
+
+	/**
+	 * Dépôt envoyé dans un corps de requête (facultatif) : absent, c'est le dépôt courant ;
+	 * présent, il doit être le dépôt courant. Le corps ne remplace jamais le contexte du serveur.
+	 * @throws ConflictException 409 {@code WAREHOUSE_MISMATCH}
+	 */
+	public UUID requireCurrentIfPresent(UUID requestedWarehouseId, UUID currentWarehouseId) {
+		if (requestedWarehouseId != null) {
+			requireCurrent(requestedWarehouseId, currentWarehouseId);
+		}
+		return currentWarehouseId;
+	}
+
+	/**
 	 * {@code true} si l'utilisateur courant peut consulter les données de ce dépôt (même
 	 * désactivé), par exemple l'historique d'un mouvement.
 	 */
@@ -89,14 +120,20 @@ public class WarehouseAccess {
 	}
 
 	WarehouseContext resolve(String header, ActorWarehouseScope scope) {
-		Optional<Warehouse> requested = parse(header).flatMap(this.repository::findById).filter(Warehouse::isActive);
-		if (requested.isPresent()) {
-			requireAccess(scope, requested.get());
-			return WarehouseContext.of(requested.get());
+		if (!StringUtils.hasText(header)) {
+			return fallback(scope).map(WarehouseContext::of)
+				.orElseThrow(() -> new ForbiddenOperationException(ErrorCode.NO_WAREHOUSE_AVAILABLE,
+						ErrorCode.NO_WAREHOUSE_AVAILABLE.defaultMessage()));
 		}
-		return fallback(scope).map(WarehouseContext::of)
-			.orElseThrow(() -> new ForbiddenOperationException(ErrorCode.NO_WAREHOUSE_AVAILABLE,
-					ErrorCode.NO_WAREHOUSE_AVAILABLE.defaultMessage()));
+		Warehouse requested = this.repository.findById(parse(header))
+			.orElseThrow(() -> new InvalidRequestException(ErrorCode.UNKNOWN_WAREHOUSE,
+					ErrorCode.UNKNOWN_WAREHOUSE.defaultMessage()));
+		requireAccess(scope, requested);
+		if (!requested.isActive()) {
+			throw new ForbiddenOperationException(ErrorCode.WAREHOUSE_INACTIVE,
+					ErrorCode.WAREHOUSE_INACTIVE.defaultMessage());
+		}
+		return WarehouseContext.of(requested);
 	}
 
 	/**
@@ -151,15 +188,13 @@ public class WarehouseAccess {
 		return Optional.empty();
 	}
 
-	private static Optional<UUID> parse(String header) {
-		if (!StringUtils.hasText(header)) {
-			return Optional.empty();
-		}
+	private static UUID parse(String header) {
 		try {
-			return Optional.of(UUID.fromString(header.trim()));
+			return UUID.fromString(header.trim());
 		}
 		catch (IllegalArgumentException ex) {
-			return Optional.empty();
+			throw new InvalidRequestException(ErrorCode.INVALID_WAREHOUSE_ID,
+					ErrorCode.INVALID_WAREHOUSE_ID.defaultMessage());
 		}
 	}
 

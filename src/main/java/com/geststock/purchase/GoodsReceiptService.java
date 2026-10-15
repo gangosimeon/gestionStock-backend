@@ -101,17 +101,18 @@ public class GoodsReceiptService {
 	}
 
 	/**
-	 * Réceptionne tout ou partie d'une commande et l'entre en stock.
+	 * Réceptionne tout ou partie d'une commande et l'entre en stock, depuis le dépôt de la commande.
 	 *
 	 * @return la commande mise à jour (contrat du front)
-	 * @throws com.geststock.exception.ConflictException {@code PURCHASE_ORDER_NOT_RECEIVABLE}
+	 * @throws com.geststock.exception.ConflictException {@code PURCHASE_ORDER_NOT_RECEIVABLE},
+	 *                                                   {@code WAREHOUSE_MISMATCH}
 	 * @throws InvalidRequestException {@code RECEIPT_PRODUCT_NOT_ORDERED},
 	 *                                 {@code PURCHASE_DUPLICATE_PRODUCT}, {@code UNKNOWN_WAREHOUSE}
 	 * @throws BusinessRuleException   {@code RECEIPT_QUANTITY_EXCEEDS_REMAINING}
 	 */
-	public PurchaseOrderResponse receive(UUID orderId, ReceivePurchaseOrderRequest request) {
+	public PurchaseOrderResponse receive(UUID orderId, ReceivePurchaseOrderRequest request, UUID currentWarehouseId) {
 		UUID actor = ActorIdentity.currentUserId().orElseThrow(() -> new UnauthorizedException(ErrorCode.UNAUTHENTICATED));
-		PurchaseOrder order = this.orders.loadForUpdate(orderId);
+		PurchaseOrder order = this.orders.loadForUpdate(orderId, currentWarehouseId);
 		if (!order.getStatus().isReceivable()) {
 			throw PurchaseOrder.notReceivable();
 		}

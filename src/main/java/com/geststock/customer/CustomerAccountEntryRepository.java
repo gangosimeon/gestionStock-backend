@@ -40,4 +40,17 @@ interface CustomerAccountEntryRepository extends Repository<CustomerAccountEntry
 	@Query("select e from CustomerAccountEntry e where e.customerId = :customerId")
 	Page<CustomerAccountEntry> findByCustomer(@Param("customerId") UUID customerId, Pageable pageable);
 
+	/** Relevé limité aux dépôts indiqués (non vide) ; les écritures sans dépôt n'en font pas partie. */
+	@Query("select e from CustomerAccountEntry e where e.customerId = :customerId and e.warehouseId in :warehouseIds")
+	Page<CustomerAccountEntry> findByCustomerInWarehouses(@Param("customerId") UUID customerId,
+			@Param("warehouseIds") Collection<UUID> warehouseIds, Pageable pageable);
+
+	/** Solde net des écritures hors des dépôts indiqués (non vide), sans dépôt comprises. */
+	@Query(value = """
+			select coalesce(sum(case when direction = 'DEBIT' then amount else -amount end), 0)
+			from customer_account_entry
+			where customer_id = :customerId and (warehouse_id is null or warehouse_id not in (:warehouseIds))""",
+			nativeQuery = true)
+	BigDecimal balanceOutside(@Param("customerId") UUID customerId, @Param("warehouseIds") Collection<UUID> warehouseIds);
+
 }

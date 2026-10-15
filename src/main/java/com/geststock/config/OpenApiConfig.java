@@ -41,7 +41,7 @@ public class OpenApiConfig {
 
 			| Sujet | Règle |
 			|---|---|
-			| Dépôt courant | En-tête `X-Warehouse-Id` (UUID) sur les routes concernées ; absent : dépôt par défaut de l'utilisateur, sinon dépôt principal. `allWarehouses=true` (permission `warehouse:all`) pour tous les dépôts. |
+			| Dépôt courant | En-tête `X-Warehouse-Id` (UUID) sur les routes concernées ; absent : dépôt par défaut de l'utilisateur, sinon dépôt principal ; un dépôt invalide, inconnu, désactivé ou hors périmètre est refusé (400 ou 403), jamais remplacé. `allWarehouses=true` (permission `warehouse:all`) pour tous les dépôts. |
 			| Listes | `{items, total, page, size, totalPages}` ; `page` (à partir de 0), `size` (1 à 200), `sort=champ,asc\\|desc` (champs listés par route). Sans `page` ni `size`, certaines listes historiques du front renvoient tout (5 000 au plus, en-tête `X-Result-Truncated` au-delà). Les rapports sont toujours paginés et portent leurs totaux dans `summary`. |
 			| Dates | Instants ISO-8601 UTC (`2026-10-10T09:30:00Z`) ; dates seules `AAAA-MM-JJ`, journées dans le fuseau de l'entreprise (Abidjan). |
 			| Montants | Décimaux en FCFA, 2 décimales ; prix, coûts et totaux toujours calculés par le serveur (les prix envoyés sont ignorés). |

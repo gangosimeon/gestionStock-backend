@@ -12,5 +12,7 @@ import java.util.UUID;
  * @param search   texte cherché dans l'utilisateur, l'objet, son identifiant et les détails
  */
 public record AuditLogFilter(String dateFrom, String dateTo, List<String> actions, List<String> entityTypes,
-		List<String> modules, UUID userId, String status, String entityId, String search) {
+		List<String> modules, UUID userId, String status, String entityId, String search,
+		@io.swagger.v3.oas.annotations.media.Schema(description = "Dépôt des entrées (doit être visible par le lecteur)")
+		UUID warehouseId) {
 }

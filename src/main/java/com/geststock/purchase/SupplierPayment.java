@@ -61,12 +61,17 @@ public class SupplierPayment {
 	@Column(name = "created_by")
 	private UUID createdBy;
 
+	/** Dépôt du paiement (celui de ses commandes et de sa caisse) ; {@code null} : historique ambigu. */
+	@Column(name = "warehouse_id", updatable = false)
+	private UUID warehouseId;
+
 	protected SupplierPayment() {
 		// JPA
 	}
 
 	SupplierPayment(String number, UUID supplierId, LocalDate paymentDate, BigDecimal amount,
-			PaymentMethod paymentMethod, String externalReference, String note, Instant createdAt, UUID createdBy) {
+			PaymentMethod paymentMethod, String externalReference, String note, Instant createdAt, UUID createdBy,
+			UUID warehouseId) {
 		this.number = Objects.requireNonNull(number, "number");
 		this.supplierId = Objects.requireNonNull(supplierId, "supplierId");
 		this.paymentDate = Objects.requireNonNull(paymentDate, "paymentDate");
@@ -76,6 +81,11 @@ public class SupplierPayment {
 		this.note = note;
 		this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
 		this.createdBy = createdBy;
+		this.warehouseId = Objects.requireNonNull(warehouseId, "warehouseId");
+	}
+
+	public UUID getWarehouseId() {
+		return this.warehouseId;
 	}
 
 	public UUID getId() {

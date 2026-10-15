@@ -17,6 +17,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * @param advanceAmount     acomptes : montant payé au-delà de la valeur reçue (marchandises pas encore
  *                          livrées)
  * @param ordersToPay       commandes ayant un reste à payer
+ * @param currentWarehouseRemainingToPay reste à payer dans le dépôt courant : un paiement global ne
+ *                          règle que les commandes de ce dépôt (indicatif, revérifié au paiement)
  */
 @Schema(name = "SupplierAccount")
 public record SupplierAccountResponse(
@@ -27,5 +29,7 @@ public record SupplierAccountResponse(
 		BigDecimal paidAmount,
 		BigDecimal remainingToPay,
 		BigDecimal advanceAmount,
-		long ordersToPay) {
+		long ordersToPay,
+		@Schema(description = "Reste à payer dans le dépôt courant (plafond d'un paiement global)")
+		BigDecimal currentWarehouseRemainingToPay) {
 }

@@ -166,8 +166,9 @@ public class ExpenseService {
 	 * du dépôt de la dépense ; sans caisse ouverte, l'annulation est refusée.
 	 */
 	@Transactional
-	public ExpenseResponse cancel(UUID id, String reason) {
-		loadVisible(id);
+	public ExpenseResponse cancel(UUID id, String reason, UUID currentWarehouseId) {
+		// Depuis le dépôt de la dépense (WAREHOUSE_MISMATCH sinon), après le contrôle de visibilité.
+		this.warehouseAccess.requireCurrent(loadVisible(id).getWarehouseId(), currentWarehouseId);
 		Expense expense = this.repository.findForUpdate(id).orElseThrow(ExpenseService::notFound);
 		ExpenseResponse before = toResponse(expense);
 		String motive = reason.trim();

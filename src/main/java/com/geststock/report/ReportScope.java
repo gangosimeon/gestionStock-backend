@@ -24,6 +24,12 @@ record ReportScope(ReportFilter filter, ReportPeriod period, UUID warehouseId) {
 		return (value != null ? value : BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
 	}
 
+	/** Montant facultatif : {@code null} reste {@code null} (valeur sans objet, pas zéro). */
+	static BigDecimal nullableMoney(ResultSet rs, String column) throws SQLException {
+		BigDecimal value = rs.getBigDecimal(column);
+		return value != null ? value.setScale(2, RoundingMode.HALF_UP) : null;
+	}
+
 	static Instant instant(ResultSet rs, String column) throws SQLException {
 		Timestamp value = rs.getTimestamp(column);
 		return value != null ? value.toInstant() : null;

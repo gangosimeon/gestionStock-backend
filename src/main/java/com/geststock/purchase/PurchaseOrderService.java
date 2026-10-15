@@ -157,8 +157,8 @@ public class PurchaseOrderService {
 	@Transactional
 	public PurchaseOrderResponse create(CreatePurchaseOrderRequest request, UUID currentWarehouseId) {
 		SupplierSnapshot supplier = this.suppliers.getForAssignment(request.supplierId(), true);
-		UUID warehouseId = request.warehouseId() != null
-				? this.warehouseAccess.requireAccessible(request.warehouseId()).id() : currentWarehouseId;
+		// Livraison dans le dépôt courant ; un warehouseId envoyé doit le confirmer.
+		UUID warehouseId = this.warehouseAccess.requireCurrentIfPresent(request.warehouseId(), currentWarehouseId);
 
 		Set<UUID> productIds = new HashSet<>();
 		for (CreatePurchaseOrderRequest.Line line : request.lines()) {
@@ -206,8 +206,8 @@ public class PurchaseOrderService {
 	 * montant facturé est la valeur reçue ; le numéro est unique par fournisseur.
 	 */
 	@Transactional
-	public SupplierInvoiceResponse invoice(UUID id, SupplierInvoiceRequest request) {
-		PurchaseOrder order = loadForUpdate(id);
+	public SupplierInvoiceResponse invoice(UUID id, SupplierInvoiceRequest request, UUID currentWarehouseId) {
+		PurchaseOrder order = loadForUpdate(id, currentWarehouseId);
 		String number = request.invoiceNumber().trim();
 		LocalDate ordered = order.getCreatedAt().atZone(this.clock.getZone()).toLocalDate();
 		if (request.invoiceDate().isAfter(LocalDate.now(this.clock)) || request.invoiceDate().isBefore(ordered)) {
@@ -231,8 +231,8 @@ public class PurchaseOrderService {
 
 	/** Annule une commande dont rien n'a été reçu. */
 	@Transactional
-	public PurchaseOrderResponse cancel(UUID id, ClosePurchaseOrderRequest request) {
-		PurchaseOrder order = loadForUpdate(id);
+	public PurchaseOrderResponse cancel(UUID id, ClosePurchaseOrderRequest request, UUID currentWarehouseId) {
+		PurchaseOrder order = loadForUpdate(id, currentWarehouseId);
 		PurchaseOrderStatus before = order.getStatus();
 		order.cancel(Instant.now(this.clock), ActorIdentity.currentUserId().orElse(null), reasonOf(request));
 		PurchaseOrderResponse saved = PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
@@ -242,8 +242,8 @@ public class PurchaseOrderService {
 
 	/** Solde une commande reçue en partie : le reliquat n'est plus attendu. */
 	@Transactional
-	public PurchaseOrderResponse closeRemainder(UUID id, ClosePurchaseOrderRequest request) {
-		PurchaseOrder order = loadForUpdate(id);
+	public PurchaseOrderResponse closeRemainder(UUID id, ClosePurchaseOrderRequest request, UUID currentWarehouseId) {
+		PurchaseOrder order = loadForUpdate(id, currentWarehouseId);
 		PurchaseOrderStatus before = order.getStatus();
 		order.closeRemainder(Instant.now(this.clock), ActorIdentity.currentUserId().orElse(null), reasonOf(request));
 		PurchaseOrderResponse saved = PurchaseMapper.toResponse(this.orders.saveAndFlush(order));
@@ -268,6 +268,16 @@ public class PurchaseOrderService {
 	PurchaseOrder loadForUpdate(UUID id) {
 		PurchaseOrder order = this.orders.findForUpdate(id).orElseThrow(PurchaseOrderService::notFound);
 		requireVisible(order);
+		return order;
+	}
+
+	/**
+	 * Commande verrouillée et visible, sur laquelle on agit depuis son dépôt : réception,
+	 * annulation, solde, facture, paiement de la commande ({@code WAREHOUSE_MISMATCH} sinon).
+	 */
+	PurchaseOrder loadForUpdate(UUID id, UUID currentWarehouseId) {
+		PurchaseOrder order = loadForUpdate(id);
+		this.warehouseAccess.requireCurrent(order.getWarehouseId(), currentWarehouseId);
 		return order;
 	}
 

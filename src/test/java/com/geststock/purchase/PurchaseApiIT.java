@@ -334,14 +334,38 @@ class PurchaseApiIT {
 	// --- Dépôts et droits ------------------------------------------------------------------------
 
 	@Test
-	void stockEntersTheOrderWarehouseWhateverTheCurrentWarehouse() throws Exception {
+	void anOrderIsReceivedFromItsWarehouseOnly() throws Exception {
 		String id = idOf(this.mvc.perform(post("/api/purchases/orders").with(manager())
 			.header("X-Warehouse-Id", this.depot.toString())
 			.contentType(MediaType.APPLICATION_JSON).content(order(this.frame, "6", null)))
 			.andExpect(jsonPath("$.warehouseId").value(this.depot.toString())));
 
-		// Réception déclenchée depuis le magasin principal : le stock entre au dépôt commandé.
-		receive(id, "{}").andExpect(status().isOk());
+		// Depuis le magasin principal : réception, annulation, solde et facture refusés ; rien n'entre en stock.
+		receive(id, "{}").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		for (String action : new String[] { "cancel", "close" }) {
+			this.mvc.perform(post("/api/purchases/orders/{id}/" + action, id).with(manager())
+				.contentType(MediaType.APPLICATION_JSON).content("{}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		}
+		this.mvc.perform(post("/api/purchases/orders/{id}/invoice", id).with(manager())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"invoiceNumber\": \"FAC-1\", \"invoiceDate\": \"2026-10-10\"}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		this.mvc.perform(post("/api/purchases/orders/{id}/pay", id).with(manager())
+			.contentType(MediaType.APPLICATION_JSON).content("{\"amount\": 1000, \"paymentMethod\": \"BANK_TRANSFER\"}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		assertThat(level(this.depot, this.frame)).isZero();
+		assertThat(this.jdbc.queryForObject("select status || '/' || paid_amount from purchase_order where id = ?::uuid",
+				String.class, id)).as("ni annulée, ni soldée, ni payée").isEqualTo("ORDERED/0.00");
+
+		// Depuis le dépôt de la commande : le stock entre au dépôt commandé.
+		this.mvc.perform(post("/api/purchases/orders/{id}/receive", id).with(manager())
+			.header("X-Warehouse-Id", this.depot.toString())
+			.contentType(MediaType.APPLICATION_JSON).content("{}"))
+			.andExpect(status().isOk());
 		assertThat(level(this.depot, this.frame)).isEqualTo(6);
 		assertThat(level(this.main, this.frame)).isZero();
 
@@ -372,7 +396,15 @@ class PurchaseApiIT {
 
 	@Test
 	void ordersOfAnotherWarehouseAreInvisibleToAUserWithoutAccess() throws Exception {
+		// Le dépôt de livraison se choisit par le dépôt courant ; le corps ne peut que le confirmer.
+		this.mvc.perform(post("/api/purchases/orders").with(manager()).contentType(MediaType.APPLICATION_JSON)
+			.content("""
+					{"supplierId": "%s", "warehouseId": "%s", "lines": [{"productId": "%s", "quantity": 1}]}
+					""".formatted(this.supplier, this.depot, this.frame)))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
 		String id = idOf(this.mvc.perform(post("/api/purchases/orders").with(manager())
+			.header("X-Warehouse-Id", this.depot.toString())
 			.contentType(MediaType.APPLICATION_JSON)
 			.content("""
 					{"supplierId": "%s", "warehouseId": "%s", "lines": [{"productId": "%s", "quantity": 1}]}
@@ -385,10 +417,11 @@ class PurchaseApiIT {
 		this.mvc.perform(post("/api/purchases/orders/{id}/receive", id).with(clerk)
 			.contentType(MediaType.APPLICATION_JSON).content("{}"))
 			.andExpect(status().isNotFound());
-		this.mvc.perform(post("/api/purchases/orders").with(clerk).contentType(MediaType.APPLICATION_JSON)
+		this.mvc.perform(post("/api/purchases/orders").with(clerk).header("X-Warehouse-Id", this.depot.toString())
+			.contentType(MediaType.APPLICATION_JSON)
 			.content("""
-					{"supplierId": "%s", "warehouseId": "%s", "lines": [{"productId": "%s", "quantity": 1}]}
-					""".formatted(this.supplier, this.depot, this.frame)))
+					{"supplierId": "%s", "lines": [{"productId": "%s", "quantity": 1}]}
+					""".formatted(this.supplier, this.frame)))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
 		assertThat(level(this.depot, this.frame)).isZero();

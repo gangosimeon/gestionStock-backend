@@ -97,7 +97,7 @@ class SupplierPaymentConcurrencyIT {
 			UUID target = i % 3 == 0 ? first : null;
 			PaymentMethod method = i % 2 == 0 ? PaymentMethod.CASH : PaymentMethod.BANK_TRANSFER;
 			tasks.add(() -> outcome(() -> as(this.actor, () -> this.payments.pay(this.supplier,
-					new SupplierPaymentRequest(new BigDecimal("10000"), null, method, target, null, null)))));
+					new SupplierPaymentRequest(new BigDecimal("10000"), null, method, target, null, null), this.store))));
 		}
 
 		List<String> outcomes = runConcurrently(tasks);

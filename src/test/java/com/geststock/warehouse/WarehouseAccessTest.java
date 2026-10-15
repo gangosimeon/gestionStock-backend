@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -79,19 +80,41 @@ class WarehouseAccessTest {
 	}
 
 	@Test
-	void legacyMockIdentifierFallsBackToTheDefaultWarehouse() {
+	void missingHeaderUsesTheDefaultWarehouse() {
 		ActorWarehouseScope scope = assigned(this.store.getId(), this.store.getId(), this.depot.getId());
 
-		assertThat(this.access.resolve("wh_1", scope).id()).isEqualTo(this.store.getId());
 		assertThat(this.access.resolve(null, scope).id()).isEqualTo(this.store.getId());
-		assertThat(this.access.resolve(UUID.randomUUID().toString(), scope).id()).isEqualTo(this.store.getId());
+		assertThat(this.access.resolve("  ", scope).id()).isEqualTo(this.store.getId());
 	}
 
 	@Test
-	void deactivatedWarehouseFallsBackToTheDefaultOne() {
+	void malformedIdentifierIsRefusedNeverReplaced() {
+		ActorWarehouseScope scope = assigned(this.store.getId(), this.store.getId(), this.depot.getId());
+
+		assertRefused(() -> this.access.resolve("wh_1", scope), ErrorCode.INVALID_WAREHOUSE_ID);
+		assertRefused(() -> this.access.resolve("not-a-uuid", scope), ErrorCode.INVALID_WAREHOUSE_ID);
+	}
+
+	@Test
+	void unknownWarehouseIsRefusedNeverReplaced() {
+		ActorWarehouseScope scope = assigned(this.store.getId(), this.store.getId(), this.depot.getId());
+
+		assertRefused(() -> this.access.resolve(UUID.randomUUID().toString(), scope), ErrorCode.UNKNOWN_WAREHOUSE);
+	}
+
+	@Test
+	void deactivatedWarehouseIsRefusedNeverReplaced() {
 		ActorWarehouseScope scope = assigned(this.store.getId(), this.store.getId(), this.closed.getId());
 
-		assertThat(this.access.resolve(this.closed.getId().toString(), scope).id()).isEqualTo(this.store.getId());
+		assertRefused(() -> this.access.resolve(this.closed.getId().toString(), scope), ErrorCode.WAREHOUSE_INACTIVE);
+	}
+
+	@Test
+	void deactivatedWarehouseOutsideThePerimeterIsAnAccessRefusal() {
+		ActorWarehouseScope scope = assigned(this.store.getId(), this.store.getId());
+
+		assertRefused(() -> this.access.resolve(this.closed.getId().toString(), scope),
+				ErrorCode.WAREHOUSE_ACCESS_DENIED);
 	}
 
 	@Test
@@ -106,11 +129,13 @@ class WarehouseAccessTest {
 	void unassignedUserWorksInTheMainWarehouseOnly() {
 		ActorWarehouseScope scope = new ActorWarehouseScope(false, null, Set.of());
 
-		assertThat(this.access.resolve("wh_1", scope).id()).isEqualTo(this.main.getId());
+		assertThat(this.access.resolve(null, scope).id()).isEqualTo(this.main.getId());
+		assertThat(this.access.resolve(this.main.getId().toString(), scope).id()).isEqualTo(this.main.getId());
 		assertThat(this.access.accessibleIds(scope)).containsExactly(this.main.getId());
-		assertThatThrownBy(() -> this.access.resolve(this.store.getId().toString(), scope))
-			.isInstanceOfSatisfying(ApiException.class,
-					ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.WAREHOUSE_ACCESS_DENIED));
+		// L'exception « sans affectation » ne vaut que sans en-tête : un dépôt désigné est contrôlé.
+		assertRefused(() -> this.access.resolve(this.store.getId().toString(), scope),
+				ErrorCode.WAREHOUSE_ACCESS_DENIED);
+		assertRefused(() -> this.access.resolve("wh_1", scope), ErrorCode.INVALID_WAREHOUSE_ID);
 	}
 
 	@Test
@@ -134,6 +159,11 @@ class WarehouseAccessTest {
 		assertThatThrownBy(() -> this.access.resolve(null, scope))
 			.isInstanceOfSatisfying(ApiException.class,
 					ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.NO_WAREHOUSE_AVAILABLE));
+	}
+
+	private static void assertRefused(ThrowingCallable call, ErrorCode code) {
+		assertThatThrownBy(call).isInstanceOfSatisfying(ApiException.class,
+				ex -> assertThat(ex.getCode()).isEqualTo(code));
 	}
 
 	private static ActorWarehouseScope assigned(UUID defaultId, UUID... ids) {

@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -69,6 +70,9 @@ class PurchaseOrderServiceTest {
 	void setUp() {
 		this.service = new PurchaseOrderService(this.orders, this.receipts, this.suppliers, this.products,
 				this.warehouseAccess, org.mockito.Mockito.mock(AuditService.class), Clock.fixed(NOW, ZoneOffset.UTC));
+		// Règle réelle « dépôt envoyé = dépôt courant » (sans dépendance au périmètre de l'utilisateur).
+		lenient().when(this.warehouseAccess.requireCurrentIfPresent(any(), any())).thenCallRealMethod();
+		lenient().doCallRealMethod().when(this.warehouseAccess).requireCurrent(any(), any());
 		this.essilor = new SupplierSnapshot(UUID.randomUUID(), "FOU-ESS", "Essilor", 5, 30, true);
 		this.frame = new ProductSnapshot(UUID.randomUUID(), "MON-1", "Monture", true, new BigDecimal("15000.00"),
 				BigDecimal.ZERO, BigDecimal.ZERO);
@@ -164,16 +168,14 @@ class PurchaseOrderServiceTest {
 	}
 
 	@Test
-	void anExplicitDeliveryWarehouseMustBeAccessible() {
+	void anExplicitDeliveryWarehouseMustBeTheCurrentOne() {
 		UUID depot = UUID.randomUUID();
 		given(this.suppliers.getForAssignment(this.essilor.id(), true)).willReturn(this.essilor);
-		given(this.warehouseAccess.requireAccessible(depot))
-			.willThrow(new com.geststock.exception.ForbiddenOperationException(ErrorCode.WAREHOUSE_ACCESS_DENIED, "non"));
 
 		assertThatThrownBy(() -> this.service.create(new CreatePurchaseOrderRequest(this.essilor.id(), depot, null, null,
 				null, List.of(new CreatePurchaseOrderRequest.Line(this.frame.id(), 1, null))), WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
-			.isEqualTo(ErrorCode.WAREHOUSE_ACCESS_DENIED);
+			.isEqualTo(ErrorCode.WAREHOUSE_MISMATCH);
 		verifyNothingSaved();
 	}
 

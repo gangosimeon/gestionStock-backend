@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -102,14 +103,14 @@ class GoodsReceiptServiceTest {
 
 	@Test
 	void anEmptyBodyReceivesTheWholeRemainderIntoTheOrderWarehouseAtTheOrderCost() {
-		given(this.orders.loadForUpdate(any())).willReturn(this.order);
+		given(this.orders.loadForUpdate(any(), eq(WAREHOUSE))).willReturn(this.order);
 		given(this.receipts.nextNumber()).willReturn(12L);
 		given(this.receipts.save(any(GoodsReceipt.class))).willAnswer(invocation -> invocation.getArgument(0));
 		List<StockMovement> movements = List.of(movement(), movement());
 		given(this.stock.applyMovements(anyList())).willReturn(movements);
 		given(this.orderRepository.save(this.order)).willReturn(this.order);
 
-		PurchaseOrderResponse response = this.service.receive(UUID.randomUUID(), empty());
+		PurchaseOrderResponse response = this.service.receive(UUID.randomUUID(), empty(), WAREHOUSE);
 
 		@SuppressWarnings("unchecked")
 		ArgumentCaptor<List<StockMovementCommand>> commands = ArgumentCaptor.forClass(List.class);
@@ -146,7 +147,7 @@ class GoodsReceiptServiceTest {
 
 	@Test
 	void aPartialReceiptOnlyMovesTheReceivedQuantities() {
-		given(this.orders.loadForUpdate(any())).willReturn(this.order);
+		given(this.orders.loadForUpdate(any(), eq(WAREHOUSE))).willReturn(this.order);
 		given(this.receipts.nextNumber()).willReturn(1L);
 		given(this.receipts.save(any(GoodsReceipt.class))).willAnswer(invocation -> invocation.getArgument(0));
 		List<StockMovement> movements = List.of(movement());
@@ -154,7 +155,7 @@ class GoodsReceiptServiceTest {
 		given(this.orderRepository.save(this.order)).willReturn(this.order);
 
 		PurchaseOrderResponse response = this.service.receive(UUID.randomUUID(),
-				request(new ReceivePurchaseOrderRequest.Line(this.frames, 3)));
+				request(new ReceivePurchaseOrderRequest.Line(this.frames, 3)), WAREHOUSE);
 
 		@SuppressWarnings("unchecked")
 		ArgumentCaptor<List<StockMovementCommand>> commands = ArgumentCaptor.forClass(List.class);
@@ -173,10 +174,10 @@ class GoodsReceiptServiceTest {
 
 	@Test
 	void overReceiptIsRefusedBeforeAnythingIsWritten() {
-		given(this.orders.loadForUpdate(any())).willReturn(this.order);
+		given(this.orders.loadForUpdate(any(), eq(WAREHOUSE))).willReturn(this.order);
 
 		assertThatThrownBy(() -> this.service.receive(UUID.randomUUID(),
-				request(new ReceivePurchaseOrderRequest.Line(this.lenses, 5))))
+				request(new ReceivePurchaseOrderRequest.Line(this.lenses, 5)), WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.RECEIPT_QUANTITY_EXCEEDS_REMAINING);
 		verifyNothingWritten();
@@ -184,15 +185,15 @@ class GoodsReceiptServiceTest {
 
 	@Test
 	void aProductOutsideTheOrderOrListedTwiceIsRefused() {
-		given(this.orders.loadForUpdate(any())).willReturn(this.order);
+		given(this.orders.loadForUpdate(any(), eq(WAREHOUSE))).willReturn(this.order);
 
 		assertThatThrownBy(() -> this.service.receive(UUID.randomUUID(),
-				request(new ReceivePurchaseOrderRequest.Line(UUID.randomUUID(), 1))))
+				request(new ReceivePurchaseOrderRequest.Line(UUID.randomUUID(), 1)), WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.RECEIPT_PRODUCT_NOT_ORDERED);
 		assertThatThrownBy(() -> this.service.receive(UUID.randomUUID(),
 				request(new ReceivePurchaseOrderRequest.Line(this.frames, 1),
-						new ReceivePurchaseOrderRequest.Line(this.frames, 1))))
+						new ReceivePurchaseOrderRequest.Line(this.frames, 1)), WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.PURCHASE_DUPLICATE_PRODUCT);
 		verifyNothingWritten();
@@ -201,9 +202,9 @@ class GoodsReceiptServiceTest {
 	@Test
 	void aCancelledOrderCannotBeReceived() {
 		this.order.cancel(NOW, ACTOR, null);
-		given(this.orders.loadForUpdate(any())).willReturn(this.order);
+		given(this.orders.loadForUpdate(any(), eq(WAREHOUSE))).willReturn(this.order);
 
-		assertThatThrownBy(() -> this.service.receive(UUID.randomUUID(), empty()))
+		assertThatThrownBy(() -> this.service.receive(UUID.randomUUID(), empty(), WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.PURCHASE_ORDER_NOT_RECEIVABLE);
 		verifyNothingWritten();
@@ -214,7 +215,7 @@ class GoodsReceiptServiceTest {
 	void anAuthenticatedUserIsMandatory() {
 		SecurityContextHolder.clearContext();
 
-		assertThatThrownBy(() -> this.service.receive(UUID.randomUUID(), empty()))
+		assertThatThrownBy(() -> this.service.receive(UUID.randomUUID(), empty(), WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.UNAUTHENTICATED);
 		verifyNoInteractions(this.orders);

@@ -204,7 +204,7 @@ Principes :
 | `POST /api/customers` | `customer:create` (+ `customer:credit` si `creditLimit` > 0) | Contrat front `{name, phone, email, creditLimit}` → 201 |
 | `PATCH /api/customers/{id}` (verbe du front), `PUT` | `customer:update` (+ `customer:credit` pour changer le plafond) | Modification |
 | `DELETE /api/customers/{id}`, `PATCH /{id}/active` | `customer:delete` | Désactivation (`{ok: true}`) ou réactivation |
-| `GET /api/customers/{id}/account`, `/account/entries` | `customer:read` | Plafond, solde dû, crédit disponible ; relevé paginé |
+| `GET /api/customers/{id}/account`, `/account/entries` | `customer:read` | Plafond, solde dû, crédit disponible (tous dépôts ; `otherWarehousesBalance` = part née hors de vos dépôts, sans détail) ; relevé paginé limité à vos dépôts |
 
 - Champs : `code` (unique, généré `CLI-000001`), `type` (`INDIVIDUAL`, `COMPANY`), `name`, `phone`, `email`, `address`, `city`, `taxId` (NCC), `priceCategory` (`RETAIL`, `WHOLESALE` : tarif par défaut à la vente), `creditLimit` (≥ 0, 0 = aucun crédit), `paymentTermsDays` (0–365), `note`, `active`. Pas d'unicité sur le nom ni le téléphone (homonymes, téléphone familial).
 - Modification : `name`, `phone`, `email` remplacés ; `creditLimit` et les champs que le front ne connaît pas encore conservés s'ils sont absents (chaîne vide = effacé).
@@ -213,7 +213,7 @@ Principes :
   - `recordCreditSale` (ventes) : client actif, solde dû après écriture ≤ plafond (`422 CREDIT_LIMIT_EXCEEDED`) ;
   - `recordCredit(PAYMENT | CREDIT_NOTE | SALE_CANCELLATION)` (paiements, retours, annulations) : montant ≤ solde dû, pas de trop-perçu (`422 AMOUNT_EXCEEDS_CUSTOMER_BALANCE`), possible sur un client désactivé ;
   - une pièce n'est imputée qu'une fois (`uk_customer_account_entry_source`).
-- `/api/customers/{id}/sales` et `/payments` (contrat front) seront servis par les modules ventes et paiements, qui alimenteront le compte.
+- **Dépôts** : plafond et solde restent globaux ; chaque écriture porte le dépôt de sa pièce (V031), le relevé détaillé est limité au périmètre de l'utilisateur. Voir [docs/multi-depots.md](docs/multi-depots.md).
 
 ## Dépôts
 
@@ -225,12 +225,14 @@ Principes :
 | `POST /api/warehouses` | `warehouse:manage` | `{"name"}` suffit (front) : code généré `MAG-nn` / `DEP-nn`, type `STORE` |
 | `PUT /api/warehouses/{id}` | `warehouse:manage` | Code, nom (uniques), type, adresse, téléphone |
 | `PATCH /api/warehouses/{id}/active`, `DELETE` | `warehouse:manage` | Désactivation, jamais d'effacement |
-| `POST /api/warehouses/{id}/main` | `warehouse:manage` | Change le dépôt principal |
+| `POST /api/warehouses/{id}/main` | `warehouse:manage` + `warehouse:all` | Change le dépôt principal (dépôt actif, sinon `422 MAIN_WAREHOUSE_INACTIVE`) |
 
 - **Dépôt principal** (V012) : un seul (index unique partiel), toujours actif ; `MAG-01` à l'installation. Il ne peut pas être désactivé (`409 MAIN_WAREHOUSE_REQUIRED`) avant d'en désigner un autre.
-- **Périmètre** (calculé par le serveur, relu à chaque requête) : `warehouse:all` → tous les dépôts ; sinon dépôts attribués + dépôt par défaut de l'utilisateur ; utilisateur sans affectation → dépôt principal. `warehouse:manage` voit tous les dépôts dans `/api/warehouses`.
-- **Dépôt courant** : l'en-tête `X-Warehouse-Id` est un *choix* parmi les dépôts autorisés. Dépôt actif hors périmètre → `403 WAREHOUSE_ACCESS_DENIED` (jamais de repli silencieux). En-tête absent, inconnu, désactivé ou ancien identifiant du mock (`wh_1`) → dépôt par défaut, puis premier dépôt attribué, puis dépôt principal. Le dépôt retenu est renvoyé dans l'en-tête de réponse `X-Warehouse-Id`.
-- **Modules futurs** (stock, ventes, caisse, inventaire) : déclarer `@CurrentWarehouse WarehouseContext warehouse` dans le contrôleur et rattacher la pièce à `warehouse.id()` ; pour un dépôt désigné dans le corps (destination d'un transfert), appeler `WarehouseAccess.requireAccessible(id)`.
+- **Périmètre** (calculé par le serveur, relu à chaque requête) : `warehouse:all` → tous les dépôts ; sinon dépôts attribués + dépôt par défaut de l'utilisateur ; utilisateur sans affectation → dépôt principal. `warehouse:manage` administre les dépôts de son périmètre sans élargir la visibilité des données ; `GESTIONNAIRE` n'a plus ni `warehouse:all` ni `warehouse:manage` (V029).
+- **Dépôt courant** : l'en-tête `X-Warehouse-Id` est un *choix* parmi les dépôts autorisés. Une valeur fournie n'est jamais remplacée : pas un UUID (ancien `wh_1`) → `400 INVALID_WAREHOUSE_ID`, inconnu → `400 UNKNOWN_WAREHOUSE`, hors périmètre → `403 WAREHOUSE_ACCESS_DENIED`, désactivé → `403 WAREHOUSE_INACTIVE`. En-tête **absent** seulement → dépôt par défaut, puis premier dépôt attribué, puis dépôt principal (sans affectation ou avec `warehouse:all`), sinon `403 NO_WAREHOUSE_AVAILABLE`. Le dépôt retenu est renvoyé dans l'en-tête de réponse `X-Warehouse-Id`.
+- **Écritures** : une action sur une pièce d'un autre dépôt que le dépôt courant, ou un `warehouseId` du corps différent, → `409 WAREHOUSE_MISMATCH` ; vues tous dépôts (`allWarehouses=true`) réservées à `warehouse:all`.
+- **Nouveau module** : déclarer `@CurrentWarehouse WarehouseContext warehouse`, rattacher la pièce à `warehouse.id()`, appeler `WarehouseAccess.requireCurrent(pièce, courant)` avant toute action sur une pièce existante et `requireAccessible(id)` pour un dépôt de destination.
+- Règles complètes, migrations et déploiement : **[docs/multi-depots.md](docs/multi-depots.md)**.
 
 ## Stock
 
@@ -279,7 +281,7 @@ ORDERED ──réception partielle──► PARTIALLY_RECEIVED ──reste──
 | `POST /api/purchases/orders/{id}/cancel`, `/close` | `purchase:create` | Annulation (rien reçu) ; solde du reliquat (reçue en partie) |
 | `GET /api/suppliers/{id}/purchases` | `purchase:read` | Historique d'achats du fournisseur : une entrée par réception |
 
-**Commande** (calculs serveur) : fournisseur et produits actifs, un produit par ligne, quantités entières > 0. Coût unitaire = `unitPurchasePrice` (≥ 0, 2 décimales) ou, à défaut, prix d'achat du produit ; totaux de ligne et de commande calculés par le serveur (les totaux envoyés sont ignorés). Livraison dans le dépôt courant (ou `warehouseId` accessible), prévue à aujourd'hui + délai du fournisseur. Numéro `CMD-AAAA-nnnnnn`.
+**Commande** (calculs serveur) : fournisseur et produits actifs, un produit par ligne, quantités entières > 0. Coût unitaire = `unitPurchasePrice` (≥ 0, 2 décimales) ou, à défaut, prix d'achat du produit ; totaux de ligne et de commande calculés par le serveur (les totaux envoyés sont ignorés). Livraison dans le dépôt courant (`warehouseId` du corps : le même, sinon `409 WAREHOUSE_MISMATCH`), prévue à aujourd'hui + délai du fournisseur. Numéro `CMD-AAAA-nnnnnn`.
 
 **Réception** (`GoodsReceiptService`, une seule transaction) : verrou de la commande, contrôle du reste à recevoir (pas de sur-réception, `422 RECEIPT_QUANTITY_EXCEEDS_REMAINING`), bon `REC-AAAA-nnnnnn`, **mouvements `RECEIPT` via `StockService`** dans le dépôt de la commande au coût de la commande, lignes reçues liées à leur mouvement, quantités reçues, statut, puis dernier prix d'achat des produits (RG-PUR-5). Tout ou rien.
 
@@ -302,7 +304,7 @@ Contrat front : `status` vaut `PENDING` tant qu'une réception est possible, `DE
 1. produits relus (existants, actifs), prix du tarif (`RETAIL` = détail, `WHOLESALE` = gros ; par défaut le tarif du client) — `422 PRODUCT_PRICE_NOT_SET` si nul ;
 2. remise par ligne ≤ `geststock.sales.max-discount-percent` (20 % par défaut, `422 DISCOUNT_NOT_ALLOWED`) ; coût = prix d'achat de référence ; montants arrondis au centime ;
 3. règlement : 0 ≤ `paidAmount` ≤ total (total par défaut), mode de paiement requis si un montant est payé ; un reste dû exige un client (`422 CUSTOMER_REQUIRED_FOR_CREDIT`) ;
-4. vente `VTE-AAAA-nnnnnn` au nom de l'utilisateur connecté, dans le dépôt courant ou `warehouseId` accessible ;
+4. vente `VTE-AAAA-nnnnnn` au nom de l'utilisateur connecté, dans le dépôt courant (`warehouseId` du corps : le même, sinon `409 WAREHOUSE_MISMATCH`) ;
 5. **sorties de stock `SALE` via `StockService`** (sous verrou, `422 STOCK_INSUFFICIENT`) ; lignes liées à leur sortie ;
 6. reste dû porté au compte du client (`CustomerAccountService`, plafond contrôlé sous verrou, `422 CREDIT_LIMIT_EXCEEDED`) ;
 7. trace `CREATE SALE` dans `audit_log` (`AuditService`, même transaction).
@@ -319,14 +321,14 @@ Pas de caisse globale : **chaque utilisateur ouvre sa caisse** dans le dépôt c
 
 | Endpoint | Permission | Rôle |
 |---|---|---|
-| `GET /api/cash-register/current` | `cash:operate` | Ma caisse ouverte (corps `null` sinon) |
+| `GET /api/cash-register/current` | `cash:operate` | Ma caisse ouverte (corps `null` sinon), avec `warehouseId` et `inCurrentWarehouse` |
 | `POST /api/cash-register/open` | `cash:operate` | `{openingBalance, terminal?, note?}` → 201 |
 | `POST /api/cash-register/operations` | `cash:operate` | Apport `IN` / sortie `OUT` d'espèces `{type, amount, note?}` → 201 |
 | `POST /api/cash-register/operations/{id}/reversal` | `cash:operate` | Correction d'un apport ou d'une sortie de ma caisse ouverte `{reason}` → 201 |
 | `POST /api/cash-register/close` | `cash:operate` | `{countedCash, note?}` : attendu et écart figés |
 | `GET /api/cash-register/sessions`, `/sessions/{id}`, `/sessions/{id}/operations` | `cash:operate` (ses caisses) ou `cash:read` (toutes, filtre `cashierId`) | Historique paginé |
 | `GET /api/customers/{id}/payments` | `customer:read` | Règlements d'un client |
-| `POST /api/customers/{id}/payments` | `customer:pay` | `{amount, paymentMethod?}` : encaissé dans ma caisse, dette diminuée |
+| `POST /api/customers/{id}/payments` | `customer:pay` | `{amount, paymentMethod?}` : encaissé dans ma caisse du dépôt courant, dette diminuée |
 
 | Type d'écriture | Sens | Origine |
 |---|---|---|
@@ -340,7 +342,7 @@ Pas de caisse globale : **chaque utilisateur ouvre sa caisse** dans le dépôt c
 | `CASH_OUT` | sortie | sortie manuelle d'espèces |
 
 - **Espèces attendues** = fond + entrées en espèces − sorties en espèces ; récapitulatif `cashSalesTotal`, `totalIn`, `totalOut`, `expectedCash` (contrat front) et `totalsByMethod` (rapprochement Mobile Money, virements).
-- Écritures sous verrou de la session : une sortie d'espèces ne dépasse jamais les espèces attendues (`422 CASH_INSUFFICIENT`) ; une vente s'encaisse dans une caisse ouverte dans son dépôt (`409 CASH_SESSION_OTHER_WAREHOUSE`) ; une pièce n'est encaissée qu'une fois.
+- Écritures sous verrou de la session : une sortie d'espèces ne dépasse jamais les espèces attendues (`422 CASH_INSUFFICIENT`) ; toute opération se fait depuis le dépôt de la caisse, et une pièce s'encaisse dans une caisse de son dépôt (`409 CASH_SESSION_OTHER_WAREHOUSE` ; garanti en base par V030) ; une pièce n'est encaissée qu'une fois.
 - Seul le titulaire écrit dans sa caisse et la clôture. Ouverture, clôture, apports, sorties et corrections sont tracés dans `audit_log`.
 - **Correction sans suppression** : une écriture erronée n'est jamais modifiée ni supprimée ; la contre-passation (même montant, sens inverse, motif obligatoire) se fait dans la caisse encore ouverte, une seule fois (`409 CASH_ENTRY_ALREADY_REVERSED`), et seulement pour les apports et sorties manuels (`409 CASH_ENTRY_NOT_REVERSIBLE` : une vente se corrige par annulation ou retour). Garde-fou `fn_cash_correction_guard` (V020).
 - **Garde-fous PostgreSQL** (V018) : écriture seulement dans une session ouverte et par son titulaire (`fn_cash_entry_guard`) ; session clôturée figée (`fn_cash_session_guard`) ; au COMMIT : vente payée ⇒ encaissement, vente payée annulée ⇒ remboursement (`fn_sale_cash_consistency`), règlement au compte client ⇔ encaissement (`fn_customer_payment_consistency`).
@@ -396,7 +398,7 @@ POST /api/sales/{id}/returns
 - `REFUND` : depuis la caisse ouverte de l'utilisateur, moyen de la vente par défaut, plafonné à ce que le client a payé sur la vente (`422 RETURN_REFUND_EXCEEDS_PAID`). `ACCOUNT_CREDIT` : client obligatoire (`422 RETURN_CUSTOMER_REQUIRED`), avoir imputé sur sa dette, sans trop-perçu (`422 AMOUNT_EXCEEDS_CUSTOMER_BALANCE`).
 - Vente annulée : pas de retour (`409 SALE_NOT_RETURNABLE`) ; vente avec retours : plus d'annulation (`409 SALE_HAS_RETURNS`).
 - Au moindre refus, rien n'est écrit (ni avoir, ni stock, ni caisse, ni compte, ni audit). Trace `CREATE` / `CUSTOMER_RETURN` avec motif, montant et règlement.
-- **Garde-fous PostgreSQL** (V020) : avoirs et lignes en ajout seul ; une ligne reprend la ligne de vente (produit, coût) et sa remise en stock exacte (`fn_customer_return_line_guard`) ; au COMMIT (`fn_customer_return_consistency`) : total = lignes, cumul ≤ vendu, vente non annulée, remboursement en caisse ou avoir au compte du montant exact ; une vente avec retours ne passe plus `CANCELLED` (`fn_sale_return_guard`).
+- **Garde-fous PostgreSQL** (V020) : avoirs et lignes en ajout seul ; une ligne reprend la ligne de vente (produit, coût) et sa remise en stock exacte (`fn_customer_return_line_guard`) ; au COMMIT (`fn_customer_return_consistency`) : total = lignes, cumul ≤ vendu, vente non annulée, remboursement en caisse ou avoir au compte du montant exact ; une vente avec retours ne passe plus `CANCELLED` (`fn_sale_return_guard`) ; un retour est dans le dépôt de sa vente (V034).
 - Non couvert : retours fournisseurs, avoir « porte-monnaie » (crédit au-delà de la dette), échange direct (retour + nouvelle vente).
 
 ## Alertes
@@ -405,7 +407,7 @@ Alertes **calculées à la demande** à partir des données existantes : aucune 
 
 | Type | Domaine | Gravité | Condition |
 |---|---|---|---|
-| `OUT_OF_STOCK` | stock | CRITICAL | stock ≤ 0 (produit actif ; aussi un produit jamais approvisionné au magasin principal) — « Rupture » du front |
+| `OUT_OF_STOCK` | stock | CRITICAL | stock ≤ 0 (produit actif ; un produit jamais approvisionné n'est signalé qu'au dépôt principal, voir [décision A](docs/multi-depots.md#alertes--produit-jamais-approvisionné-décision-a)) — « Rupture » du front |
 | `BELOW_MINIMUM` | stock | WARNING | 0 < stock ≤ seuil minimum — « Stock faible » du front (`stock ≤ alertThreshold`) |
 | `LOW_STOCK` | stock | INFO | seuil < stock ≤ seuil + marge (`lowStockMarginPercent`, au moins 1 unité) |
 | `OVERSTOCK` | stock | INFO | stock > stock maximum du produit (`maxStockLevel`) |
@@ -484,7 +486,7 @@ Chaque entrée : utilisateur (`userId`, `username`, `userRole`), `action`, `modu
 
 | Endpoint (`audit:read`) | Rôle |
 |---|---|
-| `GET /api/audit-logs` | Du plus récent au plus ancien ; filtres `dateFrom`, `dateTo` (`AAAA-MM-JJ` inclus ou instant ISO), `actions`, `entityTypes`, `modules` (`A,B`), `userId`, `status`, `entityId`, `search` ; `page`, `size` |
+| `GET /api/audit-logs` | Du plus récent au plus ancien ; filtres `dateFrom`, `dateTo` (`AAAA-MM-JJ` inclus ou instant ISO), `actions`, `entityTypes`, `modules` (`A,B`), `userId`, `status`, `entityId`, `search`, `warehouseId` ; `page`, `size`. Sans `warehouse:all` : entrées de vos dépôts seulement (liste, détail, statistiques, export) |
 | `GET /api/audit-logs/{id}` | Détail, `changes`/`before`/`after`/`meta` en JSON |
 | `GET /api/audit-logs/stats` | `{totalToday, failuresLast7Days, mostActiveUser, mostFrequentAction}` (30 jours) |
 | `GET /api/audit-logs/export` | CSV `;` UTF-8 (BOM), en-tête du front + `Module`, 50 000 lignes max ; l'export est tracé |

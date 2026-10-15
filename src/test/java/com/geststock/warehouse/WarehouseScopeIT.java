@@ -98,11 +98,32 @@ class WarehouseScopeIT {
 			.header("X-Warehouse-Id", this.main.toString()))
 			.andExpect(status().isForbidden());
 
-		// Valeur par défaut du front (wh_1) : dépôt par défaut de l'utilisateur.
-		this.mvc.perform(get("/api/products").header(HttpHeaders.AUTHORIZATION, bearer(token))
-			.header("X-Warehouse-Id", "wh_1"))
+		// En-tête absent : dépôt par défaut de l'utilisateur, renvoyé par le serveur.
+		this.mvc.perform(get("/api/products").header(HttpHeaders.AUTHORIZATION, bearer(token)))
 			.andExpect(status().isOk())
 			.andExpect(header().string("X-Warehouse-Id", this.plateau.toString()));
+	}
+
+	@Test
+	void anInvalidUnknownOrInactiveWarehouseIsRefusedNeverReplaced() throws Exception {
+		createUser("wscope_strict", "CAISSIER", this.plateau, List.of(this.plateau, this.cocody));
+		String token = accessToken("wscope_strict");
+		this.jdbc.update("update warehouse set active = false where id = ?", this.cocody);
+
+		expectRefused(token, "wh_1", 400, "INVALID_WAREHOUSE_ID");
+		expectRefused(token, UUID.randomUUID().toString(), 400, "UNKNOWN_WAREHOUSE");
+		expectRefused(token, this.cocody.toString(), 403, "WAREHOUSE_INACTIVE");
+	}
+
+	@Test
+	void aUserWhoseWarehousesAreAllClosedHasNoWarehouse() throws Exception {
+		createUser("wscope_closed", "CAISSIER", this.plateau, List.of(this.plateau));
+		String token = accessToken("wscope_closed");
+		this.jdbc.update("update warehouse set active = false where id = ?", this.plateau);
+
+		this.mvc.perform(get("/api/warehouses/current").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("NO_WAREHOUSE_AVAILABLE"));
 	}
 
 	@Test
@@ -128,15 +149,47 @@ class WarehouseScopeIT {
 
 		this.mvc.perform(get("/api/warehouses").header(HttpHeaders.AUTHORIZATION, bearer(token)))
 			.andExpect(jsonPath("$.items[*].id", containsInAnyOrder(this.main.toString())));
-		this.mvc.perform(get("/api/warehouses/current").header(HttpHeaders.AUTHORIZATION, bearer(token))
-			.header("X-Warehouse-Id", "wh_1"))
+		this.mvc.perform(get("/api/warehouses/current").header(HttpHeaders.AUTHORIZATION, bearer(token)))
 			.andExpect(jsonPath("$.id").value(this.main.toString()));
+		this.mvc.perform(get("/api/warehouses/current").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.header("X-Warehouse-Id", this.main.toString()))
+			.andExpect(jsonPath("$.id").value(this.main.toString()));
+		// Sans affectation, seul le dépôt principal est permis : un autre dépôt désigné est refusé.
+		this.mvc.perform(get("/api/warehouses/current").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.header("X-Warehouse-Id", this.plateau.toString()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
 	}
 
 	@Test
-	void managerWithWarehouseAllSeesAndSelectsEveryWarehouse() throws Exception {
-		createUser("wscope_gest", "GESTIONNAIRE", this.plateau, List.of(this.plateau));
+	void managerIsConfinedToAssignedWarehousesAndCannotAdministerThem() throws Exception {
+		createUser("wscope_gest", "GESTIONNAIRE", this.plateau, List.of(this.plateau, this.cocody));
 		String token = accessToken("wscope_gest");
+
+		this.mvc.perform(get("/api/warehouses").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+			.andExpect(jsonPath("$.items[*].id", containsInAnyOrder(this.plateau.toString(), this.cocody.toString())));
+		this.mvc.perform(get("/api/warehouses/current").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.header("X-Warehouse-Id", this.cocody.toString()))
+			.andExpect(jsonPath("$.id").value(this.cocody.toString()));
+		this.mvc.perform(get("/api/products").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.header("X-Warehouse-Id", this.main.toString()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
+
+		// Plus de vue transversale ni d'administration des dépôts (V029).
+		this.mvc.perform(get("/api/sales").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.param("allWarehouses", "true"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
+		this.mvc.perform(post("/api/warehouses").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.contentType(MediaType.APPLICATION_JSON).content("{\"name\": \"WS interdit\"}"))
+			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void adminWithWarehouseAllSeesAndSelectsEveryWarehouse() throws Exception {
+		createUser("wscope_admin", "ADMIN", this.plateau, List.of(this.plateau));
+		String token = accessToken("wscope_admin");
 
 		this.mvc.perform(get("/api/warehouses").header(HttpHeaders.AUTHORIZATION, bearer(token)))
 			.andExpect(jsonPath("$.items[*].id",
@@ -144,12 +197,23 @@ class WarehouseScopeIT {
 		this.mvc.perform(get("/api/warehouses/current").header(HttpHeaders.AUTHORIZATION, bearer(token))
 			.header("X-Warehouse-Id", this.cocody.toString()))
 			.andExpect(jsonPath("$.id").value(this.cocody.toString()));
+		this.mvc.perform(get("/api/sales").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.param("allWarehouses", "true"))
+			.andExpect(status().isOk());
 	}
 
 	@Test
 	void requestsWithoutTokenAreRejectedBeforeAnyWarehouseResolution() throws Exception {
 		this.mvc.perform(get("/api/warehouses/current").header("X-Warehouse-Id", this.main.toString()))
 			.andExpect(status().isUnauthorized());
+	}
+
+	private void expectRefused(String token, String header, int status, String code) throws Exception {
+		this.mvc.perform(get("/api/products").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.header("X-Warehouse-Id", header))
+			.andExpect(status().is(status))
+			.andExpect(jsonPath("$.code").value(code))
+			.andExpect(header().doesNotExist("X-Warehouse-Id"));
 	}
 
 	private UUID createUser(String username, String role, UUID defaultWarehouse, List<UUID> warehouses) {

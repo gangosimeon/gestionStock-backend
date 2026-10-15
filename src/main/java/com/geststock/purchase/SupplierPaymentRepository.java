@@ -23,6 +23,17 @@ interface SupplierPaymentRepository extends JpaRepository<SupplierPayment, UUID>
 	Page<SupplierPayment> findBySupplier(@Param("supplierId") UUID supplierId, @Param("pattern") String pattern,
 			Pageable pageable);
 
+	/** Paiements d'un fournisseur dans les dépôts indiqués (non vide) ; les paiements sans dépôt en sont exclus. */
+	@Query("""
+			select p from SupplierPayment p
+			where p.supplierId = :supplierId and p.warehouseId in :warehouseIds
+			  and (lower(p.number) like :pattern escape '\\'
+			       or lower(coalesce(p.externalReference, '')) like :pattern escape '\\'
+			       or lower(coalesce(p.note, '')) like :pattern escape '\\')""")
+	Page<SupplierPayment> findBySupplierInWarehouses(@Param("supplierId") UUID supplierId,
+			@Param("pattern") String pattern, @Param("warehouseIds") java.util.Collection<UUID> warehouseIds,
+			Pageable pageable);
+
 	/** Imputations des paiements donnés, avec le numéro de la commande. */
 	@Query("""
 			select a.id.paymentId, a.id.purchaseOrderId, o.number, a.amount

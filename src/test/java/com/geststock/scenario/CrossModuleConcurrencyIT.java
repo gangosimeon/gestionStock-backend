@@ -159,10 +159,10 @@ class CrossModuleConcurrencyIT {
 		List<Callable<String>> tasks = new ArrayList<>();
 		for (SaleResponse sale : sold) {
 			tasks.add(() -> outcome("annulation",
-					() -> as(this.actor, () -> this.sales.cancel(sale.id(), new CancelSaleRequest("Doublon")))));
+					() -> as(this.actor, () -> this.sales.cancel(sale.id(), new CancelSaleRequest("Doublon"), this.store))));
 			tasks.add(() -> outcome("retour", () -> as(this.actor, () -> this.returns.create(sale.id(),
 					new CreateCustomerReturnRequest(ReturnSettlement.REFUND, null, "Rendu",
-							List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE)))))));
+							List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE))), this.store))));
 		}
 
 		List<String> outcomes = runConcurrently(tasks);
@@ -203,7 +203,7 @@ class CrossModuleConcurrencyIT {
 		for (int i = 0; i < 10; i++) {
 			tasks.add(() -> outcome("réception", () -> as(this.actor, () -> this.receipts.receive(order,
 					new ReceivePurchaseOrderRequest(null, null, null,
-							List.of(new ReceivePurchaseOrderRequest.Line(this.frame, 1)))))));
+							List.of(new ReceivePurchaseOrderRequest.Line(this.frame, 1))), this.store))));
 		}
 		for (int i = 0; i < 12; i++) {
 			tasks.add(() -> outcome("vente", () -> sell(1)));
@@ -227,13 +227,13 @@ class CrossModuleConcurrencyIT {
 		// Compté 2 pour 5 : écart mesuré −3, à appliquer tel quel à la validation.
 		UUID inventory = as(this.actor, () -> this.inventories.create(new CreateInventoryRequest(null,
 				InventoryScope.SELECTION, null, List.of(this.frame), null), this.store).id());
-		as(this.actor, () -> this.inventories.start(inventory));
+		as(this.actor, () -> this.inventories.start(inventory, this.store));
 		as(this.actor, () -> this.inventories.recordCounts(inventory,
-				List.of(new InventoryCountsRequest.Count(this.frame, 2, null))));
-		as(this.actor, () -> this.inventories.submit(inventory));
+				List.of(new InventoryCountsRequest.Count(this.frame, 2, null)), this.store));
+		as(this.actor, () -> this.inventories.submit(inventory, this.store));
 
 		List<Callable<String>> tasks = new ArrayList<>();
-		tasks.add(() -> outcome("validation", () -> as(this.actor, () -> this.inventories.validate(inventory, null))));
+		tasks.add(() -> outcome("validation", () -> as(this.actor, () -> this.inventories.validate(inventory, null, this.store))));
 		for (int i = 0; i < 4; i++) {
 			tasks.add(() -> outcome("vente", () -> sell(1)));
 		}

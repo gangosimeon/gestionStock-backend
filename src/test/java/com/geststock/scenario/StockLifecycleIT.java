@@ -126,9 +126,9 @@ class StockLifecycleIT {
 				null, null, List.of(new CreatePurchaseOrderRequest.Line(this.frame, 10, new BigDecimal("16000")))),
 				this.store).id());
 		as(this.actor, () -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, "BL-1", null,
-				List.of(new ReceivePurchaseOrderRequest.Line(this.frame, 6)))));
+				List.of(new ReceivePurchaseOrderRequest.Line(this.frame, 6))), this.store));
 		assertLevels(6, 0);
-		as(this.actor, () -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, "BL-2", null, null)));
+		as(this.actor, () -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, "BL-2", null, null), this.store));
 		assertLevels(10, 0);
 		assertThat(this.jdbc.queryForObject("select purchase_price from product where id = ?", BigDecimal.class,
 				this.frame)).as("dernier coût reçu = prix d'achat de référence").isEqualByComparingTo("16000");
@@ -142,11 +142,11 @@ class StockLifecycleIT {
 		SaleResponse sale = sell(this.depot, 2);
 		assertLevels(7, 1);
 		as(this.actor, () -> this.returns.create(sale.id(), new CreateCustomerReturnRequest(ReturnSettlement.REFUND, null,
-				"Taille", List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE)))));
+				"Taille", List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE))), this.depot));
 		assertLevels(7, 2);
 		SaleResponse mistaken = sell(this.depot, 1);
 		assertLevels(7, 1);
-		as(this.actor, () -> this.sales.cancel(mistaken.id(), new CancelSaleRequest("Erreur de saisie")));
+		as(this.actor, () -> this.sales.cancel(mistaken.id(), new CancelSaleRequest("Erreur de saisie"), this.depot));
 		assertLevels(7, 2);
 
 		// Stock insuffisant au dépôt (2 disponibles) : refus, rien d'écrit — le magasin n'est pas puisé.
@@ -161,11 +161,11 @@ class StockLifecycleIT {
 		assertLevels(6, 2);
 		UUID inventory = as(this.actor, () -> this.inventories.create(new CreateInventoryRequest(null,
 				InventoryScope.SELECTION, null, List.of(this.frame), null), this.store).id());
-		as(this.actor, () -> this.inventories.start(inventory));
+		as(this.actor, () -> this.inventories.start(inventory, this.store));
 		as(this.actor, () -> this.inventories.recordCounts(inventory,
-				List.of(new InventoryCountsRequest.Count(this.frame, 5, null))));
-		as(this.actor, () -> this.inventories.submit(inventory));
-		as(this.actor, () -> this.inventories.validate(inventory, "Écart constaté"));
+				List.of(new InventoryCountsRequest.Count(this.frame, 5, null)), this.store));
+		as(this.actor, () -> this.inventories.submit(inventory, this.store));
+		as(this.actor, () -> this.inventories.validate(inventory, "Écart constaté", this.store));
 		assertLevels(5, 2);
 
 		// Chaque niveau = somme de ses mouvements = solde du dernier mouvement.

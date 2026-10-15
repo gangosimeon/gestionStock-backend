@@ -68,12 +68,16 @@ public class CustomerAccountEntry {
 	@Column(name = "created_by", nullable = false)
 	private UUID createdBy;
 
+	/** Dépôt de la pièce (vente, retour, caisse du règlement) ; {@code null} : historique non rattaché. */
+	@Column(name = "warehouse_id", updatable = false)
+	private UUID warehouseId;
+
 	protected CustomerAccountEntry() {
 		// JPA
 	}
 
 	CustomerAccountEntry(UUID customerId, CustomerAccountEntryType type, BigDecimal amount, BigDecimal balanceAfter,
-			UUID sourceId, String sourceReference, String note, Instant createdAt, UUID createdBy) {
+			UUID sourceId, String sourceReference, String note, Instant createdAt, UUID createdBy, UUID warehouseId) {
 		this.customerId = Objects.requireNonNull(customerId, "customerId");
 		this.type = Objects.requireNonNull(type, "type");
 		this.direction = type.direction();
@@ -85,6 +89,7 @@ public class CustomerAccountEntry {
 		this.note = note;
 		this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
 		this.createdBy = Objects.requireNonNull(createdBy, "createdBy");
+		this.warehouseId = Objects.requireNonNull(warehouseId, "warehouseId");
 	}
 
 	public UUID getId() {
@@ -133,6 +138,10 @@ public class CustomerAccountEntry {
 
 	public UUID getCreatedBy() {
 		return this.createdBy;
+	}
+
+	public UUID getWarehouseId() {
+		return this.warehouseId;
 	}
 
 	@Override

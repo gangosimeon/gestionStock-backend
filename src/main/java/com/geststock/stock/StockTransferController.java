@@ -17,7 +17,9 @@ import com.geststock.common.security.RequiresPermission;
 import com.geststock.stock.dto.StockMovementResponse;
 import com.geststock.stock.dto.TransferStockRequest;
 import com.geststock.stock.dto.TransferStockResponse;
+import com.geststock.warehouse.CurrentWarehouse;
 import com.geststock.warehouse.WarehouseAccess;
+import com.geststock.warehouse.WarehouseContext;
 
 /** Transfert de stock entre dépôts (chemin du contrat front : {@code /api/warehouses/transfer}). */
 @RestController
@@ -40,9 +42,12 @@ class StockTransferController {
 	@RequiresPermission(Permissions.STOCK_TRANSFER)
 	@Audited(action = "TRANSFER", entityType = "WAREHOUSE_TRANSFER", idParam = "")
 	@Operation(summary = "Transférer du stock entre deux dépôts",
-			description = "Sortie du dépôt source et entrée dans le dépôt destination, atomiques. Les deux dépôts "
-					+ "doivent être actifs et accessibles à l'utilisateur.")
-	TransferStockResponse transfer(@Valid @RequestBody TransferStockRequest request) {
+			description = "Sortie du dépôt source et entrée dans le dépôt destination, atomiques. Le dépôt source est "
+					+ "le dépôt courant (409 WAREHOUSE_MISMATCH sinon) ; la destination doit être active et accessible "
+					+ "à l'utilisateur.")
+	TransferStockResponse transfer(@Valid @RequestBody TransferStockRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		this.warehouseAccess.requireCurrent(request.fromWarehouseId(), warehouse.id());
 		this.warehouseAccess.requireAccessible(request.fromWarehouseId());
 		this.warehouseAccess.requireAccessible(request.toWarehouseId());
 		List<StockMovement> movements = this.stock.transfer(request.fromWarehouseId(), request.toWarehouseId(),

@@ -89,7 +89,8 @@ class SaleController {
 	@RequiresPermission(Permissions.SALE_CREATE)
 	@Operation(summary = "Enregistrer une vente",
 			description = "Prix, coûts et montants calculés par le serveur (prix envoyés ignorés). Sorties de stock, "
-					+ "créance client et audit dans la même transaction. Dépôt courant sauf warehouseId explicite.")
+					+ "créance client et audit dans la même transaction. Dépôt courant ; un warehouseId envoyé doit être "
+					+ "le dépôt courant (409 WAREHOUSE_MISMATCH sinon).")
 	ResponseEntity<SaleResponse> create(@Valid @RequestBody CreateSaleRequest request,
 			@CurrentWarehouse WarehouseContext warehouse) {
 		SaleResponse created = this.sales.create(request, warehouse.id());
@@ -101,9 +102,10 @@ class SaleController {
 	@RequiresPermission(Permissions.SALE_CANCEL)
 	@Operation(summary = "Annuler une vente",
 			description = "Remise en stock et annulation de la créance, motif obligatoire. Refusée si le client a déjà "
-					+ "réglé le crédit (passer par un retour).")
-	SaleResponse cancel(@PathVariable UUID id, @Valid @RequestBody CancelSaleRequest request) {
-		return this.sales.cancel(id, request);
+					+ "réglé le crédit (passer par un retour). Depuis le dépôt de la vente (409 WAREHOUSE_MISMATCH sinon).")
+	SaleResponse cancel(@PathVariable UUID id, @Valid @RequestBody CancelSaleRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.sales.cancel(id, request, warehouse.id());
 	}
 
 }

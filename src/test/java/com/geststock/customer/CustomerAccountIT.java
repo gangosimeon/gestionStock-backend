@@ -58,9 +58,13 @@ class CustomerAccountIT {
 
 	private UUID customer;
 
+	/** Dépôt des pièces imputées (obligatoire sur toute écriture du compte). */
+	private UUID warehouse;
+
 	@BeforeEach
 	void setUp() {
 		this.fixtures = new StockFixtures(this.jdbc, this.transactions);
+		this.warehouse = this.jdbc.queryForObject("select id from warehouse where main", UUID.class);
 		this.actor = this.fixtures.user("vendeur");
 		this.customer = this.jdbc.queryForObject("""
 				insert into customer (code, name, credit_limit) values (?, 'Client concurrence', 100000) returning id""",
@@ -86,7 +90,7 @@ class CustomerAccountIT {
 			sales.add(() -> {
 				try {
 					asSeller(() -> this.accounts.recordCreditSale(this.customer, new BigDecimal("15000"), UUID.randomUUID(),
-							null));
+							null, this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -103,14 +107,14 @@ class CustomerAccountIT {
 	@Test
 	void concurrentCreditsNeverExceedTheDebt() throws Exception {
 		// Avoirs : un règlement (PAYMENT) exige en plus son encaissement en caisse (V018), voir CashTransactionIT.
-		asSeller(() -> this.accounts.recordCreditSale(this.customer, new BigDecimal("50000"), UUID.randomUUID(), null));
+		asSeller(() -> this.accounts.recordCreditSale(this.customer, new BigDecimal("50000"), UUID.randomUUID(), null, this.warehouse));
 
 		List<Callable<Boolean>> payments = new ArrayList<>();
 		for (int i = 0; i < 8; i++) {
 			payments.add(() -> {
 				try {
 					asSeller(() -> this.accounts.recordCredit(this.customer, CustomerAccountEntryType.CREDIT_NOTE,
-							new BigDecimal("10000"), UUID.randomUUID(), null, null));
+							new BigDecimal("10000"), UUID.randomUUID(), null, null, this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -131,7 +135,7 @@ class CustomerAccountIT {
 		for (int i = 0; i < 5; i++) {
 			postings.add(() -> {
 				try {
-					asSeller(() -> this.accounts.recordCreditSale(this.customer, new BigDecimal("1000"), sale, "VTE-1"));
+					asSeller(() -> this.accounts.recordCreditSale(this.customer, new BigDecimal("1000"), sale, "VTE-1", this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -148,11 +152,11 @@ class CustomerAccountIT {
 	@Test
 	void creditNotesAndCancellationsReduceTheDebtButNeverBelowZero() {
 		UUID sale = UUID.randomUUID();
-		asSeller(() -> this.accounts.recordCreditSale(this.customer, new BigDecimal("30000"), sale, "VTE-9"));
+		asSeller(() -> this.accounts.recordCreditSale(this.customer, new BigDecimal("30000"), sale, "VTE-9", this.warehouse));
 		asSeller(() -> this.accounts.recordCredit(this.customer, CustomerAccountEntryType.CREDIT_NOTE,
-				new BigDecimal("5000"), UUID.randomUUID(), "AV-1", "Retour d'une monture"));
+				new BigDecimal("5000"), UUID.randomUUID(), "AV-1", "Retour d'une monture", this.warehouse));
 		asSeller(() -> this.accounts.recordCredit(this.customer, CustomerAccountEntryType.SALE_CANCELLATION,
-				new BigDecimal("25000"), sale, "VTE-9", null));
+				new BigDecimal("25000"), sale, "VTE-9", null, this.warehouse));
 
 		assertThat(balance()).isZero();
 		assertThat(this.accounts.creditStatus(this.customer).availableCredit()).isEqualByComparingTo("100000");

@@ -130,6 +130,11 @@ class RolePermissionMatrixIT {
 				// Plafond de crédit : donnée sensible, refusée au caissier même s'il modifie le client.
 				new Case(HttpMethod.PUT, "/api/customers/" + this.customer,
 						"{\"name\": \"Client matrice\", \"creditLimit\": 80000}", MANAGERS),
+				// Vue de tous les dépôts et administration des dépôts : administrateur seulement (V029).
+				new Case(HttpMethod.GET, "/api/sales?allWarehouses=true", null, ADMIN),
+				new Case(HttpMethod.GET, "/api/dashboard?allWarehouses=true", null, ADMIN),
+				new Case(HttpMethod.POST, "/api/warehouses", "{}", ADMIN),
+				new Case(HttpMethod.PATCH, "/api/warehouses/" + random + "/active", "{\"active\": true}", ADMIN),
 				// Administration : administrateur seulement.
 				new Case(HttpMethod.GET, "/api/users", null, ADMIN),
 				new Case(HttpMethod.GET, "/api/roles", null, ADMIN),

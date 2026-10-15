@@ -119,10 +119,13 @@ class StockController {
 	@Audited(action = "REVERSAL", entityType = "STOCK_MOVEMENT")
 	@Operation(summary = "Annuler un mouvement manuel",
 			description = "Écrit un mouvement REVERSAL de quantité opposée ; le mouvement d'origine reste dans "
-					+ "l'historique. Une seule annulation par mouvement.")
+					+ "l'historique. Une seule annulation par mouvement. Depuis le dépôt du mouvement "
+					+ "(409 WAREHOUSE_MISMATCH sinon).")
 	ResponseEntity<StockMovementResponse> reverse(@PathVariable UUID id,
-			@Valid @RequestBody(required = false) ReverseMovementRequest request) {
+			@Valid @RequestBody(required = false) ReverseMovementRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
 		StockMovement original = visibleMovement(id);
+		this.warehouseAccess.requireCurrent(original.getWarehouseId(), warehouse.id());
 		this.warehouseAccess.requireAccessible(original.getWarehouseId());
 		StockMovementResponse created = this.queries
 			.toResponse(this.stock.reverse(id, request != null ? request.reason() : null));

@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -99,9 +100,13 @@ public class CashService {
 
 	// --- Consultation ------------------------------------------------------------------------
 
-	/** Caisse ouverte de l'utilisateur courant, s'il en a une. */
-	public Optional<CashSessionResponse> current() {
-		return this.sessions.findOpenByCashier(actor()).map(this::toResponse);
+	/**
+	 * Caisse ouverte de l'utilisateur courant, s'il en a une, située par rapport au dépôt courant :
+	 * ouverte dans un autre dépôt, elle n'y est pas utilisable ({@code inCurrentWarehouse = false}).
+	 */
+	public Optional<CashSessionResponse> current(UUID currentWarehouseId) {
+		return this.sessions.findOpenByCashier(actor()).map(this::toResponse)
+			.map(session -> session.locatedIn(currentWarehouseId));
 	}
 
 	/**
@@ -147,9 +152,8 @@ public class CashService {
 	}
 
 	/**
-	 * Vérifie, sans rien écrire, que l'utilisateur a une caisse ouverte (dans ce dépôt si
-	 * {@code warehouseId} est indiqué) : refus clair avant toute écriture d'une vente ou d'un
-	 * règlement.
+	 * Vérifie, sans rien écrire, que l'utilisateur a une caisse ouverte dans ce dépôt : refus clair
+	 * avant toute écriture d'une vente ou d'un règlement.
 	 */
 	public void requireOpenSession(UUID warehouseId) {
 		CashSession session = this.sessions.findOpenByCashier(actor()).orElseThrow(CashService::noOpenSession);
@@ -195,11 +199,15 @@ public class CashService {
 		return response;
 	}
 
-	/** Clôture la caisse de l'utilisateur courant : espèces comptées, attendu et écart figés. */
+	/**
+	 * Clôture la caisse de l'utilisateur courant : espèces comptées, attendu et écart figés. Depuis
+	 * le dépôt de la caisse ({@code CASH_SESSION_OTHER_WAREHOUSE} sinon).
+	 */
 	@Transactional
-	public CashSessionResponse close(CloseCashSessionRequest request) {
+	public CashSessionResponse close(CloseCashSessionRequest request, UUID currentWarehouseId) {
 		UUID actor = actor();
 		CashSession session = lockOpenSession(actor);
+		requireWarehouse(session, currentWarehouseId);
 		CashSummary summary = summaryOf(session);
 		session.close(Instant.now(this.clock), actor, request.countedCash().setScale(2), summary.expectedCash(),
 				blankToNull(request.note()));
@@ -213,14 +221,17 @@ public class CashService {
 		return response;
 	}
 
-	/** Apport ({@code IN}) ou sortie ({@code OUT}) manuelle d'espèces dans la caisse de l'utilisateur. */
+	/**
+	 * Apport ({@code IN}) ou sortie ({@code OUT}) manuelle d'espèces dans la caisse de l'utilisateur,
+	 * depuis le dépôt de cette caisse.
+	 */
 	@Transactional
-	public CashEntryResponse recordManual(CashOperationRequest request) {
+	public CashEntryResponse recordManual(CashOperationRequest request, UUID currentWarehouseId) {
 		CashEntryType type = request.type() == CashEntryType.Direction.IN ? CashEntryType.CASH_IN : CashEntryType.CASH_OUT;
-		CashEntry entry = post(type, PaymentMethod.CASH, request.amount(), null, null, null, null, null,
+		CashEntry entry = post(type, PaymentMethod.CASH, request.amount(), currentWarehouseId, null, null, null, null,
 				blankToNull(request.note()), null, null);
 		CashEntryResponse response = toResponse(entry);
-		UUID warehouseId = this.sessions.findById(entry.getSessionId()).map(CashSession::getWarehouseId).orElse(null);
+		UUID warehouseId = currentWarehouseId;
 		this.audit.success(type.name(), "CASH_ENTRY", entry.getId().toString(), entry.getNumber(),
 				(type == CashEntryType.CASH_IN ? "Apport" : "Sortie") + " d'espèces " + entry.getAmount().toPlainString()
 						+ (entry.getNote() != null ? " : " + entry.getNote() : ""),
@@ -255,10 +266,10 @@ public class CashService {
 	}
 
 	/**
-	 * Paiement d'un fournisseur en espèces : décaissement dans la caisse ouverte de l'utilisateur
-	 * (refusé si les espèces manquent).
+	 * Paiement d'un fournisseur en espèces : décaissement dans la caisse ouverte de l'utilisateur,
+	 * dans le dépôt courant (refusé si les espèces manquent).
 	 *
-	 * @param warehouseId dépôt exigé pour la caisse, ou {@code null} pour celle de l'utilisateur
+	 * @param warehouseId dépôt exigé pour la caisse (dépôt courant)
 	 * @return référence de l'écriture de caisse
 	 */
 	@Transactional(propagation = Propagation.MANDATORY, readOnly = false)
@@ -293,12 +304,13 @@ public class CashService {
 	/**
 	 * Corrige un apport ou une sortie manuelle saisi par erreur : écriture inverse du même
 	 * montant dans la même caisse (ouverte, du titulaire). L'écriture d'origine reste ; une
-	 * écriture ne se corrige qu'une fois.
+	 * écriture ne se corrige qu'une fois. Depuis le dépôt de la caisse.
 	 */
 	@Transactional
-	public CashEntryResponse reverseManual(UUID entryId, String reason) {
+	public CashEntryResponse reverseManual(UUID entryId, String reason, UUID currentWarehouseId) {
 		UUID actor = actor();
 		CashSession session = lockOpenSession(actor);
+		requireWarehouse(session, currentWarehouseId);
 		CashEntry original = this.entries.findById(entryId)
 			.filter(entry -> entry.getSessionId().equals(session.getId()))
 			.orElseThrow(() -> new NotFoundException(ErrorCode.CASH_ENTRY_NOT_FOUND,
@@ -314,7 +326,7 @@ public class CashService {
 					ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage());
 		}
 		String note = "Correction de " + original.getNumber() + " : " + reason.trim();
-		CashEntry entry = post(correction, PaymentMethod.CASH, original.getAmount(), null, null, null, null,
+		CashEntry entry = post(correction, PaymentMethod.CASH, original.getAmount(), currentWarehouseId, null, null, null,
 				original.getNumber(), note.length() > 500 ? note.substring(0, 500) : note, null, original.getId());
 		CashEntryResponse response = toResponse(entry);
 		this.audit.success("CORRECTION", "CASH_ENTRY", entry.getId().toString(), entry.getNumber(),
@@ -329,7 +341,7 @@ public class CashService {
 	/**
 	 * Écrit une écriture dans la caisse ouverte de l'utilisateur, sous verrou de la session.
 	 *
-	 * @param warehouseId dépôt exigé pour la caisse, ou {@code null}
+	 * @param warehouseId dépôt exigé pour la caisse (obligatoire : jamais d'écriture hors du dépôt)
 	 * @param number      référence déjà attribuée, ou {@code null} pour en attribuer une
 	 * @param reversalOf  écriture corrigée (corrections uniquement), ou {@code null}
 	 */
@@ -377,8 +389,13 @@ public class CashService {
 		return session;
 	}
 
+	/**
+	 * Une caisse ne sert que son dépôt : toute écriture, clôture ou vérification indique le dépôt
+	 * où elle a lieu ; un oubli est une erreur de programmation, jamais un passe-droit.
+	 */
 	private void requireWarehouse(CashSession session, UUID warehouseId) {
-		if (warehouseId != null && !warehouseId.equals(session.getWarehouseId())) {
+		Objects.requireNonNull(warehouseId, "dépôt de l'opération de caisse");
+		if (!warehouseId.equals(session.getWarehouseId())) {
 			throw new ConflictException(ErrorCode.CASH_SESSION_OTHER_WAREHOUSE,
 					ErrorCode.CASH_SESSION_OTHER_WAREHOUSE.defaultMessage());
 		}
@@ -427,7 +444,7 @@ public class CashService {
 				session.getCountedCash(), summary.cashSalesTotal(), summary.totalIn(), summary.totalOut(),
 				open ? summary.expectedCash() : session.getExpectedCash(),
 				open ? BigDecimal.ZERO.setScale(2) : session.getDifference(), summary.totalsByMethod(),
-				session.getClosingNote());
+				session.getClosingNote(), null);
 	}
 
 	static CashEntryResponse toResponse(CashEntry entry) {

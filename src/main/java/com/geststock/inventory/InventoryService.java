@@ -139,8 +139,8 @@ public class InventoryService {
 	@Transactional
 	public InventoryResponse create(CreateInventoryRequest request, UUID currentWarehouseId) {
 		UUID actor = actor();
-		UUID warehouseId = request.warehouseId() != null
-				? this.warehouseAccess.requireAccessible(request.warehouseId()).id() : currentWarehouseId;
+		// Inventaire du dépôt courant ; un warehouseId envoyé doit le confirmer.
+		UUID warehouseId = this.warehouseAccess.requireCurrentIfPresent(request.warehouseId(), currentWarehouseId);
 		if (this.inventories.existsOpenInWarehouse(warehouseId)) {
 			throw new ConflictException(ErrorCode.INVENTORY_ALREADY_OPEN, ErrorCode.INVENTORY_ALREADY_OPEN.defaultMessage());
 		}
@@ -165,8 +165,8 @@ public class InventoryService {
 	}
 
 	@Transactional
-	public InventoryResponse addProducts(UUID id, List<UUID> productIds) {
-		InventorySession inventory = lock(id);
+	public InventoryResponse addProducts(UUID id, List<UUID> productIds, UUID currentWarehouseId) {
+		InventorySession inventory = lock(id, currentWarehouseId);
 		List<ProductSnapshot> added = selection(productIds);
 		added.forEach(product -> inventory.addProduct(product.id(), product.sku(), product.name()));
 		this.inventories.saveAndFlush(inventory);
@@ -175,8 +175,8 @@ public class InventoryService {
 	}
 
 	@Transactional
-	public InventoryResponse removeProduct(UUID id, UUID productId) {
-		InventorySession inventory = lock(id);
+	public InventoryResponse removeProduct(UUID id, UUID productId, UUID currentWarehouseId) {
+		InventorySession inventory = lock(id, currentWarehouseId);
 		InventoryLine removed = inventory.line(productId).orElseThrow(InventoryService::notInScope);
 		inventory.removeProduct(productId);
 		this.inventories.saveAndFlush(inventory);
@@ -186,9 +186,9 @@ public class InventoryService {
 
 	/** Démarre : le périmètre est figé, le comptage peut commencer. */
 	@Transactional
-	public InventoryResponse start(UUID id) {
+	public InventoryResponse start(UUID id, UUID currentWarehouseId) {
 		UUID actor = actor();
-		InventorySession inventory = lock(id);
+		InventorySession inventory = lock(id, currentWarehouseId);
 		if (inventory.getLines().isEmpty()) {
 			throw new BusinessRuleException(ErrorCode.INVENTORY_EMPTY, ErrorCode.INVENTORY_EMPTY.defaultMessage());
 		}
@@ -202,9 +202,9 @@ public class InventoryService {
 	 * stock du dépôt au même instant ; l'écart en découle.
 	 */
 	@Transactional
-	public InventoryResponse recordCounts(UUID id, List<InventoryCountsRequest.Count> counts) {
+	public InventoryResponse recordCounts(UUID id, List<InventoryCountsRequest.Count> counts, UUID currentWarehouseId) {
 		UUID actor = actor();
-		InventorySession inventory = lock(id);
+		InventorySession inventory = lock(id, currentWarehouseId);
 		Set<UUID> productIds = new LinkedHashSet<>();
 		for (InventoryCountsRequest.Count count : counts) {
 			if (!productIds.add(count.productId())) {
@@ -227,9 +227,9 @@ public class InventoryService {
 
 	/** Clôt le comptage et soumet l'inventaire à validation (tout doit être compté). */
 	@Transactional
-	public InventoryResponse submit(UUID id) {
+	public InventoryResponse submit(UUID id, UUID currentWarehouseId) {
 		UUID actor = actor();
-		InventorySession inventory = lock(id);
+		InventorySession inventory = lock(id, currentWarehouseId);
 		inventory.submit(Instant.now(this.clock), actor);
 		this.inventories.saveAndFlush(inventory);
 		return traced("SUBMIT", inventory, "Inventaire " + inventory.getNumber() + " soumis à validation, écart total "
@@ -238,9 +238,9 @@ public class InventoryService {
 
 	/** Le valideur renvoie l'inventaire au comptage. */
 	@Transactional
-	public InventoryResponse reopen(UUID id, String comment) {
+	public InventoryResponse reopen(UUID id, String comment, UUID currentWarehouseId) {
 		UUID actor = actor();
-		InventorySession inventory = lock(id);
+		InventorySession inventory = lock(id, currentWarehouseId);
 		inventory.reopen();
 		this.inventories.saveAndFlush(inventory);
 		return traced("REOPEN", inventory, "Inventaire " + inventory.getNumber() + " renvoyé au comptage"
@@ -252,9 +252,9 @@ public class InventoryService {
 	 * seule transaction, puis termine l'inventaire.
 	 */
 	@Transactional
-	public InventoryResponse validate(UUID id, String comment) {
+	public InventoryResponse validate(UUID id, String comment, UUID currentWarehouseId) {
 		UUID actor = actor();
-		InventorySession inventory = lock(id);
+		InventorySession inventory = lock(id, currentWarehouseId);
 		if (inventory.getStatus() != InventoryStatus.VALIDATION) {
 			throw new ConflictException(ErrorCode.INVENTORY_INVALID_TRANSITION, "Impossible de valider : l'inventaire "
 					+ inventory.getNumber() + " est à l'étape " + inventory.getStatus() + ".");
@@ -284,9 +284,9 @@ public class InventoryService {
 	}
 
 	@Transactional
-	public InventoryResponse cancel(UUID id, String reason) {
+	public InventoryResponse cancel(UUID id, String reason, UUID currentWarehouseId) {
 		UUID actor = actor();
-		InventorySession inventory = lock(id);
+		InventorySession inventory = lock(id, currentWarehouseId);
 		inventory.cancel(Instant.now(this.clock), actor, blankToNull(reason));
 		this.inventories.saveAndFlush(inventory);
 		return traced("CANCEL", inventory, "Inventaire " + inventory.getNumber() + " annulé"
@@ -303,21 +303,25 @@ public class InventoryService {
 		List<UUID> productIds = request.lines().stream().map(LegacyInventoryRequest.Line::productId).toList();
 		InventoryResponse created = create(new CreateInventoryRequest(null, InventoryScope.SELECTION, null, productIds,
 				request.note()), warehouseId);
-		start(created.id());
+		start(created.id(), warehouseId);
 		recordCounts(created.id(), request.lines().stream()
 			.map(line -> new InventoryCountsRequest.Count(line.productId(), line.physicalQuantity(), null))
-			.toList());
-		InventoryResponse submitted = submit(created.id());
-		return ActorPermissions.current().contains(Permissions.INVENTORY_VALIDATE) ? validate(created.id(), null)
-				: submitted;
+			.toList(), warehouseId);
+		InventoryResponse submitted = submit(created.id(), warehouseId);
+		return ActorPermissions.current().contains(Permissions.INVENTORY_VALIDATE)
+				? validate(created.id(), null, warehouseId) : submitted;
 	}
 
 	// --- Outils ------------------------------------------------------------------------------
 
-	/** Inventaire verrouillé, relu en base, d'un dépôt accessible ; « introuvable » sinon. */
-	private InventorySession lock(UUID id) {
+	/**
+	 * Inventaire verrouillé, relu en base, d'un dépôt accessible ; « introuvable » hors périmètre,
+	 * {@code WAREHOUSE_MISMATCH} s'il est d'un autre dépôt que le dépôt courant.
+	 */
+	private InventorySession lock(UUID id, UUID currentWarehouseId) {
 		InventorySession inventory = this.inventories.findById(id).orElseThrow(InventoryService::notFound);
 		requireVisible(inventory);
+		this.warehouseAccess.requireCurrent(inventory.getWarehouseId(), currentWarehouseId);
 		this.entityManager.refresh(inventory, LockModeType.PESSIMISTIC_WRITE);
 		this.warehouseAccess.requireAccessible(inventory.getWarehouseId());
 		return inventory;

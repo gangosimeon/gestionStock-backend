@@ -146,7 +146,7 @@ class CashTransactionIT {
 			outs.add(() -> {
 				try {
 					as(this.cashier, () -> this.cash.recordManual(
-							new CashOperationRequest(CashEntryType.Direction.OUT, new BigDecimal("2000"), "Sortie")));
+							new CashOperationRequest(CashEntryType.Direction.OUT, new BigDecimal("2000"), "Sortie"), this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -157,7 +157,7 @@ class CashTransactionIT {
 		}
 
 		assertThat(runConcurrently(outs)).filteredOn(Boolean::booleanValue).hasSize(5);
-		assertThat(as(this.cashier, () -> this.cash.current().orElseThrow().expectedCash())).isEqualByComparingTo("0");
+		assertThat(as(this.cashier, () -> this.cash.current(this.warehouse).orElseThrow().expectedCash())).isEqualByComparingTo("0");
 	}
 
 	@Test
@@ -183,11 +183,11 @@ class CashTransactionIT {
 	@Test
 	void aCommittedCustomerPaymentCarriesBothItsCashEntryAndItsAccountEntry() {
 		as(this.cashier, () -> this.accounts.recordCreditSale(this.customer, new BigDecimal("30000"), UUID.randomUUID(),
-				"VTE-IT"));
+				"VTE-IT", this.warehouse));
 		open(this.cashier, "0");
 
 		as(this.cashier, () -> this.payments.pay(this.customer, new CustomerPaymentRequest(new BigDecimal("12000"),
-				PaymentMethod.MOBILE_MONEY, "Règlement partiel")));
+				PaymentMethod.MOBILE_MONEY, "Règlement partiel"), this.warehouse));
 
 		assertThat(this.jdbc.queryForObject("""
 				select count(*) from cash_entry c join customer_account_entry a
@@ -200,7 +200,7 @@ class CashTransactionIT {
 	@Test
 	void theDatabaseRefusesAPaymentWithoutItsCashEntry() {
 		as(this.cashier, () -> this.accounts.recordCreditSale(this.customer, new BigDecimal("30000"), UUID.randomUUID(),
-				"VTE-IT"));
+				"VTE-IT", this.warehouse));
 
 		assertThatThrownBy(() -> this.transactions.executeWithoutResult(status -> this.jdbc.update("""
 				insert into customer_account_entry (customer_id, entry_type, direction, amount, balance_after, source_type,
@@ -218,7 +218,7 @@ class CashTransactionIT {
 		assertThatThrownBy(() -> insertEntry(session, "OPC-IT-1", this.other))
 			.hasStackTraceContaining("seul le titulaire de la caisse");
 
-		as(this.cashier, () -> this.cash.close(new CloseCashSessionRequest(new BigDecimal("5000"), null)));
+		as(this.cashier, () -> this.cash.close(new CloseCashSessionRequest(new BigDecimal("5000"), null), this.warehouse));
 		// Une caisse clôturée ne reçoit plus rien, et ne se modifie plus.
 		assertThatThrownBy(() -> insertEntry(session, "OPC-IT-2", this.cashier))
 			.hasStackTraceContaining("n'est pas ouverte");

@@ -97,24 +97,25 @@ class InventoryController {
 	@Audited(action = "ADD_PRODUCTS", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Ajouter des produits (brouillon)")
-	InventoryResponse addProducts(@PathVariable UUID id, @Valid @RequestBody InventoryProductsRequest request) {
-		return this.inventories.addProducts(id, request.productIds());
+	InventoryResponse addProducts(@PathVariable UUID id, @Valid @RequestBody InventoryProductsRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.addProducts(id, request.productIds(), warehouse.id());
 	}
 
 	@DeleteMapping("/{id}/products/{productId}")
 	@Audited(action = "REMOVE_PRODUCT", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Retirer un produit (brouillon)")
-	InventoryResponse removeProduct(@PathVariable UUID id, @PathVariable UUID productId) {
-		return this.inventories.removeProduct(id, productId);
+	InventoryResponse removeProduct(@PathVariable UUID id, @PathVariable UUID productId, @CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.removeProduct(id, productId, warehouse.id());
 	}
 
 	@PostMapping("/{id}/start")
 	@Audited(action = "START", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Démarrer", description = "DRAFT → IN_PROGRESS : périmètre figé.")
-	InventoryResponse start(@PathVariable UUID id) {
-		return this.inventories.start(id);
+	InventoryResponse start(@PathVariable UUID id, @CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.start(id, warehouse.id());
 	}
 
 	@PutMapping("/{id}/counts")
@@ -123,16 +124,17 @@ class InventoryController {
 	@Operation(summary = "Saisir des comptages",
 			description = "Quantité théorique relevée par le serveur au même instant ; recomptage possible jusqu'à la "
 					+ "soumission.")
-	InventoryResponse counts(@PathVariable UUID id, @Valid @RequestBody InventoryCountsRequest request) {
-		return this.inventories.recordCounts(id, request.counts());
+	InventoryResponse counts(@PathVariable UUID id, @Valid @RequestBody InventoryCountsRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.recordCounts(id, request.counts(), warehouse.id());
 	}
 
 	@PostMapping("/{id}/submit")
 	@Audited(action = "SUBMIT", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Soumettre à validation", description = "COUNTING → VALIDATION : tous les produits comptés.")
-	InventoryResponse submit(@PathVariable UUID id) {
-		return this.inventories.submit(id);
+	InventoryResponse submit(@PathVariable UUID id, @CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.submit(id, warehouse.id());
 	}
 
 	@PostMapping("/{id}/reopen")
@@ -140,8 +142,8 @@ class InventoryController {
 	@RequiresPermission(Permissions.INVENTORY_VALIDATE)
 	@Operation(summary = "Renvoyer au comptage", description = "VALIDATION → COUNTING (recomptage demandé).")
 	InventoryResponse reopen(@PathVariable UUID id,
-			@Valid @RequestBody(required = false) InventoryCommentRequest request) {
-		return this.inventories.reopen(id, request != null ? request.comment() : null);
+			@Valid @RequestBody(required = false) InventoryCommentRequest request, @CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.reopen(id, request != null ? request.comment() : null, warehouse.id());
 	}
 
 	@PostMapping("/{id}/validate")
@@ -150,16 +152,17 @@ class InventoryController {
 	@Operation(summary = "Valider",
 			description = "VALIDATION → COMPLETED : chaque écart appliqué au stock (mouvement INVENTORY), en une transaction.")
 	InventoryResponse validate(@PathVariable UUID id,
-			@Valid @RequestBody(required = false) InventoryCommentRequest request) {
-		return this.inventories.validate(id, request != null ? request.comment() : null);
+			@Valid @RequestBody(required = false) InventoryCommentRequest request, @CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.validate(id, request != null ? request.comment() : null, warehouse.id());
 	}
 
 	@PostMapping("/{id}/cancel")
 	@Audited(action = "CANCEL", entityType = "INVENTORY_SESSION")
 	@RequiresPermission(Permissions.INVENTORY_CREATE)
 	@Operation(summary = "Annuler", description = "Avant validation uniquement ; aucun effet sur le stock.")
-	InventoryResponse cancel(@PathVariable UUID id, @Valid @RequestBody(required = false) InventoryCommentRequest request) {
-		return this.inventories.cancel(id, request != null ? request.comment() : null);
+	InventoryResponse cancel(@PathVariable UUID id, @Valid @RequestBody(required = false) InventoryCommentRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.inventories.cancel(id, request != null ? request.comment() : null, warehouse.id());
 	}
 
 	static ResponseEntity<PageResponse<InventoryResponse>> search(InventoryService inventories,

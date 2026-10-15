@@ -30,7 +30,8 @@ import com.geststock.customer.PriceCategory;
  * {@code total} ou {@code profit} envoyés par le front actuel sont ignorés.
  *
  * @param type          tarif : RETAIL ou WHOLESALE ; par défaut celui du client, sinon RETAIL
- * @param warehouseId   dépôt de vente ; dépôt courant (X-Warehouse-Id) s'il est absent
+ * @param warehouseId   facultatif : s'il est envoyé, doit être le dépôt courant (X-Warehouse-Id),
+ *                      sinon 409 {@code WAREHOUSE_MISMATCH} ; la vente a toujours lieu dans le dépôt courant
  * @param paidAmount    montant encaissé, de 0 au total ; total s'il est absent
  * @param paymentMethod obligatoire dès qu'un montant est payé
  * @param newCustomer   client absent de la base (nom, téléphone) : créé avec la vente, dans la

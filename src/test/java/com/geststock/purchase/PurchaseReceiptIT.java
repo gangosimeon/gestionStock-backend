@@ -101,7 +101,7 @@ class PurchaseReceiptIT {
 		for (int i = 0; i < 6; i++) {
 			attempts.add(() -> {
 				try {
-					asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null)));
+					asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null), this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -126,7 +126,7 @@ class PurchaseReceiptIT {
 			attempts.add(() -> {
 				try {
 					asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null,
-							List.of(new ReceivePurchaseOrderRequest.Line(this.product, 3)))));
+							List.of(new ReceivePurchaseOrderRequest.Line(this.product, 3))), this.warehouse));
 					return true;
 				}
 				catch (ApiException ex) {
@@ -162,7 +162,7 @@ class PurchaseReceiptIT {
 		List<Callable<Boolean>> attempts = new ArrayList<>();
 		for (UUID order : orders) {
 			attempts.add(() -> {
-				asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null)));
+				asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null), this.warehouse));
 				return true;
 			});
 		}
@@ -195,7 +195,7 @@ class PurchaseReceiptIT {
 	void theDatabaseRefusesAReceiptLineWithoutItsOwnStockEntry() {
 		UUID order = order(5);
 		asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null,
-				List.of(new ReceivePurchaseOrderRequest.Line(this.product, 2)))));
+				List.of(new ReceivePurchaseOrderRequest.Line(this.product, 2))), this.warehouse));
 		UUID receipt = this.jdbc.queryForObject("select id from goods_receipt where purchase_order_id = ?", UUID.class,
 				order);
 		UUID orderLine = this.jdbc.queryForObject("select id from purchase_order_line where purchase_order_id = ?",
@@ -217,7 +217,7 @@ class PurchaseReceiptIT {
 	@Test
 	void receiptsAreAppendOnly() {
 		UUID order = order(3);
-		asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null)));
+		asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null), this.warehouse));
 
 		assertThatThrownBy(() -> this.jdbc.update("update goods_receipt set total_quantity = 30 where purchase_order_id = ?",
 				order)).hasStackTraceContaining("La table goods_receipt est en ajout seul");
@@ -233,8 +233,8 @@ class PurchaseReceiptIT {
 		UUID order = order(4);
 
 		asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, "BL-42", null,
-				List.of(new ReceivePurchaseOrderRequest.Line(this.product, 1)))));
-		asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null)));
+				List.of(new ReceivePurchaseOrderRequest.Line(this.product, 1))), this.warehouse));
+		asBuyer(() -> this.receipts.receive(order, new ReceivePurchaseOrderRequest(null, null, null, null), this.warehouse));
 
 		assertThat(this.fixtures.level(this.warehouse, this.product)).isEqualTo(4);
 		assertThat(this.fixtures.movementCount(this.warehouse, this.product)).isEqualTo(2);

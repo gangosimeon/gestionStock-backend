@@ -51,6 +51,15 @@ interface CashEntryRepository extends Repository<CashEntry, UUID> {
 	Page<CashEntry> findCustomerPayments(@Param("customerId") UUID customerId, @Param("pattern") String pattern,
 			Pageable pageable);
 
+	/** Règlements d'un client encaissés dans les dépôts indiqués (non vide). */
+	@Query("""
+			select e from CashEntry e
+			where e.customerId = :customerId and e.type = com.geststock.cash.CashEntryType.CUSTOMER_PAYMENT
+			  and e.sessionId in (select s.id from CashSession s where s.warehouseId in :warehouseIds)
+			  and (lower(e.number) like :pattern escape '\\' or lower(coalesce(e.note, '')) like :pattern escape '\\')""")
+	Page<CashEntry> findCustomerPaymentsInWarehouses(@Param("customerId") UUID customerId,
+			@Param("pattern") String pattern, @Param("warehouseIds") Collection<UUID> warehouseIds, Pageable pageable);
+
 	/** Prochaine valeur de la numérotation des écritures (référence OPC-…). */
 	@Query(value = "select nextval('seq_cash_entry_number')", nativeQuery = true)
 	long nextNumber();

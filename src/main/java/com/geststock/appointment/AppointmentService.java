@@ -77,7 +77,7 @@ public class AppointmentService {
 		this.zone = ZoneId.of(zone);
 	}
 
-	/** Rendez-vous du dépôt, les plus proches d'abord. */
+	/** Rendez-vous du dépôt ({@code null} : tous, l'appelant a vérifié warehouse:all), les plus proches d'abord. */
 	public Page<AppointmentResponse> list(AppointmentFilter filter, UUID warehouseId, PageQuery query) {
 		return this.repository.findAll(matching(filter, warehouseId), query.toPageable(SORTS)).map(this::toResponse);
 	}
@@ -106,8 +106,9 @@ public class AppointmentService {
 
 	/** Modifie un rendez-vous planifié (remplacement complet) ; un nouvel horaire doit être futur et libre. */
 	@Transactional
-	public AppointmentResponse update(UUID id, AppointmentRequest request) {
-		loadVisible(id);
+	public AppointmentResponse update(UUID id, AppointmentRequest request, UUID currentWarehouseId) {
+		// Depuis le dépôt du rendez-vous (WAREHOUSE_MISMATCH sinon), après le contrôle de visibilité.
+		this.warehouseAccess.requireCurrent(loadVisible(id).getWarehouseId(), currentWarehouseId);
 		Appointment appointment = this.repository.findForUpdate(id).orElseThrow(AppointmentService::notFound);
 		if (appointment.getStatus().isFinal()) {
 			throw new ConflictException(ErrorCode.APPOINTMENT_CLOSED, ErrorCode.APPOINTMENT_CLOSED.defaultMessage());
@@ -133,8 +134,8 @@ public class AppointmentService {
 
 	/** Clôt un rendez-vous planifié : honoré, absent ou annulé. */
 	@Transactional
-	public AppointmentResponse changeStatus(UUID id, AppointmentStatusRequest request) {
-		loadVisible(id);
+	public AppointmentResponse changeStatus(UUID id, AppointmentStatusRequest request, UUID currentWarehouseId) {
+		this.warehouseAccess.requireCurrent(loadVisible(id).getWarehouseId(), currentWarehouseId);
 		Appointment appointment = this.repository.findForUpdate(id).orElseThrow(AppointmentService::notFound);
 		if (appointment.getStatus().isFinal()) {
 			throw new ConflictException(ErrorCode.APPOINTMENT_CLOSED, ErrorCode.APPOINTMENT_CLOSED.defaultMessage());
@@ -231,7 +232,8 @@ public class AppointmentService {
 	}
 
 	private Specification<Appointment> matching(AppointmentFilter filter, UUID warehouseId) {
-		Specification<Appointment> spec = (root, query, cb) -> cb.equal(root.get("warehouseId"), warehouseId);
+		Specification<Appointment> spec = warehouseId == null ? Specification.unrestricted()
+				: (root, query, cb) -> cb.equal(root.get("warehouseId"), warehouseId);
 		if (filter.status() != null) {
 			spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), filter.status()));
 		}

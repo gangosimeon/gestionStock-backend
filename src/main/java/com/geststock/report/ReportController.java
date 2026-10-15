@@ -190,8 +190,9 @@ class ReportController {
 	}
 
 	@GetMapping("/customers")
-	@Operation(summary = "Clients et créances", description = "Solde dû, part échue, ventes et règlements de la période. "
-			+ "Filtres : période, dépôt (ventes), customerId, status (ACTIVE | INACTIVE | ALL), withBalance.")
+	@Operation(summary = "Clients et créances", description = "Solde dû et part échue du client pour toute l'entreprise "
+			+ "(tous dépôts) ; part du solde née dans le dépôt du rapport (warehouseBalance), ventes et règlements de la "
+			+ "période dans ce dépôt. Filtres : période, dépôt, customerId, status (ACTIVE | INACTIVE | ALL), withBalance.")
 	ReportPage<CustomerRow, CustomerSummary> customers(@ParameterObject ReportFilter filter,
 			@ParameterObject PageQuery page, @CurrentWarehouse WarehouseContext warehouse) {
 		return this.operations.customers(scope(filter, warehouse), page);

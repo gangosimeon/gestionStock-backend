@@ -192,12 +192,12 @@ class AlertApiIT {
 		String inventory = id(this.mvc.perform(post("/api/inventories").with(manager()).header("X-Warehouse-Id", this.depot)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content("{\"scope\": \"SELECTION\", \"productIds\": [\"%s\"]}".formatted(this.healthy))));
-		this.mvc.perform(post("/api/inventories/{id}/start", inventory).with(manager())).andExpect(status().isOk());
-		this.mvc.perform(put("/api/inventories/{id}/counts", inventory).with(manager())
+		this.mvc.perform(post("/api/inventories/{id}/start", inventory).with(manager()).header("X-Warehouse-Id", this.depot)).andExpect(status().isOk());
+		this.mvc.perform(put("/api/inventories/{id}/counts", inventory).with(manager()).header("X-Warehouse-Id", this.depot)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content("{\"counts\": [{\"productId\": \"%s\", \"countedQuantity\": 7}]}".formatted(this.healthy)))
 			.andExpect(status().isOk());
-		this.mvc.perform(post("/api/inventories/{id}/submit", inventory).with(manager())).andExpect(status().isOk());
+		this.mvc.perform(post("/api/inventories/{id}/submit", inventory).with(manager()).header("X-Warehouse-Id", this.depot)).andExpect(status().isOk());
 
 		// Client sans délai propre (30 j par défaut) : 50 000 il y a 40 j, 20 000 réglés → 30 000 échus ;
 		// 10 000 d'il y a 2 j pas encore dus.

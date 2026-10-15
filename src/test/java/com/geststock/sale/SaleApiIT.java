@@ -180,19 +180,28 @@ class SaleApiIT {
 	// --- Stock ----------------------------------------------------------------------------------
 
 	@Test
-	void theSaleLeavesTheRequestedWarehouseOnly() throws Exception {
+	void theSaleLeavesTheCurrentWarehouseOnly() throws Exception {
 		stockIn(this.depot, this.frame, 3);
 
-		// La caisse du vendeur est ouverte au magasin principal : pas d'encaissement au dépôt.
+		// Dépôt imposé par le corps, différent du dépôt courant (principal) : refusé, rien n'est écrit.
 		sell(manager(), """
-				{"warehouseId": "%s", "paymentMethod": "CASH", "items": [{"productId": "%s", "quantity": 1}]}
-				""".formatted(this.depot, this.frame))
+				{"warehouseId": "%s", "customerId": "%s", "paidAmount": 0, "items": [{"productId": "%s", "quantity": 1}]}
+				""".formatted(this.depot, this.customer, this.frame))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		assertThat(level(this.depot, this.frame)).isEqualTo(3);
+		assertThat(level(this.main, this.frame)).isEqualTo(10);
+
+		// La caisse du vendeur est ouverte au magasin principal : pas d'encaissement au dépôt.
+		sellAt(this.depot, """
+				{"paymentMethod": "CASH", "items": [{"productId": "%s", "quantity": 1}]}
+				""".formatted(this.frame))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("CASH_SESSION_OTHER_WAREHOUSE"));
 		assertThat(level(this.depot, this.frame)).isEqualTo(3);
 
-		// Vente à crédit (rien à encaisser) : possible depuis le dépôt.
-		String id = idOf(sell(manager(), """
+		// Vente à crédit (rien à encaisser) : possible depuis le dépôt ; le corps peut confirmer le dépôt courant.
+		String id = idOf(sellAt(this.depot, """
 				{"warehouseId": "%s", "customerId": "%s", "paidAmount": 0, "items": [{"productId": "%s", "quantity": 2}]}
 				""".formatted(this.depot, this.customer, this.frame)));
 		stockOut(this.depot, this.frame, 1);
@@ -204,6 +213,39 @@ class SaleApiIT {
 			.andExpect(jsonPath("$.items[*].id", hasItem(id)));
 		this.mvc.perform(get("/api/sales").with(manager()).param("allWarehouses", "true"))
 			.andExpect(jsonPath("$.items[*].id", hasItem(id)));
+		checkDeferredConstraints();
+	}
+
+	@Test
+	void aSaleIsCancelledAndReturnedFromItsWarehouseOnly() throws Exception {
+		stockIn(this.depot, this.frame, 3);
+		String id = idOf(sellAt(this.depot, """
+				{"customerId": "%s", "paidAmount": 0, "items": [{"productId": "%s", "quantity": 2}]}
+				""".formatted(this.customer, this.frame)));
+
+		// Gestionnaire positionné sur le magasin principal : la vente du dépôt reste lisible…
+		this.mvc.perform(get("/api/sales/{id}", id).with(manager())).andExpect(status().isOk());
+		// … mais ni annulée ni retournée depuis un autre dépôt ; rien ne bouge.
+		cancel(id, "{\"reason\": \"Erreur\"}")
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		this.mvc.perform(post("/api/sales/{id}/returns", id).with(manager()).contentType(MediaType.APPLICATION_JSON)
+			.content("""
+					{"settlement": "ACCOUNT_CREDIT", "reason": "Taille", "items": [{"productId": "%s", "quantity": 1,
+					"condition": "RESELLABLE"}]}""".formatted(this.frame)))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		assertThat(level(this.depot, this.frame)).isEqualTo(1);
+		assertThat(this.jdbc.queryForObject("select status from sale where id = ?::uuid", String.class, id))
+			.isEqualTo("COMPLETED");
+		assertThat(this.jdbc.queryForObject("select count(*) from customer_return where sale_id = ?::uuid",
+				Integer.class, id)).isZero();
+
+		// Depuis le dépôt de la vente : annulation acceptée.
+		this.mvc.perform(post("/api/sales/{id}/cancel", id).with(manager()).header("X-Warehouse-Id", this.depot.toString())
+			.contentType(MediaType.APPLICATION_JSON).content("{\"reason\": \"Erreur\"}"))
+			.andExpect(status().isOk());
+		assertThat(level(this.depot, this.frame)).isEqualTo(3);
 		checkDeferredConstraints();
 	}
 
@@ -367,9 +409,9 @@ class SaleApiIT {
 		String inStore = idOf(sell(manager(), """
 				{"customerId": "%s", "paymentMethod": "CASH", "items": [{"productId": "%s", "quantity": 1}]}"""
 			.formatted(this.customer, this.frame)));
-		String inDepot = idOf(sell(manager(), """
-				{"warehouseId": "%s", "customerId": "%s", "paidAmount": 0, "items": [{"productId": "%s", "quantity": 1}]}"""
-			.formatted(this.depot, this.customer, this.frame)));
+		String inDepot = idOf(sellAt(this.depot, """
+				{"customerId": "%s", "paidAmount": 0, "items": [{"productId": "%s", "quantity": 1}]}"""
+			.formatted(this.customer, this.frame)));
 
 		// Caissier sans warehouse:all, rattaché au magasin principal : la vente du dépôt lui reste invisible.
 		RequestPostProcessor cashier = actor(Permissions.SALE_READ, Permissions.CUSTOMER_READ);
@@ -487,6 +529,12 @@ class SaleApiIT {
 
 	private ResultActions sell(RequestPostProcessor actor, String body) throws Exception {
 		return this.mvc.perform(post("/api/sales").with(actor).contentType(MediaType.APPLICATION_JSON).content(body));
+	}
+
+	/** Vente du gestionnaire, le dépôt courant étant {@code warehouseId} (en-tête X-Warehouse-Id). */
+	private ResultActions sellAt(UUID warehouseId, String body) throws Exception {
+		return this.mvc.perform(post("/api/sales").with(manager()).header("X-Warehouse-Id", warehouseId.toString())
+			.contentType(MediaType.APPLICATION_JSON).content(body));
 	}
 
 	private ResultActions cancel(String id, String body) throws Exception {

@@ -110,7 +110,7 @@ class CrossModuleRollbackIT {
 		// sortie de caisse (30 000) dépasse les espèces du tiroir (0).
 		ErrorCode refused = refusal(() -> as(this.actor, () -> this.returns.create(sale.id(),
 				new CreateCustomerReturnRequest(ReturnSettlement.REFUND, PaymentMethod.CASH, "Rendu",
-						List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE))))));
+						List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE))), this.store)));
 
 		assertThat(refused).isEqualTo(ErrorCode.CASH_INSUFFICIENT);
 		assertThat(this.fixtures.level(this.store, this.frame)).as("remise en stock annulée").isEqualTo(4);
@@ -123,7 +123,7 @@ class CrossModuleRollbackIT {
 
 		// Remboursé par le même moyen que la vente, le retour passe.
 		as(this.actor, () -> this.returns.create(sale.id(), new CreateCustomerReturnRequest(ReturnSettlement.REFUND,
-				null, "Rendu", List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE)))));
+				null, "Rendu", List.of(new CreateCustomerReturnRequest.Item(this.frame, 1, ItemCondition.RESELLABLE))), this.store));
 		assertThat(this.fixtures.level(this.store, this.frame)).isEqualTo(5);
 		assertThat(this.jdbc.queryForObject("""
 				select payment_method from cash_entry where entry_type = 'RETURN_REFUND' and session_id in
@@ -136,10 +136,10 @@ class CrossModuleRollbackIT {
 		SaleResponse sale = sell(PaymentMethod.CASH);
 		// Les espèces de la vente partent à la banque : le tiroir ne peut plus rembourser.
 		as(this.actor, () -> this.cash.recordManual(new CashOperationRequest(CashEntryType.Direction.OUT,
-				new BigDecimal("30000"), "Dépôt en banque")));
+				new BigDecimal("30000"), "Dépôt en banque"), this.store));
 
 		ErrorCode refused = refusal(() -> as(this.actor, () -> this.sales.cancel(sale.id(),
-				new CancelSaleRequest("Erreur"))));
+				new CancelSaleRequest("Erreur"), this.store)));
 
 		assertThat(refused).isEqualTo(ErrorCode.CASH_INSUFFICIENT);
 		assertThat(this.jdbc.queryForObject("select status from sale where id = ?", String.class, sale.id()))

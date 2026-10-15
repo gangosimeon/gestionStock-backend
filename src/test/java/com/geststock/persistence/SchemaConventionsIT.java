@@ -199,7 +199,8 @@ class SchemaConventionsIT {
 				       count(*) filter (where r.code = 'CAISSIER') as caissier
 				from role_permission rp join role r on r.id = rp.role_id
 				""");
-		assertThat(matrix).containsEntry("admin", 47L).containsEntry("gestionnaire", 40L).containsEntry("caissier", 15L);
+		// Gestionnaire : 40 droits en V021, moins warehouse:all et warehouse:manage en V029.
+		assertThat(matrix).containsEntry("admin", 47L).containsEntry("gestionnaire", 38L).containsEntry("caissier", 15L);
 
 		assertThat(this.jdbc.queryForObject("select name from warehouse where code = 'MAG-01'", String.class))
 			.isEqualTo("Magasin principal");

@@ -30,7 +30,8 @@ public record SupplierPaymentResponse(
 		String externalReference,
 		String note,
 		Instant createdAt,
-		UUID createdByUserId) {
+		UUID createdByUserId,
+		@Schema(description = "Dépôt du paiement (celui de ses commandes et de sa caisse)") UUID warehouseId) {
 
 	/** Part du paiement imputée sur une commande. */
 	@Schema(name = "SupplierPaymentAllocation")

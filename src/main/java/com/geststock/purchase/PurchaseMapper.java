@@ -48,7 +48,7 @@ final class PurchaseMapper {
 		PurchaseOrder order = receipt.getPurchaseOrder();
 		return new SupplierPurchaseHistoryResponse(receipt.getId(), order.getSupplierId(), receipt.getReceivedAt(),
 				receipt.getNumber(), order.getId(), order.getNumber(), receipt.getTotalQuantity(),
-				receipt.getTotalAmount());
+				receipt.getTotalAmount(), receipt.getWarehouseId());
 	}
 
 	private static PurchaseOrderLineResponse toResponse(PurchaseOrderLine line) {

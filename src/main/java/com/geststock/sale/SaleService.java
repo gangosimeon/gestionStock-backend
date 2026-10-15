@@ -197,8 +197,8 @@ public class SaleService {
 	public SaleResponse create(CreateSaleRequest request, UUID currentWarehouseId) {
 		UUID actor = ActorIdentity.currentUserId()
 			.orElseThrow(() -> new UnauthorizedException(ErrorCode.UNAUTHENTICATED));
-		UUID warehouseId = request.warehouseId() != null
-				? this.warehouseAccess.requireAccessible(request.warehouseId()).id() : currentWarehouseId;
+		// Le dépôt de vente est le dépôt courant ; un warehouseId envoyé doit le confirmer.
+		UUID warehouseId = this.warehouseAccess.requireCurrentIfPresent(request.warehouseId(), currentWarehouseId);
 
 		Set<UUID> productIds = new LinkedHashSet<>();
 		for (CreateSaleRequest.Item item : request.items()) {
@@ -293,7 +293,7 @@ public class SaleService {
 
 		// 7 : reste dû au compte du client (plafond contrôlé sous verrou).
 		if (credit.signum() > 0) {
-			this.accounts.recordCreditSale(customer.id(), credit, sale.getId(), sale.getNumber());
+			this.accounts.recordCreditSale(customer.id(), credit, sale.getId(), sale.getNumber(), warehouseId);
 		}
 
 		// 8 : montant payé encaissé dans la caisse du vendeur.
@@ -314,16 +314,19 @@ public class SaleService {
 	/**
 	 * Annule une vente : remise en stock de chaque ligne ({@code SALE_CANCELLATION}, au coût de
 	 * la vente), annulation de la créance et remboursement du montant payé depuis la caisse
-	 * ouverte de l'utilisateur (même dépôt ; espèces suffisantes), dans une transaction.
+	 * ouverte de l'utilisateur (même dépôt ; espèces suffisantes), dans une transaction. Depuis
+	 * le dépôt de la vente seulement.
 	 *
-	 * @throws ConflictException {@code SALE_NOT_CANCELLABLE}, {@code SALE_CREDIT_ALREADY_SETTLED}
+	 * @throws ConflictException {@code SALE_NOT_CANCELLABLE}, {@code SALE_CREDIT_ALREADY_SETTLED},
+	 *                           {@code WAREHOUSE_MISMATCH}
 	 */
 	@Transactional
-	public SaleResponse cancel(UUID id, CancelSaleRequest request) {
+	public SaleResponse cancel(UUID id, CancelSaleRequest request, UUID currentWarehouseId) {
 		UUID actor = ActorIdentity.currentUserId()
 			.orElseThrow(() -> new UnauthorizedException(ErrorCode.UNAUTHENTICATED));
 		Sale sale = this.sales.findForUpdate(id).orElseThrow(SaleService::notFound);
 		requireVisible(sale);
+		this.warehouseAccess.requireCurrent(sale.getWarehouseId(), currentWarehouseId);
 		if (sale.getStatus() != SaleStatus.COMPLETED) {
 			throw new ConflictException(ErrorCode.SALE_NOT_CANCELLABLE, ErrorCode.SALE_NOT_CANCELLABLE.defaultMessage());
 		}
@@ -351,7 +354,7 @@ public class SaleService {
 		if (sale.getCreditAmount().signum() > 0) {
 			try {
 				this.accounts.recordCredit(sale.getCustomerId(), CustomerAccountEntryType.SALE_CANCELLATION,
-						sale.getCreditAmount(), sale.getId(), sale.getNumber(), reason);
+						sale.getCreditAmount(), sale.getId(), sale.getNumber(), reason, sale.getWarehouseId());
 			}
 			catch (BusinessRuleException ex) {
 				if (ex.getCode() != ErrorCode.AMOUNT_EXCEEDS_CUSTOMER_BALANCE) {
@@ -378,14 +381,16 @@ public class SaleService {
 	/**
 	 * Vente à retourner (module retours) : verrouillée jusqu'à la fin de la transaction de
 	 * l'appelant (deux retours de la même vente se sérialisent), visible, non annulée, dans un
-	 * dépôt accessible.
+	 * dépôt accessible qui est le dépôt courant.
 	 *
-	 * @throws ConflictException {@code SALE_NOT_RETURNABLE} si la vente est annulée
+	 * @throws ConflictException {@code SALE_NOT_RETURNABLE} si la vente est annulée,
+	 *                           {@code WAREHOUSE_MISMATCH} si elle est d'un autre dépôt
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
-	public SaleSnapshot lockForReturn(UUID saleId) {
+	public SaleSnapshot lockForReturn(UUID saleId, UUID currentWarehouseId) {
 		Sale sale = this.sales.findForUpdate(saleId).orElseThrow(SaleService::notFound);
 		requireVisible(sale);
+		this.warehouseAccess.requireCurrent(sale.getWarehouseId(), currentWarehouseId);
 		this.entityManager.refresh(sale, LockModeType.PESSIMISTIC_WRITE);
 		if (sale.getStatus() != SaleStatus.COMPLETED) {
 			throw new ConflictException(ErrorCode.SALE_NOT_RETURNABLE, ErrorCode.SALE_NOT_RETURNABLE.defaultMessage());

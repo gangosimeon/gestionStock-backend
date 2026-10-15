@@ -112,13 +112,15 @@ class ExpenseController {
 	@RequiresPermission(Permissions.EXPENSE_DELETE)
 	@Operation(summary = "Annuler une dépense",
 			description = "Motif obligatoire ; la dépense reste visible et sort des totaux. En espèces, l'argent revient "
-					+ "dans ma caisse ouverte du dépôt de la dépense.")
+					+ "dans ma caisse ouverte du dépôt de la dépense. Depuis le dépôt de la dépense.")
 	@ApiResponse(responseCode = "200", description = "Dépense annulée")
 	@ApiResponse(responseCode = "409",
-			description = "EXPENSE_ALREADY_CANCELLED, NO_OPEN_CASH_SESSION ou CASH_SESSION_OTHER_WAREHOUSE",
+			description = "EXPENSE_ALREADY_CANCELLED, NO_OPEN_CASH_SESSION, CASH_SESSION_OTHER_WAREHOUSE ou "
+					+ "WAREHOUSE_MISMATCH",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
-	ExpenseResponse cancel(@PathVariable UUID id, @Valid @RequestBody CancelExpenseRequest request) {
-		return this.expenses.cancel(id, request.reason());
+	ExpenseResponse cancel(@PathVariable UUID id, @Valid @RequestBody CancelExpenseRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.expenses.cancel(id, request.reason(), warehouse.id());
 	}
 
 	/** Dépôt courant, ou tous les dépôts ({@code null}) avec {@code warehouse:all}. */

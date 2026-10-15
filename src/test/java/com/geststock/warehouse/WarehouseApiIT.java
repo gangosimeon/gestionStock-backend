@@ -158,7 +158,7 @@ class WarehouseApiIT {
 		this.mvc.perform(delete("/api/warehouses/{id}", main)).andExpect(status().isOk());
 		this.mvc.perform(post("/api/warehouses/{id}/main", main))
 			.andExpect(status().isUnprocessableContent())
-			.andExpect(jsonPath("$.code").value("WAREHOUSE_INACTIVE"));
+			.andExpect(jsonPath("$.code").value("MAIN_WAREHOUSE_INACTIVE"));
 	}
 
 	@Test
@@ -187,12 +187,14 @@ class WarehouseApiIT {
 		this.mvc.perform(get("/api/warehouses/current").header("X-Warehouse-Id", other))
 			.andExpect(jsonPath("$.id").value(other))
 			.andExpect(header().string("X-Warehouse-Id", other));
-		// Identifiant de l'ancien mock (localStorage du front) : repli sur le dépôt principal.
-		this.mvc.perform(get("/api/warehouses/current").header("X-Warehouse-Id", "wh_1"))
-			.andExpect(jsonPath("$.id").value(main));
-		this.mvc.perform(get("/api/products").header("X-Warehouse-Id", "wh_1"))
-			.andExpect(status().isOk())
+		// Sans en-tête : dépôt par défaut (ici le principal), renvoyé par le serveur.
+		this.mvc.perform(get("/api/warehouses/current"))
+			.andExpect(jsonPath("$.id").value(main))
 			.andExpect(header().string("X-Warehouse-Id", main));
+		// Identifiant de l'ancien mock (localStorage du front) : refusé, plus de repli silencieux.
+		this.mvc.perform(get("/api/products").header("X-Warehouse-Id", "wh_1"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_WAREHOUSE_ID"));
 	}
 
 	@Test
@@ -217,6 +219,36 @@ class WarehouseApiIT {
 		create("{\"name\": \"Interdit\"}").andExpect(status().isForbidden());
 		this.mvc.perform(delete("/api/warehouses/{id}", other)).andExpect(status().isForbidden());
 		this.mvc.perform(post("/api/warehouses/{id}/main", other)).andExpect(status().isForbidden());
+	}
+
+	@Test
+	@WithPermissions({ "warehouse:read", "warehouse:manage" })
+	void manageWithoutWarehouseAllNeverWidensThePerimeter() throws Exception {
+		String main = this.jdbc.queryForObject("select id::text from warehouse where main", String.class);
+		String other = this.jdbc.queryForObject("""
+				insert into warehouse (code, name) values ('ZZ-OUT', 'Magasin hors périmètre') returning id::text""",
+				String.class);
+
+		// Utilisateur sans affectation : périmètre = dépôt principal, même avec warehouse:manage.
+		this.mvc.perform(get("/api/warehouses").param("status", "ALL"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[*].id", hasItem(main)))
+			.andExpect(jsonPath("$.items[*].id", not(hasItem(other))));
+		this.mvc.perform(get("/api/warehouses/{id}", other)).andExpect(status().isNotFound());
+
+		// Administration d'un dépôt invisible : 404, jamais modifié à l'aveugle.
+		this.mvc.perform(put("/api/warehouses/{id}", other).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"name\": \"Renommé\"}")).andExpect(status().isNotFound());
+		this.mvc.perform(patch("/api/warehouses/{id}/active", other).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"active\": false}")).andExpect(status().isNotFound());
+		this.mvc.perform(delete("/api/warehouses/{id}", other)).andExpect(status().isNotFound());
+		assertThat(this.jdbc.queryForObject("select name || '/' || active from warehouse where id = ?::uuid",
+				String.class, other)).isEqualTo("Magasin hors périmètre/true");
+
+		// Le dépôt principal vaut pour toute l'entreprise : réservé à warehouse:all.
+		this.mvc.perform(post("/api/warehouses/{id}/main", main))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
 	}
 
 	@Test

@@ -6,6 +6,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import jakarta.persistence.EntityManager;
@@ -27,6 +29,7 @@ import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.InvalidRequestException;
 import com.geststock.exception.UnauthorizedException;
+import com.geststock.warehouse.WarehouseAccess;
 
 /**
  * <b>Compte client : seul point d'écriture des créances.</b> Utilisé par les modules ventes
@@ -59,30 +62,55 @@ public class CustomerAccountService {
 
 	private final EntityManager entityManager;
 
+	private final WarehouseAccess warehouseAccess;
+
 	private final Clock clock;
 
 	CustomerAccountService(CustomerService customers, CustomerAccountEntryRepository entries,
-			EntityManager entityManager, Clock clock) {
+			EntityManager entityManager, WarehouseAccess warehouseAccess, Clock clock) {
 		this.customers = customers;
 		this.entries = entries;
 		this.entityManager = entityManager;
+		this.warehouseAccess = warehouseAccess;
 		this.clock = clock;
 	}
 
-	/** Plafond, solde dû et crédit disponible. */
+	/**
+	 * Plafond, solde dû et crédit disponible, pour toute l'entreprise (D6). Sans
+	 * {@code warehouse:all}, la part née hors des dépôts de l'utilisateur est donnée en une seule
+	 * ligne agrégée, sans détail.
+	 */
 	@Transactional(readOnly = true)
 	public CustomerAccountResponse creditStatus(UUID customerId) {
 		Customer customer = this.customers.load(customerId);
 		BigDecimal balance = this.entries.balanceOf(customerId).setScale(2);
+		Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
+		BigDecimal outside = visible == null ? null
+				: visible.isEmpty() ? balance : this.entries.balanceOutside(customerId, visible).setScale(2);
 		return new CustomerAccountResponse(customer.getId(), customer.getCreditLimit(), balance,
-				available(customer.getCreditLimit(), balance), customer.getPaymentTermsDays(), customer.isActive());
+				available(customer.getCreditLimit(), balance), customer.getPaymentTermsDays(), customer.isActive(),
+				outside);
 	}
 
-	/** Relevé du compte, du plus récent au plus ancien par défaut. */
+	/**
+	 * Relevé du compte, du plus récent au plus ancien par défaut. Sans {@code warehouse:all} :
+	 * seulement les écritures des dépôts de l'utilisateur, sans le solde après écriture (ses
+	 * variations révéleraient les opérations des autres dépôts) ; le reste est agrégé dans
+	 * {@link #creditStatus}.
+	 */
 	@Transactional(readOnly = true)
 	public Page<CustomerAccountEntryResponse> entries(UUID customerId, PageQuery query) {
 		this.customers.load(customerId);
-		return this.entries.findByCustomer(customerId, query.toPageable(SORTS)).map(CustomerAccountService::toResponse);
+		Set<UUID> visible = this.warehouseAccess.visibleWarehouseIds();
+		if (visible == null) {
+			return this.entries.findByCustomer(customerId, query.toPageable(SORTS))
+				.map(CustomerAccountService::toResponse);
+		}
+		if (visible.isEmpty()) {
+			return Page.empty(query.toPageable(SORTS));
+		}
+		return this.entries.findByCustomerInWarehouses(customerId, visible, query.toPageable(SORTS))
+			.map(entry -> withoutBalance(toResponse(entry)));
 	}
 
 	/**
@@ -91,28 +119,30 @@ public class CustomerAccountService {
 	 * @throws BusinessRuleException {@code CREDIT_LIMIT_EXCEEDED}, {@code CUSTOMER_INACTIVE}
 	 */
 	public CustomerAccountEntryResponse recordCreditSale(UUID customerId, BigDecimal amount, UUID saleId,
-			String saleReference) {
-		return post(customerId, CustomerAccountEntryType.CREDIT_SALE, amount, saleId, saleReference, null);
+			String saleReference, UUID warehouseId) {
+		return post(customerId, CustomerAccountEntryType.CREDIT_SALE, amount, saleId, saleReference, null, warehouseId);
 	}
 
 	/**
 	 * Diminution de la dette : règlement ({@code PAYMENT}), avoir ({@code CREDIT_NOTE}) ou
 	 * annulation de vente à crédit ({@code SALE_CANCELLATION}).
 	 *
+	 * @param warehouseId dépôt de la pièce (vente, retour, caisse du règlement)
 	 * @throws BusinessRuleException {@code AMOUNT_EXCEEDS_CUSTOMER_BALANCE}
 	 */
 	public CustomerAccountEntryResponse recordCredit(UUID customerId, CustomerAccountEntryType type, BigDecimal amount,
-			UUID sourceId, String sourceReference, String note) {
+			UUID sourceId, String sourceReference, String note, UUID warehouseId) {
 		if (type.direction() != CustomerAccountEntryType.Direction.CREDIT) {
 			throw new IllegalArgumentException(type + " n'est pas une écriture au crédit.");
 		}
-		return post(customerId, type, amount, sourceId, sourceReference, note);
+		return post(customerId, type, amount, sourceId, sourceReference, note, warehouseId);
 	}
 
 	// --- Cœur ---------------------------------------------------------------------------
 
 	private CustomerAccountEntryResponse post(UUID customerId, CustomerAccountEntryType type, BigDecimal amount,
-			UUID sourceId, String sourceReference, String note) {
+			UUID sourceId, String sourceReference, String note, UUID warehouseId) {
+		Objects.requireNonNull(warehouseId, "dépôt de l'écriture du compte client");
 		UUID actor = ActorIdentity.currentUserId()
 			.orElseThrow(() -> new UnauthorizedException(ErrorCode.UNAUTHENTICATED));
 		BigDecimal value = validAmount(amount);
@@ -158,7 +188,7 @@ public class CustomerAccountService {
 
 		CustomerAccountEntry entry = this.entries.save(new CustomerAccountEntry(customerId, type, value, balanceAfter,
 				sourceId, StringUtils.hasText(sourceReference) ? sourceReference.trim() : null,
-				StringUtils.hasText(note) ? note.trim() : null, Instant.now(this.clock), actor));
+				StringUtils.hasText(note) ? note.trim() : null, Instant.now(this.clock), actor, warehouseId));
 		this.entityManager.flush();
 		return toResponse(entry);
 	}
@@ -184,7 +214,13 @@ public class CustomerAccountService {
 		return new CustomerAccountEntryResponse(entry.getId(), entry.getCustomerId(), entry.getType(),
 				entry.getDirection(), entry.getAmount(), entry.getBalanceAfter(), entry.getSourceType(),
 				entry.getSourceId(), entry.getSourceReference(), entry.getNote(), entry.getCreatedAt(),
-				entry.getCreatedBy());
+				entry.getCreatedBy(), entry.getWarehouseId());
+	}
+
+	private static CustomerAccountEntryResponse withoutBalance(CustomerAccountEntryResponse e) {
+		return new CustomerAccountEntryResponse(e.id(), e.customerId(), e.type(), e.direction(), e.amount(), null,
+				e.sourceType(), e.sourceId(), e.sourceReference(), e.note(), e.createdAt(), e.createdByUserId(),
+				e.warehouseId());
 	}
 
 }

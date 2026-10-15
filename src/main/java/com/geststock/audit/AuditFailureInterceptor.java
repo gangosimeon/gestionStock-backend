@@ -1,6 +1,7 @@
 package com.geststock.audit;
 
 import java.util.Map;
+import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -31,6 +32,9 @@ import com.geststock.exception.ErrorCode;
 class AuditFailureInterceptor implements HandlerInterceptor, WebMvcConfigurer {
 
 	private static final Logger log = LoggerFactory.getLogger(AuditFailureInterceptor.class);
+
+	/** En-tête du dépôt courant, posé par le serveur une fois le dépôt résolu et autorisé. */
+	private static final String WAREHOUSE_HEADER = "X-Warehouse-Id";
 
 	/** Absent dans les tests de la seule couche web ({@code @WebMvcTest}) : rien n'est alors tracé. */
 	private final ObjectProvider<AuditService> audit;
@@ -71,7 +75,8 @@ class AuditFailureInterceptor implements HandlerInterceptor, WebMvcConfigurer {
 		}
 		AuditEvent event = AuditEvent.of(audited.action(), audited.entityType(), pathId(request, audited), null)
 			.details(message != null ? message : ex != null ? ex.getClass().getSimpleName() : null)
-			.meta("path", request.getMethod() + " " + request.getRequestURI());
+			.meta("path", request.getMethod() + " " + request.getRequestURI())
+			.warehouse(currentWarehouse(response));
 		if (audited.module().length > 0) {
 			event.module(audited.module()[0]);
 		}
@@ -81,6 +86,23 @@ class AuditFailureInterceptor implements HandlerInterceptor, WebMvcConfigurer {
 		catch (RuntimeException failure) {
 			// Le journal ne doit pas masquer l'erreur d'origine déjà renvoyée au client.
 			log.error("Échec de l'écriture du journal d'audit ({} {})", audited.action(), audited.entityType(), failure);
+		}
+	}
+
+	/**
+	 * Dépôt courant de la requête refusée : celui que le serveur a résolu et renvoyé dans
+	 * l'en-tête {@code X-Warehouse-Id} ; aucun si la requête a échoué avant (dépôt refusé, droits).
+	 */
+	private static UUID currentWarehouse(HttpServletResponse response) {
+		String header = response.getHeader(WAREHOUSE_HEADER);
+		if (header == null || header.isBlank()) {
+			return null;
+		}
+		try {
+			return UUID.fromString(header);
+		}
+		catch (IllegalArgumentException ex) {
+			return null;
 		}
 	}
 

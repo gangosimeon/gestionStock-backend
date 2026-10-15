@@ -25,15 +25,17 @@ interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UUID>, Jp
 	Optional<PurchaseOrder> findForUpdate(@Param("id") UUID id);
 
 	/**
-	 * Commandes d'un fournisseur non annulées, verrouillées, des plus anciennes aux plus récentes
-	 * (ordre d'imputation d'un paiement global, et ordre constant des verrous).
+	 * Commandes d'un fournisseur non annulées dans un dépôt, verrouillées, des plus anciennes aux
+	 * plus récentes (ordre d'imputation d'un paiement global, et ordre constant des verrous).
 	 */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 			select o from PurchaseOrder o
-			where o.supplierId = :supplierId and o.status <> com.geststock.purchase.PurchaseOrderStatus.CANCELLED
+			where o.supplierId = :supplierId and o.warehouseId = :warehouseId
+			  and o.status <> com.geststock.purchase.PurchaseOrderStatus.CANCELLED
 			order by o.createdAt, o.id""")
-	List<PurchaseOrder> findPayableForUpdate(@Param("supplierId") UUID supplierId);
+	List<PurchaseOrder> findPayableForUpdate(@Param("supplierId") UUID supplierId,
+			@Param("warehouseId") UUID warehouseId);
 
 	/**
 	 * Totaux d'un fournisseur : {@code [commandé (hors annulées), reçu, dû, payé, commandes avec

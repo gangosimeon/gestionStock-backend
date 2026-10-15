@@ -128,7 +128,10 @@ class CustomerController {
 
 	@GetMapping("/{id}/account")
 	@RequiresPermission(Permissions.CUSTOMER_READ)
-	@Operation(summary = "Situation de crédit", description = "Plafond, solde dû et crédit disponible.")
+	@Operation(summary = "Situation de crédit",
+			description = "Plafond, solde dû et crédit disponible, tous dépôts confondus (le crédit est celui de "
+					+ "l'entreprise). Sans warehouse:all, otherWarehousesBalance donne la part née hors de vos "
+					+ "dépôts, sans détail.")
 	CustomerAccountResponse account(@PathVariable UUID id) {
 		return this.accounts.creditStatus(id);
 	}
@@ -136,7 +139,9 @@ class CustomerController {
 	@GetMapping("/{id}/account/entries")
 	@RequiresPermission(Permissions.CUSTOMER_READ)
 	@Operation(summary = "Relevé du compte client",
-			description = "Ventes à crédit, règlements, avoirs et annulations, du plus récent au plus ancien.")
+			description = "Ventes à crédit, règlements, avoirs et annulations, du plus récent au plus ancien. "
+					+ "Sans warehouse:all : seules les écritures de vos dépôts, sans solde cumulé (il inclurait "
+					+ "les autres dépôts).")
 	ResponseEntity<PageResponse<CustomerAccountEntryResponse>> entries(@PathVariable UUID id,
 			@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
 			@Parameter(description = "createdAt | amount, asc | desc") @RequestParam(required = false) List<String> sort) {

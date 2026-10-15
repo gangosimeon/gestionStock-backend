@@ -24,6 +24,7 @@ import com.geststock.report.dto.ReportRows.InventorySummary;
 
 import static com.geststock.report.ReportScope.instant;
 import static com.geststock.report.ReportScope.money;
+import static com.geststock.report.ReportScope.nullableMoney;
 import static com.geststock.report.ReportScope.uuid;
 
 /** Rapports d'exploitation : inventaires, sessions de caisse, clients (créances et activité). */
@@ -165,8 +166,9 @@ class OperationsReportService {
 	// --- Clients -------------------------------------------------------------------------------------
 
 	/**
-	 * Clients : créance actuelle (vue {@code v_customer_receivable}, tous dépôts) et activité de
-	 * la période (ventes validées du dépôt, règlements).
+	 * Clients : créance actuelle du client pour toute l'entreprise (vue {@code v_customer_receivable},
+	 * tous dépôts : solde, échu, plus ancienne échéance) et, distinctement, ce qui relève du dépôt du
+	 * rapport : part de la dette née dans ce dépôt, ventes validées et règlements de la période.
 	 */
 	ReportPage<CustomerRow, CustomerSummary> customers(ReportScope scope, PageQuery query) {
 		ReportFilter f = scope.filter();
@@ -174,8 +176,14 @@ class OperationsReportService {
 			.addValue("periodStart", scope.period().start())
 			.addValue("periodEnd", scope.period().end());
 		String saleScope = "";
+		String entryScope = "";
+		String warehouseBalance = "null::numeric";
 		if (scope.warehouseId() != null) {
 			saleScope = " and s.warehouse_id = :warehouseId";
+			entryScope = " and e.warehouse_id = :warehouseId";
+			warehouseBalance = """
+					(select coalesce(sum(case when e.direction = 'DEBIT' then e.amount else -e.amount end), 0)
+					 from customer_account_entry e where e.customer_id = c.id and e.warehouse_id = :warehouseId)""";
 			params.addValue("warehouseId", scope.warehouseId());
 		}
 		StringBuilder where = new StringBuilder(" where true");
@@ -196,7 +204,8 @@ class OperationsReportService {
 		String rows = """
 				select c.id as customer_id, c.code, c.name, c.active, c.credit_limit, v.payment_terms_days, v.balance,
 				       v.overdue_amount, v.oldest_due_at, coalesce(sa.cnt, 0) as sales_count,
-				       coalesce(sa.amount, 0) as sales_amount, coalesce(pa.amount, 0) as payments_amount, ls.last_sale_at
+				       coalesce(sa.amount, 0) as sales_amount, coalesce(pa.amount, 0) as payments_amount, ls.last_sale_at,
+				       %3$s as warehouse_balance
 				from customer c
 				join v_customer_receivable v on v.customer_id = c.id
 				left join lateral (
@@ -206,22 +215,25 @@ class OperationsReportService {
 				left join lateral (
 				    select sum(e.amount) as amount from customer_account_entry e
 				    where e.customer_id = c.id and e.entry_type = 'PAYMENT'
-				      and e.created_at >= :periodStart and e.created_at < :periodEnd) pa on true
+				      and e.created_at >= :periodStart and e.created_at < :periodEnd %2$s) pa on true
 				left join lateral (
 				    select max(s.created_at) as last_sale_at from sale s
-				    where s.customer_id = c.id and s.status = 'COMPLETED' %1$s) ls on true""".formatted(saleScope) + where;
+				    where s.customer_id = c.id and s.status = 'COMPLETED' %1$s) ls on true"""
+			.formatted(saleScope, entryScope, warehouseBalance) + where;
 		Page<CustomerRow> page = this.sql.page(rows, params, query, CUSTOMER_SORTS,
 				(rs, i) -> new CustomerRow(uuid(rs, "customer_id"), rs.getString("code"), rs.getString("name"),
 						rs.getBoolean("active"), money(rs, "credit_limit"), rs.getInt("payment_terms_days"),
 						money(rs, "balance"), money(rs, "overdue_amount"), instant(rs, "oldest_due_at"),
 						rs.getLong("sales_count"), money(rs, "sales_amount"), money(rs, "payments_amount"),
-						instant(rs, "last_sale_at")));
+						instant(rs, "last_sale_at"), nullableMoney(rs, "warehouse_balance")));
 		CustomerSummary summary = this.sql.jdbc().queryForObject("""
 				select count(*) as cnt, count(*) filter (where balance > 0) as debtors, sum(balance) as balance,
-				       sum(overdue_amount) as overdue, sum(sales_amount) as sales, sum(payments_amount) as payments
+				       sum(overdue_amount) as overdue, sum(sales_amount) as sales, sum(payments_amount) as payments,
+				       sum(warehouse_balance) as warehouse_balance
 				from (""" + rows + ") q", params,
 				(rs, i) -> new CustomerSummary(rs.getLong("cnt"), rs.getLong("debtors"), money(rs, "balance"),
-						money(rs, "overdue"), money(rs, "sales"), money(rs, "payments")));
+						money(rs, "overdue"), money(rs, "sales"), money(rs, "payments"),
+						nullableMoney(rs, "warehouse_balance")));
 		return ReportPage.of(page, summary);
 	}
 

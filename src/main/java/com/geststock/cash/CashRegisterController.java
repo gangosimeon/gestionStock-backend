@@ -67,9 +67,13 @@ class CashRegisterController {
 
 	@GetMapping("/current")
 	@RequiresPermission(Permissions.CASH_OPERATE)
-	@Operation(summary = "Ma caisse ouverte", description = "Corps null si l'utilisateur n'a pas de caisse ouverte.")
-	ResponseEntity<Object> current() {
-		return ResponseEntity.ok(this.cash.current().<Object>map(session -> session).orElse(NullNode.getInstance()));
+	@Operation(summary = "Ma caisse ouverte",
+			description = "Corps null si l'utilisateur n'a pas de caisse ouverte. warehouseId : dépôt de la caisse ; "
+					+ "inCurrentWarehouse = false : ouverte dans un autre dépôt, donc inutilisable depuis le dépôt courant "
+					+ "(revenir dans son dépôt pour encaisser ou la clôturer).")
+	ResponseEntity<Object> current(@CurrentWarehouse WarehouseContext warehouse) {
+		return ResponseEntity
+			.ok(this.cash.current(warehouse.id()).<Object>map(session -> session).orElse(NullNode.getInstance()));
 	}
 
 	@GetMapping("/sessions")
@@ -127,9 +131,11 @@ class CashRegisterController {
 	@Audited(action = "CASH_OPERATION", entityType = "CASH_ENTRY", idParam = "")
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Apport ou sortie d'espèces",
-			description = "Dans ma caisse ouverte ; une sortie ne peut dépasser les espèces attendues.")
-	ResponseEntity<CashEntryResponse> operation(@Valid @RequestBody CashOperationRequest request) {
-		CashEntryResponse created = this.cash.recordManual(request);
+			description = "Dans ma caisse ouverte, depuis son dépôt (409 CASH_SESSION_OTHER_WAREHOUSE sinon) ; une sortie "
+					+ "ne peut dépasser les espèces attendues.")
+	ResponseEntity<CashEntryResponse> operation(@Valid @RequestBody CashOperationRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		CashEntryResponse created = this.cash.recordManual(request, warehouse.id());
 		return ResponseEntity.created(URI.create("/api/cash-register/sessions/" + created.sessionId() + "/operations"))
 			.body(created);
 	}
@@ -140,9 +146,11 @@ class CashRegisterController {
 	@RequiresPermission(Permissions.CASH_OPERATE)
 	@Operation(summary = "Corriger un apport ou une sortie",
 			description = "Écriture inverse du même montant dans ma caisse ouverte ; l'opération d'origine reste. "
-					+ "Une seule correction par opération ; une vente se corrige par annulation ou retour.")
-	ResponseEntity<CashEntryResponse> reverse(@PathVariable UUID id, @Valid @RequestBody CashCorrectionRequest request) {
-		CashEntryResponse created = this.cash.reverseManual(id, request.reason());
+					+ "Une seule correction par opération ; une vente se corrige par annulation ou retour. Depuis le dépôt "
+					+ "de la caisse.")
+	ResponseEntity<CashEntryResponse> reverse(@PathVariable UUID id, @Valid @RequestBody CashCorrectionRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		CashEntryResponse created = this.cash.reverseManual(id, request.reason(), warehouse.id());
 		return ResponseEntity.created(URI.create("/api/cash-register/sessions/" + created.sessionId() + "/operations"))
 			.body(created);
 	}
@@ -150,9 +158,12 @@ class CashRegisterController {
 	@PostMapping("/close")
 	@Audited(action = "CLOSE", entityType = "CASH_SESSION", idParam = "")
 	@RequiresPermission(Permissions.CASH_OPERATE)
-	@Operation(summary = "Clôturer ma caisse", description = "Espèces comptées ; attendu et écart figés.")
-	CashSessionResponse close(@Valid @RequestBody CloseCashSessionRequest request) {
-		return this.cash.close(request);
+	@Operation(summary = "Clôturer ma caisse",
+			description = "Espèces comptées ; attendu et écart figés. Depuis le dépôt de la caisse "
+					+ "(409 CASH_SESSION_OTHER_WAREHOUSE sinon).")
+	CashSessionResponse close(@Valid @RequestBody CloseCashSessionRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.cash.close(request, warehouse.id());
 	}
 
 }

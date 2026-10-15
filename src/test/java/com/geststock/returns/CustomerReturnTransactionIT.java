@@ -138,7 +138,7 @@ class CustomerReturnTransactionIT {
 				select amount from cash_entry where entry_type = 'RETURN_REFUND' and source_id = ?""", BigDecimal.class,
 				created.id())).isEqualByComparingTo("60000");
 		assertThatThrownBy(() -> asSeller(
-				() -> this.sales.cancel(sale.id(), new com.geststock.sale.dto.CancelSaleRequest("Tout annuler"))))
+				() -> this.sales.cancel(sale.id(), new com.geststock.sale.dto.CancelSaleRequest("Tout annuler"), this.warehouse)))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.SALE_HAS_RETURNS);
 	}
@@ -204,6 +204,21 @@ class CustomerReturnTransactionIT {
 	}
 
 	@Test
+	void theDatabaseKeepsAReturnInTheWarehouseOfItsSale() {
+		SaleResponse sale = sell(this.customer, BigDecimal.ZERO, 1);
+		UUID otherWarehouse = this.fixtures.warehouse("retours-ailleurs");
+
+		assertThatThrownBy(() -> this.transactions.executeWithoutResult(status -> this.jdbc.update("""
+				insert into customer_return (number, sale_id, warehouse_id, customer_id, settlement, total_amount,
+				                             reason, created_at, created_by)
+				values ('RET-IT-AILLEURS', ?, ?, ?, 'ACCOUNT_CREDIT', 30000, 'SQL direct', now(), ?)""", sale.id(),
+				otherWarehouse, this.customer, this.actor)))
+			.hasStackTraceContaining("le retour doit être dans le dépôt de sa vente");
+		assertThat(this.jdbc.queryForObject("select count(*) from customer_return where sale_id = ?", Integer.class,
+				sale.id())).isZero();
+	}
+
+	@Test
 	void theDatabaseFreezesAReturnAndItsSale() {
 		SaleResponse sale = sell(null, null, 2);
 		CustomerReturnResponse created = giveBack(sale.id(), ReturnSettlement.REFUND, 1, ItemCondition.DEFECTIVE);
@@ -231,7 +246,7 @@ class CustomerReturnTransactionIT {
 	private CustomerReturnResponse giveBack(UUID saleId, ReturnSettlement settlement, int quantity,
 			ItemCondition condition) {
 		return asSeller(() -> this.returns.create(saleId, new CreateCustomerReturnRequest(settlement, null, "Retour IT",
-				List.of(new CreateCustomerReturnRequest.Item(this.frame, quantity, condition)))));
+				List.of(new CreateCustomerReturnRequest.Item(this.frame, quantity, condition))), this.warehouse));
 	}
 
 	private Map<String, Object> saleLine(UUID saleId) {

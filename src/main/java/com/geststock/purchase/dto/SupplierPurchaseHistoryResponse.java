@@ -22,5 +22,6 @@ public record SupplierPurchaseHistoryResponse(
 		UUID purchaseOrderId,
 		String purchaseOrderNumber,
 		int itemsCount,
-		BigDecimal totalAmount) {
+		BigDecimal totalAmount,
+		@io.swagger.v3.oas.annotations.media.Schema(description = "Dépôt de la réception") UUID warehouseId) {
 }

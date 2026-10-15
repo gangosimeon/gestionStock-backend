@@ -143,16 +143,32 @@ public final class ReportRows {
 
 	// --- Clients ------------------------------------------------------------------------------------
 
-	/** Client : créance actuelle (échue ou non) et activité de la période. */
+	/**
+	 * Client : créance actuelle pour toute l'entreprise ({@code balance}, {@code overdueAmount},
+	 * {@code oldestDueAt}, tous dépôts) et activité de la période dans le dépôt du rapport.
+	 *
+	 * @param warehouseBalance part de la dette née dans le dépôt du rapport ; {@code null} en vue tous dépôts
+	 */
 	@Schema(name = "CustomerReportRow")
 	public record CustomerRow(UUID customerId, String code, String name, boolean active, BigDecimal creditLimit,
-			int paymentTermsDays, BigDecimal balance, BigDecimal overdueAmount, Instant oldestDueAt, long salesCount,
-			BigDecimal salesAmount, BigDecimal paymentsAmount, Instant lastSaleAt) {
+			int paymentTermsDays,
+			@Schema(description = "Solde dû du client, tous dépôts confondus") BigDecimal balance,
+			@Schema(description = "Part échue du solde, tous dépôts confondus") BigDecimal overdueAmount,
+			Instant oldestDueAt, long salesCount,
+			@Schema(description = "Ventes validées de la période, dans le dépôt du rapport") BigDecimal salesAmount,
+			@Schema(description = "Règlements de la période, dans le dépôt du rapport") BigDecimal paymentsAmount,
+			Instant lastSaleAt,
+			@Schema(description = "Part du solde née dans le dépôt du rapport ; absente en vue tous dépôts")
+			BigDecimal warehouseBalance) {
 	}
 
 	@Schema(name = "CustomerReportSummary")
-	public record CustomerSummary(long customers, long debtors, BigDecimal balance, BigDecimal overdueAmount,
-			BigDecimal salesAmount, BigDecimal paymentsAmount) {
+	public record CustomerSummary(long customers, long debtors,
+			@Schema(description = "Soldes dus, tous dépôts confondus") BigDecimal balance,
+			@Schema(description = "Parts échues, tous dépôts confondus") BigDecimal overdueAmount,
+			BigDecimal salesAmount, BigDecimal paymentsAmount,
+			@Schema(description = "Part des soldes née dans le dépôt du rapport ; absente en vue tous dépôts")
+			BigDecimal warehouseBalance) {
 	}
 
 }

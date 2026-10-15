@@ -106,7 +106,8 @@ class PurchaseOrderController {
 	@RequiresPermission(Permissions.PURCHASE_CREATE)
 	@Operation(summary = "Créer une commande fournisseur",
 			description = "Totaux calculés par le serveur ; coût unitaire = unitPurchasePrice, sinon prix d'achat du "
-					+ "produit. Livraison dans le dépôt courant sauf warehouseId explicite.")
+					+ "produit. Livraison dans le dépôt courant ; un warehouseId envoyé doit être le dépôt courant "
+					+ "(409 WAREHOUSE_MISMATCH sinon).")
 	ResponseEntity<PurchaseOrderResponse> create(@Valid @RequestBody CreatePurchaseOrderRequest request,
 			@CurrentWarehouse WarehouseContext warehouse) {
 		PurchaseOrderResponse created = this.orders.create(request, warehouse.id());
@@ -118,29 +119,35 @@ class PurchaseOrderController {
 	@RequiresPermission(Permissions.PURCHASE_RECEIVE)
 	@Operation(summary = "Réceptionner une commande",
 			description = "Corps vide ({}) : tout le reste à recevoir. lines : réception partielle. Entrée en stock "
-					+ "(mouvements RECEIPT) dans le dépôt de la commande, dans la même transaction.")
+					+ "(mouvements RECEIPT) dans le dépôt de la commande, dans la même transaction. Depuis le dépôt de la "
+					+ "commande (409 WAREHOUSE_MISMATCH sinon).")
 	PurchaseOrderResponse receive(@PathVariable UUID id,
-			@Valid @RequestBody(required = false) ReceivePurchaseOrderRequest request) {
+			@Valid @RequestBody(required = false) ReceivePurchaseOrderRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
 		return this.receipts.receive(id,
-				request != null ? request : new ReceivePurchaseOrderRequest(null, null, null, null));
+				request != null ? request : new ReceivePurchaseOrderRequest(null, null, null, null), warehouse.id());
 	}
 
 	@PostMapping("/{id}/cancel")
 	@Audited(action = "CANCEL", entityType = "PURCHASE_ORDER")
 	@RequiresPermission(Permissions.PURCHASE_CREATE)
-	@Operation(summary = "Annuler une commande", description = "Uniquement si rien n'a été reçu.")
+	@Operation(summary = "Annuler une commande",
+			description = "Uniquement si rien n'a été reçu. Depuis le dépôt de la commande (409 WAREHOUSE_MISMATCH sinon).")
 	PurchaseOrderResponse cancel(@PathVariable UUID id,
-			@Valid @RequestBody(required = false) ClosePurchaseOrderRequest request) {
-		return this.orders.cancel(id, request);
+			@Valid @RequestBody(required = false) ClosePurchaseOrderRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.orders.cancel(id, request, warehouse.id());
 	}
 
 	@PostMapping("/{id}/close")
 	@Audited(action = "CLOSE", entityType = "PURCHASE_ORDER")
 	@RequiresPermission(Permissions.PURCHASE_CREATE)
-	@Operation(summary = "Solder une commande", description = "Commande reçue en partie : le reliquat n'est plus attendu.")
+	@Operation(summary = "Solder une commande", description = "Commande reçue en partie : le reliquat n'est plus "
+			+ "attendu. Depuis le dépôt de la commande (409 WAREHOUSE_MISMATCH sinon).")
 	PurchaseOrderResponse close(@PathVariable UUID id,
-			@Valid @RequestBody(required = false) ClosePurchaseOrderRequest request) {
-		return this.orders.closeRemainder(id, request);
+			@Valid @RequestBody(required = false) ClosePurchaseOrderRequest request,
+			@CurrentWarehouse WarehouseContext warehouse) {
+		return this.orders.closeRemainder(id, request, warehouse.id());
 	}
 
 	@PostMapping("/{id}/invoice")
@@ -149,10 +156,11 @@ class PurchaseOrderController {
 	@RequiresPermission(Permissions.PURCHASE_PAY)
 	@Operation(summary = "Enregistrer la facture du fournisseur",
 			description = "Commande reçue ou soldée, une seule facture, figée. Montant facturé = valeur reçue ; numéro "
-					+ "unique par fournisseur ; date ni future ni antérieure à la commande.")
+					+ "unique par fournisseur ; date ni future ni antérieure à la commande. Depuis le dépôt de la "
+					+ "commande (409 WAREHOUSE_MISMATCH sinon).")
 	ResponseEntity<SupplierInvoiceResponse> invoice(@PathVariable UUID id,
-			@Valid @RequestBody SupplierInvoiceRequest request) {
-		SupplierInvoiceResponse created = this.orders.invoice(id, request);
+			@Valid @RequestBody SupplierInvoiceRequest request, @CurrentWarehouse WarehouseContext warehouse) {
+		SupplierInvoiceResponse created = this.orders.invoice(id, request, warehouse.id());
 		return ResponseEntity.created(URI.create("/api/purchases/orders/" + id)).body(created);
 	}
 

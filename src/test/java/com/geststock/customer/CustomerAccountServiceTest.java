@@ -27,6 +27,7 @@ import com.geststock.common.jpa.BaseEntity;
 import com.geststock.customer.dto.CustomerAccountEntryResponse;
 import com.geststock.exception.ApiException;
 import com.geststock.exception.ErrorCode;
+import com.geststock.warehouse.WarehouseAccess;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +46,8 @@ class CustomerAccountServiceTest {
 
 	private static final UUID ACTOR = UUID.randomUUID();
 
+	private static final UUID WAREHOUSE = UUID.randomUUID();
+
 	@Mock
 	private CustomerService customers;
 
@@ -54,6 +57,9 @@ class CustomerAccountServiceTest {
 	@Mock
 	private EntityManager entityManager;
 
+	@Mock
+	private WarehouseAccess warehouseAccess;
+
 	private CustomerAccountService service;
 
 	private Customer customer;
@@ -61,7 +67,7 @@ class CustomerAccountServiceTest {
 	@BeforeEach
 	void setUp() {
 		this.service = new CustomerAccountService(this.customers, this.entries, this.entityManager,
-				Clock.fixed(NOW, ZoneOffset.UTC));
+				this.warehouseAccess, Clock.fixed(NOW, ZoneOffset.UTC));
 		this.customer = customer(new BigDecimal("100000"));
 		SecurityContextHolder.getContext()
 			.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(ACTOR.toString(), null, List.of()));
@@ -80,7 +86,7 @@ class CustomerAccountServiceTest {
 		UUID sale = UUID.randomUUID();
 
 		CustomerAccountEntryResponse entry = this.service.recordCreditSale(this.customer.getId(), new BigDecimal("40000"),
-				sale, "VTE-2026-000001");
+				sale, "VTE-2026-000001", WAREHOUSE);
 
 		assertThat(entry.type()).isEqualTo(CustomerAccountEntryType.CREDIT_SALE);
 		assertThat(entry.direction()).isEqualTo(CustomerAccountEntryType.Direction.DEBIT);
@@ -103,7 +109,7 @@ class CustomerAccountServiceTest {
 		given(this.entries.balanceOf(this.customer.getId())).willReturn(new BigDecimal("60000.00"));
 
 		assertThatThrownBy(() -> this.service.recordCreditSale(this.customer.getId(), new BigDecimal("40000.01"),
-				UUID.randomUUID(), null))
+				UUID.randomUUID(), null, WAREHOUSE))
 			.isInstanceOfSatisfying(ApiException.class, ex -> {
 				assertThat(ex.getCode()).isEqualTo(ErrorCode.CREDIT_LIMIT_EXCEEDED);
 				assertThat(ex.getDetails()).containsEntry("available", new BigDecimal("40000.00"));
@@ -117,7 +123,7 @@ class CustomerAccountServiceTest {
 		given(this.customers.load(cashOnly.getId())).willReturn(cashOnly);
 		given(this.entries.balanceOf(cashOnly.getId())).willReturn(BigDecimal.ZERO);
 
-		assertThatThrownBy(() -> this.service.recordCreditSale(cashOnly.getId(), BigDecimal.ONE, UUID.randomUUID(), null))
+		assertThatThrownBy(() -> this.service.recordCreditSale(cashOnly.getId(), BigDecimal.ONE, UUID.randomUUID(), null, WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.CREDIT_LIMIT_EXCEEDED);
 	}
@@ -128,14 +134,14 @@ class CustomerAccountServiceTest {
 		given(this.customers.load(this.customer.getId())).willReturn(this.customer);
 
 		assertThatThrownBy(() -> this.service.recordCreditSale(this.customer.getId(), BigDecimal.TEN, UUID.randomUUID(),
-				null))
+				null, WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.CUSTOMER_INACTIVE);
 
 		given(this.entries.balanceOf(this.customer.getId())).willReturn(new BigDecimal("25000.00"));
 		given(this.entries.save(any(CustomerAccountEntry.class))).willAnswer(invocation -> invocation.getArgument(0));
 		CustomerAccountEntryResponse payment = this.service.recordCredit(this.customer.getId(),
-				CustomerAccountEntryType.PAYMENT, new BigDecimal("25000"), UUID.randomUUID(), "REG-1", "Solde");
+				CustomerAccountEntryType.PAYMENT, new BigDecimal("25000"), UUID.randomUUID(), "REG-1", "Solde", WAREHOUSE);
 		assertThat(payment.direction()).isEqualTo(CustomerAccountEntryType.Direction.CREDIT);
 		assertThat(payment.sourceType()).isEqualTo("CUSTOMER_PAYMENT");
 		assertThat(payment.balanceAfter()).isEqualByComparingTo("0");
@@ -147,7 +153,7 @@ class CustomerAccountServiceTest {
 		given(this.entries.balanceOf(this.customer.getId())).willReturn(new BigDecimal("15000.00"));
 
 		assertThatThrownBy(() -> this.service.recordCredit(this.customer.getId(), CustomerAccountEntryType.PAYMENT,
-				new BigDecimal("15000.50"), UUID.randomUUID(), null, null))
+				new BigDecimal("15000.50"), UUID.randomUUID(), null, null, WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.AMOUNT_EXCEEDS_CUSTOMER_BALANCE);
 		verify(this.entries, never()).save(any());
@@ -159,7 +165,7 @@ class CustomerAccountServiceTest {
 		given(this.customers.load(this.customer.getId())).willReturn(this.customer);
 		given(this.entries.existsBySource("SALE", sale, CustomerAccountEntryType.CREDIT_SALE)).willReturn(true);
 
-		assertThatThrownBy(() -> this.service.recordCreditSale(this.customer.getId(), BigDecimal.TEN, sale, null))
+		assertThatThrownBy(() -> this.service.recordCreditSale(this.customer.getId(), BigDecimal.TEN, sale, null, WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.CUSTOMER_ACCOUNT_ENTRY_ALREADY_RECORDED);
 		verify(this.entries, never()).save(any());
@@ -169,7 +175,7 @@ class CustomerAccountServiceTest {
 	void amountsMustBePositiveWithTwoDecimalsAtMost() {
 		for (String amount : new String[] { "0", "-10", "10.005" }) {
 			assertThatThrownBy(() -> this.service.recordCreditSale(this.customer.getId(), new BigDecimal(amount),
-					UUID.randomUUID(), null))
+					UUID.randomUUID(), null, WAREHOUSE))
 				.extracting(ex -> ((ApiException) ex).getCode())
 				.isEqualTo(ErrorCode.INVALID_PARAMETER);
 		}
@@ -179,7 +185,7 @@ class CustomerAccountServiceTest {
 	@Test
 	void onlyCreditEntriesGoThroughRecordCredit() {
 		assertThatThrownBy(() -> this.service.recordCredit(this.customer.getId(), CustomerAccountEntryType.CREDIT_SALE,
-				BigDecimal.TEN, UUID.randomUUID(), null, null))
+				BigDecimal.TEN, UUID.randomUUID(), null, null, WAREHOUSE))
 			.isInstanceOf(IllegalArgumentException.class);
 	}
 
@@ -188,7 +194,7 @@ class CustomerAccountServiceTest {
 		SecurityContextHolder.clearContext();
 
 		assertThatThrownBy(() -> this.service.recordCreditSale(this.customer.getId(), BigDecimal.TEN, UUID.randomUUID(),
-				null))
+				null, WAREHOUSE))
 			.extracting(ex -> ((ApiException) ex).getCode())
 			.isEqualTo(ErrorCode.UNAUTHENTICATED);
 		verify(this.entries, never()).existsBySource(anyString(), any(), any());

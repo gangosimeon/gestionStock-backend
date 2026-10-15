@@ -149,11 +149,12 @@ public class CustomerReturnService {
 
 	// --- Retour -------------------------------------------------------------------------------
 
+	/** Retour enregistré depuis le dépôt de la vente ({@code WAREHOUSE_MISMATCH} sinon). */
 	@Transactional
-	public CustomerReturnResponse create(UUID saleId, CreateCustomerReturnRequest request) {
+	public CustomerReturnResponse create(UUID saleId, CreateCustomerReturnRequest request, UUID currentWarehouseId) {
 		UUID actor = ActorIdentity.currentUserId()
 			.orElseThrow(() -> new UnauthorizedException(ErrorCode.UNAUTHENTICATED));
-		SaleSnapshot sale = this.sales.lockForReturn(saleId);
+		SaleSnapshot sale = this.sales.lockForReturn(saleId, currentWarehouseId);
 
 		// Quantités et montants, au prix net de la vente.
 		Map<UUID, SaleSnapshot.Line> soldByProduct = new HashMap<>();
@@ -252,7 +253,7 @@ public class CustomerReturnService {
 		}
 		else {
 			this.accounts.recordCredit(sale.customerId(), CustomerAccountEntryType.CREDIT_NOTE, total,
-					customerReturn.getId(), customerReturn.getNumber(), reason);
+					customerReturn.getId(), customerReturn.getNumber(), reason, sale.warehouseId());
 		}
 		this.entityManager.flush();
 

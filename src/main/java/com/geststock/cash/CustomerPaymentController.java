@@ -28,6 +28,8 @@ import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
 import com.geststock.common.security.RequiresPermission;
+import com.geststock.warehouse.CurrentWarehouse;
+import com.geststock.warehouse.WarehouseContext;
 
 /**
  * Règlements clients (contrat front {@code /api/customers/{id}/payments}). Servi par le module
@@ -60,10 +62,11 @@ class CustomerPaymentController {
 	@Audited(action = "PAY", entityType = "CUSTOMER", idParam = "customerId")
 	@RequiresPermission(Permissions.CUSTOMER_PAY)
 	@Operation(summary = "Enregistrer un règlement",
-			description = "Encaissé dans ma caisse ouverte ; refusé s'il dépasse la dette du client (pas de trop-perçu).")
+			description = "Encaissé dans ma caisse ouverte du dépôt courant (409 CASH_SESSION_OTHER_WAREHOUSE si elle est "
+					+ "ailleurs) ; refusé s'il dépasse la dette du client (pas de trop-perçu).")
 	ResponseEntity<CustomerPaymentResponse> pay(@PathVariable UUID customerId,
-			@Valid @RequestBody CustomerPaymentRequest request) {
-		CustomerPaymentResponse created = this.payments.pay(customerId, request);
+			@Valid @RequestBody CustomerPaymentRequest request, @CurrentWarehouse WarehouseContext warehouse) {
+		CustomerPaymentResponse created = this.payments.pay(customerId, request, warehouse.id());
 		return ResponseEntity.created(URI.create("/api/customers/" + customerId + "/payments")).body(created);
 	}
 

@@ -225,6 +225,27 @@ class AppointmentApiIT {
 	}
 
 	@Test
+	void theAgendaOfAllWarehousesNeedsWarehouseAll() throws Exception {
+		create(prospect("Ici", "770000001", this.slot)).andExpect(status().isCreated());
+		UUID elsewhere = this.jdbc.queryForObject(
+				"insert into warehouse (code, name) values ('RDV-AIL', 'Rendez-vous ailleurs') returning id", UUID.class);
+		this.jdbc.update("""
+				insert into appointment (warehouse_id, customer_name, phone, scheduled_at, created_by)
+				values (?, 'Ailleurs', '770000002', now() + interval '3 days', ?)""", elsewhere, this.agent);
+
+		this.mvc.perform(get("/api/appointments").with(agent()))
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].customerName").value("Ici"));
+		this.mvc.perform(get("/api/appointments").param("allWarehouses", "true").with(agent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.total").value(2));
+		this.mvc.perform(get("/api/appointments").param("allWarehouses", "true")
+			.with(actor(Permissions.APPOINTMENT_READ)))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
+	}
+
+	@Test
 	void aClosedAppointmentIsFrozenInTheDatabase() throws Exception {
 		String id = idOf(create(prospect("Client", "770000000", this.slot)));
 		close(id, "{\"status\": \"CANCELLED\", \"reason\": \"Erreur\"}").andExpect(status().isOk());
