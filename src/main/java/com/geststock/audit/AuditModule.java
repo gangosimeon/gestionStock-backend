@@ -31,6 +31,7 @@ public enum AuditModule {
 			Map.entry("EXPENSE", EXPENSE),
 			Map.entry("APPOINTMENT", APPOINTMENT),
 			Map.entry("ALERT_SETTING", ALERT),
+			Map.entry("INVOICE_SETTING", SYSTEM),
 			Map.entry("AUDIT_LOG", AUDIT),
 			Map.entry("SYSTEM", SYSTEM));
 

@@ -169,6 +169,27 @@ class RolePermissionMatrixIT {
 		assertThat(perform("GESTIONNAIRE", update)).isEqualTo(200);
 	}
 
+	@Test
+	void invoiceSettingsAreReadBySellersAndConfiguredByTheAdministratorOnly() throws Exception {
+		Case read = new Case(HttpMethod.GET, "/api/settings/invoice", null, ALL);
+		for (String role : ALL) {
+			assertThat(perform(role, read)).as("lecture par " + role).isEqualTo(200);
+		}
+		String current = this.mvc.perform(MockMvcRequestBuilders.get("/api/settings/invoice")
+			.header("Authorization", "Bearer " + this.tokens.get("ADMIN"))).andReturn().getResponse().getContentAsString();
+		// Mêmes valeurs renvoyées : aucune modification réelle, seul le droit est en jeu.
+		Case update = new Case(HttpMethod.PUT, "/api/settings/invoice", current, ADMIN);
+		assertThat(perform("CAISSIER", update)).isEqualTo(403);
+		assertThat(perform("GESTIONNAIRE", update)).isEqualTo(403);
+		assertThat(perform("ADMIN", update)).isEqualTo(200);
+		Case reset = new Case(HttpMethod.POST, "/api/settings/invoice/reset", null, ADMIN);
+		Case removeLogo = new Case(HttpMethod.DELETE, "/api/settings/invoice/logo", null, ADMIN);
+		for (String role : List.of("CAISSIER", "GESTIONNAIRE")) {
+			assertThat(perform(role, reset)).as("réinitialisation par " + role).isEqualTo(403);
+			assertThat(perform(role, removeLogo)).as("retrait du logo par " + role).isEqualTo(403);
+		}
+	}
+
 	private int perform(String role, Case rule) throws Exception {
 		MockHttpServletRequestBuilder request = MockMvcRequestBuilders.request(rule.method(), rule.path())
 			.header("Authorization", "Bearer " + this.tokens.get(role));

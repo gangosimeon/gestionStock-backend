@@ -34,6 +34,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 
@@ -127,6 +130,24 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(MissingRequestHeaderException.class)
 	ResponseEntity<ApiError> handleMissingHeader(MissingRequestHeaderException ex, HttpServletRequest request) {
 		return respond(ErrorCode.INVALID_PARAMETER, "En-tête requis : " + ex.getHeaderName() + ".", request);
+	}
+
+	// --- Envoi de fichiers -----------------------------------------------------------------
+
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException ex, HttpServletRequest request) {
+		return respond(ErrorCode.FILE_TOO_LARGE, ErrorCode.FILE_TOO_LARGE.defaultMessage(), request);
+	}
+
+	@ExceptionHandler(MissingServletRequestPartException.class)
+	ResponseEntity<ApiError> handleMissingPart(MissingServletRequestPartException ex, HttpServletRequest request) {
+		return respond(ErrorCode.INVALID_PARAMETER, "Fichier requis : " + ex.getRequestPartName() + ".", request);
+	}
+
+	@ExceptionHandler(MultipartException.class)
+	ResponseEntity<ApiError> handleMultipart(MultipartException ex, HttpServletRequest request) {
+		log.debug("Envoi de fichier illisible : {}", ex.getMessage());
+		return respond(ErrorCode.MALFORMED_REQUEST, "Envoi de fichier illisible : réessayez.", request);
 	}
 
 	// --- Routage HTTP ----------------------------------------------------------------------

@@ -12,6 +12,12 @@ spring:
     # Profil utilisé quand aucun n'est fourni (SPRING_PROFILES_ACTIVE).
     default: dev
 
+  servlet:
+    multipart:
+      # Seul envoi de fichier : le logo des factures (2 Mo au plus, vérifié aussi par le service).
+      max-file-size: 2MB
+      max-request-size: 3MB
+
   autoconfigure:
     # Pas d'utilisateur en mémoire généré par Spring Boot : l'authentification
     # sera fournie par le module security (JWT).

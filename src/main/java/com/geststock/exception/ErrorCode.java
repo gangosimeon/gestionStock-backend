@@ -223,6 +223,11 @@ public enum ErrorCode {
 	MOVEMENT_ALREADY_REVERSED(HttpStatus.CONFLICT, "Ce mouvement a déjà été annulé."),
 	SAME_WAREHOUSE_TRANSFER(HttpStatus.BAD_REQUEST, "Magasins identiques."),
 
+	// Paramètres des factures
+	INVALID_LOGO(HttpStatus.BAD_REQUEST, "Logo invalide : seules les images PNG ou JPEG sont acceptées."),
+	FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "Fichier trop volumineux : 2 Mo maximum."),
+	LOGO_NOT_FOUND(HttpStatus.NOT_FOUND, "Aucun logo enregistré."),
+
 	// Référentiels utilisés par les utilisateurs
 	UNKNOWN_ROLE(HttpStatus.BAD_REQUEST, "Rôle inconnu."),
 	UNKNOWN_WAREHOUSE(HttpStatus.BAD_REQUEST, "Dépôt inconnu ou inactif."),
