@@ -55,7 +55,7 @@ class SchemaConventionsIT {
 		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("alert_setting", "app_user", "appointment", "audit_log", "brand",
 				"cash_entry", "cash_session", "category", "customer", "customer_account_entry", "customer_return",
 				"customer_return_line", "expense", "goods_receipt", "goods_receipt_line", "inventory_line", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product", "purchase_order",
-				"purchase_order_line", "refresh_token", "role", "role_permission", "sale", "sale_line", "stock_level",
+				"purchase_order_line", "quote", "quote_line", "refresh_token", "role", "role_permission", "sale", "sale_line", "stock_level",
 				"stock_movement", "supplier", "supplier_payment", "supplier_payment_allocation", "user_role", "user_warehouse",
 				"warehouse");
 	}
@@ -168,7 +168,7 @@ class SchemaConventionsIT {
 				  and table_name <> 'flyway_schema_history'
 				""", String.class);
 		assertThat(tablesWithVersion).containsExactlyInAnyOrder("alert_setting", "app_user", "appointment", "brand", "cash_session", "category", "customer", "expense", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product",
-				"purchase_order", "role", "sale", "supplier", "warehouse");
+				"purchase_order", "quote", "role", "sale", "supplier", "warehouse");
 
 		for (String table : tablesWithVersion) {
 			List<String> columns = this.jdbc.queryForList("""
@@ -191,7 +191,7 @@ class SchemaConventionsIT {
 	void referenceDataIsLoaded() {
 		assertThat(this.jdbc.queryForList("select code from role where built_in order by code", String.class))
 			.containsExactly("ADMIN", "CAISSIER", "GESTIONNAIRE");
-		assertThat(this.jdbc.queryForObject("select count(*) from permission", Integer.class)).isEqualTo(48);
+		assertThat(this.jdbc.queryForObject("select count(*) from permission", Integer.class)).isEqualTo(50);
 
 		Map<String, Object> matrix = this.jdbc.queryForMap("""
 				select count(*) filter (where r.code = 'ADMIN') as admin,
@@ -200,7 +200,7 @@ class SchemaConventionsIT {
 				from role_permission rp join role r on r.id = rp.role_id
 				""");
 		// Gestionnaire : 40 droits en V021, moins warehouse:all et warehouse:manage en V029.
-		assertThat(matrix).containsEntry("admin", 48L).containsEntry("gestionnaire", 38L).containsEntry("caissier", 15L);
+		assertThat(matrix).containsEntry("admin", 50L).containsEntry("gestionnaire", 40L).containsEntry("caissier", 15L);
 
 		assertThat(this.jdbc.queryForObject("select name from warehouse where code = 'MAG-01'", String.class))
 			.isEqualTo("Magasin principal");

@@ -24,6 +24,7 @@ public enum AuditModule {
 			Map.entry("SUPPLIER_PAYMENT", PURCHASE),
 			Map.entry("CUSTOMER", CUSTOMER),
 			Map.entry("SALE", SALE),
+			Map.entry("QUOTE", SALE),
 			Map.entry("CUSTOMER_RETURN", RETURN),
 			Map.entry("INVENTORY_SESSION", INVENTORY),
 			Map.entry("CASH_SESSION", CASH),

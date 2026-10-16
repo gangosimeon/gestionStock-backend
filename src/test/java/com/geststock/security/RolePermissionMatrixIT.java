@@ -127,6 +127,9 @@ class RolePermissionMatrixIT {
 				new Case(HttpMethod.POST, "/api/inventories/" + random + "/validate", null, MANAGERS),
 				new Case(HttpMethod.GET, "/api/reports/sales", null, MANAGERS),
 				new Case(HttpMethod.GET, "/api/dashboard", null, MANAGERS),
+				// Devis (V036) : propositions commerciales établies par le responsable.
+				new Case(HttpMethod.GET, "/api/quotes", null, MANAGERS),
+				new Case(HttpMethod.POST, "/api/quotes", "{}", MANAGERS),
 				// Plafond de crédit : donnée sensible, refusée au caissier même s'il modifie le client.
 				new Case(HttpMethod.PUT, "/api/customers/" + this.customer,
 						"{\"name\": \"Client matrice\", \"creditLimit\": 80000}", MANAGERS),

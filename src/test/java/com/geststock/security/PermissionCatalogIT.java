@@ -71,10 +71,12 @@ class PermissionCatalogIT {
 	void builtInMatrixMatchesTheArchitecture() {
 		Set<String> manager = this.roles.permissionsOf(Set.of("GESTIONNAIRE"));
 		// V029 : le gestionnaire travaille dans ses dépôts affectés (ni vue de tous les dépôts, ni administration).
-		assertThat(manager).hasSize(38)
+		// V036 : il établit et facture les devis.
+		assertThat(manager).hasSize(40)
 			.contains(Permissions.PRODUCT_CREATE, Permissions.PRODUCT_UPDATE, Permissions.STOCK_ADJUST,
 					Permissions.STOCK_TRANSFER, Permissions.PURCHASE_RECEIVE, Permissions.INVENTORY_VALIDATE,
-					Permissions.SALE_CANCEL, Permissions.CUSTOMER_CREDIT, Permissions.ALERT_CONFIGURE)
+					Permissions.SALE_CANCEL, Permissions.CUSTOMER_CREDIT, Permissions.ALERT_CONFIGURE,
+					Permissions.QUOTE_READ, Permissions.QUOTE_MANAGE)
 			.doesNotContain(Permissions.PRODUCT_DELETE, Permissions.USER_MANAGE, Permissions.ROLE_MANAGE,
 					Permissions.AUDIT_READ, Permissions.WAREHOUSE_ALL, Permissions.WAREHOUSE_MANAGE);
 
@@ -85,7 +87,8 @@ class PermissionCatalogIT {
 					Permissions.SUPPLIER_READ)
 			.doesNotContain(Permissions.STOCK_ADJUST, Permissions.SALE_CANCEL, Permissions.CASH_READ,
 					Permissions.REPORT_READ, Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE,
-					Permissions.SUPPLIER_DELETE, Permissions.CUSTOMER_CREDIT, Permissions.ALERT_CONFIGURE);
+					Permissions.SUPPLIER_DELETE, Permissions.CUSTOMER_CREDIT, Permissions.ALERT_CONFIGURE,
+					Permissions.QUOTE_READ, Permissions.QUOTE_MANAGE);
 	}
 
 	@Test

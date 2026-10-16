@@ -223,6 +223,18 @@ public enum ErrorCode {
 	MOVEMENT_ALREADY_REVERSED(HttpStatus.CONFLICT, "Ce mouvement a déjà été annulé."),
 	SAME_WAREHOUSE_TRANSFER(HttpStatus.BAD_REQUEST, "Magasins identiques."),
 
+	// Devis
+	QUOTE_NOT_FOUND(HttpStatus.NOT_FOUND, "Devis introuvable."),
+	QUOTE_DUPLICATE_PRODUCT(HttpStatus.BAD_REQUEST,
+			"Un même produit figure sur plusieurs lignes : regroupez les quantités sur une seule ligne."),
+	QUOTE_NOT_EDITABLE(HttpStatus.CONFLICT, "Ce devis ne peut plus être modifié (accepté, refusé, facturé ou annulé)."),
+	QUOTE_INVALID_TRANSITION(HttpStatus.CONFLICT, "Action impossible dans l'état actuel du devis."),
+	QUOTE_ALREADY_INVOICED(HttpStatus.CONFLICT, "Ce devis a déjà été facturé."),
+	QUOTE_SALE_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT,
+			"Cette vente ne correspond pas au devis (client, dépôt ou date) : elle ne peut pas en être la facture."),
+	SALE_ALREADY_LINKED_TO_QUOTE(HttpStatus.CONFLICT, "Cette vente est déjà la facture d'un autre devis."),
+	QUOTE_AMOUNT_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "Montant de devis trop élevé."),
+
 	// Paramètres des factures
 	INVALID_LOGO(HttpStatus.BAD_REQUEST, "Logo invalide : seules les images PNG ou JPEG sont acceptées."),
 	FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "Fichier trop volumineux : 2 Mo maximum."),
