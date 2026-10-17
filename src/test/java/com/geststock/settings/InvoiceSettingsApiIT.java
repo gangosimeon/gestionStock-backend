@@ -140,7 +140,8 @@ class InvoiceSettingsApiIT {
 		company.remove("slogan"); // absent : vaut vide
 		((ObjectNode) body.get("header")).put("showWarehouse", true).put("logoPosition", "TOP");
 		((ObjectNode) body.get("footer")).put("returnPolicy", "Retour sous 7 jours avec le ticket.")
-			.put("showPromoMessage", false);
+			.put("showPromoMessage", false)
+			.put("signatureName", "  Awa Koné  ");
 		((ObjectNode) body.get("appearance")).put("template", "COMPACT")
 			.put("primaryColor", "#0f766e")
 			.put("dateFormat", "d MMMM yyyy")
@@ -164,6 +165,7 @@ class InvoiceSettingsApiIT {
 		assertThat(saved.get("header").get("logoPosition").asString()).isEqualTo("TOP");
 		assertThat(saved.get("footer").get("returnPolicy").asString()).isEqualTo("Retour sous 7 jours avec le ticket.");
 		assertThat(saved.get("footer").get("showPromoMessage").asBoolean()).isFalse();
+		assertThat(saved.get("footer").get("signatureName").asString()).isEqualTo("Awa Koné");
 		assertThat(saved.get("appearance").get("template").asString()).isEqualTo("COMPACT");
 		assertThat(saved.get("appearance").get("dateFormat").asString()).isEqualTo("d MMMM yyyy");
 		assertThat(saved.get("appearance").get("thousandsSeparator").asString()).isEqualTo("DOT");

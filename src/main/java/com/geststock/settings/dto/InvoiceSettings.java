@@ -44,7 +44,7 @@ public record InvoiceSettings(
 				new Header(true, true, true, true, true, true, true, true, true, true, false, LogoPosition.LEFT,
 						TextAlignment.RIGHT, true, ""),
 				new Footer("Merci pour votre confiance !", true, "", true, "", true, "", true, "", true, "", true, "",
-						true, "", true, "", true, TextAlignment.CENTER, true),
+						true, "", true, "", true, TextAlignment.CENTER, true, ""),
 				new Appearance(InvoiceTemplate.MODERN, "#1E3A8A", "#F59E0B", "#1F2937", "dd/MM/yyyy", "FCFA",
 						ThousandsSeparator.SPACE, 0, true, true, true, true, true, "", true, TableHeaderAlignment.CENTER,
 						InvoiceFont.MODEL));
@@ -128,7 +128,9 @@ public record InvoiceSettings(
 			@Size(max = 200) String signatureText, boolean showSignature,
 			@Size(max = 300) String closingText, boolean showClosingText,
 			@NotNull TextAlignment footerAlignment,
-			boolean footerSeparator) {
+			boolean footerSeparator,
+			@Size(max = 150) @Schema(description = "Nom complet du signataire, en gras sous l'espace de signature et de cachet",
+					example = "Awa Koné") String signatureName) {
 
 		public Footer {
 			thankYouMessage = text(thankYouMessage);
@@ -140,6 +142,7 @@ public record InvoiceSettings(
 			legalText = text(legalText);
 			signatureText = text(signatureText);
 			closingText = text(closingText);
+			signatureName = text(signatureName);
 		}
 
 	}

@@ -164,6 +164,9 @@ class InvoiceSetting extends AuditableEntity {
 	@Column(name = "footer_separator", nullable = false)
 	private boolean footerSeparator;
 
+	@Column(name = "signature_name", nullable = false, length = 150)
+	private String signatureName;
+
 	// --- Apparence ----------------------------------------------------------------------------------
 
 	@Enumerated(EnumType.STRING)
@@ -236,7 +239,7 @@ class InvoiceSetting extends AuditableEntity {
 						this.returnPolicy, this.showReturnPolicy, this.paymentTerms, this.showPaymentTerms,
 						this.paymentDetails, this.showPaymentDetails, this.promoMessage, this.showPromoMessage,
 						this.legalText, this.showLegalText, this.signatureText, this.showSignature, this.closingText,
-						this.showClosingText, this.footerAlignment, this.footerSeparator),
+						this.showClosingText, this.footerAlignment, this.footerSeparator, this.signatureName),
 				new InvoiceSettings.Appearance(this.template, this.primaryColor, this.secondaryColor, this.textColor,
 						this.dateFormat, this.currencyLabel, this.thousandsSeparator, this.decimals,
 						this.showLineNumber, this.showSku, this.showDiscountColumn, this.showAmountInWords,
@@ -296,6 +299,7 @@ class InvoiceSetting extends AuditableEntity {
 		this.showClosingText = f.showClosingText();
 		this.footerAlignment = f.footerAlignment();
 		this.footerSeparator = f.footerSeparator();
+		this.signatureName = f.signatureName();
 
 		InvoiceSettings.Appearance a = values.appearance();
 		this.template = a.template();
