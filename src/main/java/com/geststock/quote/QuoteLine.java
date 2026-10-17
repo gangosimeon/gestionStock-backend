@@ -45,6 +45,9 @@ class QuoteLine {
 	@Column(name = "quantity", nullable = false)
 	private int quantity;
 
+	@Column(name = "quantity_per_beneficiary")
+	private Integer quantityPerBeneficiary;
+
 	@Column(name = "unit_price", nullable = false, precision = 14, scale = 2)
 	private BigDecimal unitPrice;
 
@@ -55,13 +58,14 @@ class QuoteLine {
 	}
 
 	QuoteLine(Quote quote, int lineNumber, UUID productId, String productSku, String productName, int quantity,
-			BigDecimal unitPrice, BigDecimal lineTotal) {
+			Integer quantityPerBeneficiary, BigDecimal unitPrice, BigDecimal lineTotal) {
 		this.quote = quote;
 		this.lineNumber = lineNumber;
 		this.productId = productId;
 		this.productSku = productSku;
 		this.productName = productName;
 		this.quantity = quantity;
+		this.quantityPerBeneficiary = quantityPerBeneficiary;
 		this.unitPrice = unitPrice;
 		this.lineTotal = lineTotal;
 	}
@@ -88,6 +92,11 @@ class QuoteLine {
 
 	int getQuantity() {
 		return this.quantity;
+	}
+
+	/** Quantité pour un bénéficiaire, ou {@code null} : quantité saisie directement. */
+	Integer getQuantityPerBeneficiary() {
+		return this.quantityPerBeneficiary;
 	}
 
 	BigDecimal getUnitPrice() {

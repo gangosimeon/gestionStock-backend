@@ -234,6 +234,8 @@ public enum ErrorCode {
 			"Cette vente ne correspond pas au devis (client, dépôt ou date) : elle ne peut pas en être la facture."),
 	SALE_ALREADY_LINKED_TO_QUOTE(HttpStatus.CONFLICT, "Cette vente est déjà la facture d'un autre devis."),
 	QUOTE_AMOUNT_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "Montant de devis trop élevé."),
+	QUOTE_BENEFICIARIES_REQUIRED(HttpStatus.BAD_REQUEST,
+			"Renseignez le nombre de bénéficiaires : une ligne est chiffrée par bénéficiaire."),
 
 	// Paramètres des factures
 	INVALID_LOGO(HttpStatus.BAD_REQUEST, "Logo invalide : seules les images PNG ou JPEG sont acceptées."),

@@ -53,14 +53,28 @@ public record QuoteRequest(
 
 	/**
 	 * Ligne du devis : produit existant du catalogue, quantité, prix unitaire retenu pour ce devis.
+	 *
+	 * @param quantity               quantité totale, saisie directement ; ignorée si
+	 *                               {@code quantityPerBeneficiary} est renseignée
+	 * @param quantityPerBeneficiary quantité pour un bénéficiaire : la quantité totale est alors
+	 *                               calculée par le serveur (× nombre de bénéficiaires du devis)
 	 */
 	@Schema(name = "QuoteLineRequest")
 	public record Line(
 			@NotNull UUID productId,
-			@NotNull @Min(1) @Max(100_000) @Schema(example = "120") Integer quantity,
+			@Min(1) @Max(100_000) @Schema(example = "120") Integer quantity,
+			@Min(1) @Max(100_000) @Schema(example = "6") Integer quantityPerBeneficiary,
 			@NotNull @DecimalMin(value = "0.01", message = "le prix unitaire doit être positif")
 			@DecimalMax("999999999.99") @Digits(integer = 9, fraction = 2) @Schema(example = "6000")
 			BigDecimal unitPrice) {
+
+		@AssertTrue(message = "indiquer la quantité, ou la quantité par bénéficiaire")
+		@JsonIgnore
+		@Schema(hidden = true)
+		public boolean isQuantityGiven() {
+			return this.quantity != null || this.quantityPerBeneficiary != null;
+		}
+
 	}
 
 }

@@ -146,7 +146,9 @@ class InvoiceSettingsApiIT {
 			.put("dateFormat", "d MMMM yyyy")
 			.put("thousandsSeparator", "DOT")
 			.put("decimals", 2)
-			.put("showSku", false);
+			.put("showSku", false)
+			.put("tableHeaderAlignment", "RIGHT")
+			.put("fontFamily", "TIMES_NEW_ROMAN");
 
 		this.mvc.perform(put("/api/settings/invoice").with(admin()).contentType(MediaType.APPLICATION_JSON)
 			.content(body.toString()))
@@ -167,6 +169,8 @@ class InvoiceSettingsApiIT {
 		assertThat(saved.get("appearance").get("thousandsSeparator").asString()).isEqualTo("DOT");
 		assertThat(saved.get("appearance").get("decimals").asInt()).isEqualTo(2);
 		assertThat(saved.get("appearance").get("showSku").asBoolean()).isFalse();
+		assertThat(saved.get("appearance").get("tableHeaderAlignment").asString()).isEqualTo("RIGHT");
+		assertThat(saved.get("appearance").get("fontFamily").asString()).isEqualTo("TIMES_NEW_ROMAN");
 
 		String after = this.jdbc.queryForObject("""
 				select after_state::text from audit_log
@@ -190,6 +194,8 @@ class InvoiceSettingsApiIT {
 		expectInvalid(with(defaults(), "appearance", "currencyLabel", "EUR"));
 		expectInvalid(with(defaults(), "appearance", "decimals", "3"));
 		expectInvalid(with(defaults(), "appearance", "template", "FANCY"));
+		expectInvalid(with(defaults(), "appearance", "tableHeaderAlignment", "DIAGONAL"));
+		expectInvalid(with(defaults(), "appearance", "fontFamily", "COMIC_SANS"));
 		ObjectNode noAppearance = defaults();
 		noAppearance.remove("appearance");
 		expectInvalid(noAppearance);

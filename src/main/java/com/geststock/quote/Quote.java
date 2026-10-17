@@ -130,8 +130,10 @@ class Quote extends AuditableEntity {
 		this.total = BigDecimal.ZERO.setScale(2);
 	}
 
-	void addLine(UUID productId, String sku, String name, int quantity, BigDecimal unitPrice, BigDecimal lineTotal) {
-		this.lines.add(new QuoteLine(this, this.lines.size() + 1, productId, sku, name, quantity, unitPrice, lineTotal));
+	void addLine(UUID productId, String sku, String name, int quantity, Integer quantityPerBeneficiary,
+			BigDecimal unitPrice, BigDecimal lineTotal) {
+		this.lines.add(new QuoteLine(this, this.lines.size() + 1, productId, sku, name, quantity, quantityPerBeneficiary,
+				unitPrice, lineTotal));
 		this.total = this.total.add(lineTotal);
 	}
 

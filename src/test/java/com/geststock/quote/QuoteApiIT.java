@@ -354,6 +354,85 @@ class QuoteApiIT {
 			.andReturn().getResponse().getContentAsString()).isEmpty();
 	}
 
+	// --- Quantité par bénéficiaire -------------------------------------------------------------------
+
+	@Test
+	void aQuantityPerBeneficiaryIsMultipliedByTheBeneficiariesByTheServer() throws Exception {
+		// 20 bénéficiaires : 6 sacs, 2 barres et 1 rouleau chacun ; quantité totale ignorée si envoyée.
+		JsonNode quote = read(create("""
+				{"customerId": "%s", "beneficiaries": 20,
+				 "lines": [{"productId": "%s", "quantityPerBeneficiary": 6, "quantity": 1, "unitPrice": 6000},
+				           {"productId": "%s", "quantityPerBeneficiary": 2, "unitPrice": 5500},
+				           {"productId": "%s", "quantity": 20, "unitPrice": 600}]}"""
+			.formatted(this.customer, this.cement, this.iron, this.wire)).andExpect(status().isCreated()));
+
+		JsonNode lines = quote.get("lines");
+		assertThat(lines.get(0).get("quantityPerBeneficiary").asInt()).isEqualTo(6);
+		assertThat(lines.get(0).get("quantity").asInt()).isEqualTo(120);
+		assertThat(lines.get(0).get("lineTotal").decimalValue()).isEqualByComparingTo("720000");
+		assertThat(lines.get(1).get("quantity").asInt()).isEqualTo(40);
+		// Ligne sans quantité par bénéficiaire : quantité saisie, telle quelle.
+		assertThat(lines.get(2).get("quantityPerBeneficiary").isNull()).isTrue();
+		assertThat(lines.get(2).get("quantity").asInt()).isEqualTo(20);
+		assertThat(quote.get("total").decimalValue()).isEqualByComparingTo("952000");
+
+		// Moins de bénéficiaires : quantités et total recalculés à l'enregistrement.
+		String id = quote.get("id").asString();
+		this.mvc.perform(put("/api/quotes/{id}", id).with(manager()).contentType(MediaType.APPLICATION_JSON).content("""
+				{"customerId": "%s", "beneficiaries": 10,
+				 "lines": [{"productId": "%s", "quantityPerBeneficiary": 6, "unitPrice": 6000}]}"""
+			.formatted(this.customer, this.cement)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.lines[0].quantity").value(60))
+			.andExpect(jsonPath("$.total").value(360000));
+	}
+
+	@Test
+	void aQuantityPerBeneficiaryNeedsTheNumberOfBeneficiaries() throws Exception {
+		create("""
+				{"customerId": "%s", "lines": [{"productId": "%s", "quantityPerBeneficiary": 6, "unitPrice": 6000}]}"""
+			.formatted(this.customer, this.cement))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("QUOTE_BENEFICIARIES_REQUIRED"));
+		// Ni quantité ni quantité par bénéficiaire.
+		create("""
+				{"customerId": "%s", "beneficiaries": 5, "lines": [{"productId": "%s", "unitPrice": 6000}]}"""
+			.formatted(this.customer, this.cement)).andExpect(status().isBadRequest());
+		// Quantité totale au-delà du plafond d'une ligne.
+		create("""
+				{"customerId": "%s", "beneficiaries": 1000,
+				 "lines": [{"productId": "%s", "quantityPerBeneficiary": 101, "unitPrice": 1}]}"""
+			.formatted(this.customer, this.cement)).andExpect(status().isBadRequest());
+		assertThat(count("quote")).isZero();
+	}
+
+	@Test
+	void theTotalQuantityIsWhatTheInvoicingSaleTakesOutOfStock() throws Exception {
+		stockIn(this.cement, 500);
+		this.mvc.perform(post("/api/cash-register/open").with(manager()).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"openingBalance\": 0}")).andExpect(status().isCreated());
+		JsonNode quote = read(create("""
+				{"customerId": "%s", "beneficiaries": 20,
+				 "lines": [{"productId": "%s", "quantityPerBeneficiary": 6, "unitPrice": 6000}]}"""
+			.formatted(this.customer, this.cement)));
+		String id = quote.get("id").asString();
+		int totalQuantity = quote.get("lines").get(0).get("quantity").asInt();
+		action(id, "issue");
+		int before = stockLevel(this.cement);
+		// Le devis seul ne touche pas au stock.
+		assertThat(before).isEqualTo(500);
+
+		// Vente préparée à la caisse avec la quantité totale du devis.
+		String sale = read(this.mvc.perform(post("/api/sales").with(manager()).contentType(MediaType.APPLICATION_JSON)
+			.content("""
+					{"customerId": "%s", "paymentMethod": "CASH", "items": [{"productId": "%s", "quantity": %d}]}"""
+				.formatted(this.customer, this.cement, totalQuantity)))
+			.andExpect(status().isCreated())).get("id").asString();
+		invoice(id, sale).andExpect(status().isOk());
+
+		assertThat(stockLevel(this.cement)).isEqualTo(before - 120);
+	}
+
 	// --- Outils -------------------------------------------------------------------------------------
 
 	private String example() {
@@ -393,6 +472,11 @@ class QuoteApiIT {
 
 	private String saleId(ResultActions sale) throws Exception {
 		return read(sale).get("id").asString();
+	}
+
+	private int stockLevel(UUID productId) {
+		return this.jdbc.queryForList("select quantity from stock_level where warehouse_id = ? and product_id = ?",
+				Integer.class, this.main, productId).stream().findFirst().orElse(0);
 	}
 
 	private void stockIn(UUID productId, int quantity) throws Exception {

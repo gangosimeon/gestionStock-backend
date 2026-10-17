@@ -213,6 +213,14 @@ class InvoiceSetting extends AuditableEntity {
 	@Column(name = "show_page_footer_text", nullable = false)
 	private boolean showPageFooterText;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "table_header_alignment", nullable = false, length = 10)
+	private TableHeaderAlignment tableHeaderAlignment;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "font_family", nullable = false, length = 20)
+	private InvoiceFont fontFamily;
+
 	protected InvoiceSetting() {
 	}
 
@@ -232,7 +240,8 @@ class InvoiceSetting extends AuditableEntity {
 				new InvoiceSettings.Appearance(this.template, this.primaryColor, this.secondaryColor, this.textColor,
 						this.dateFormat, this.currencyLabel, this.thousandsSeparator, this.decimals,
 						this.showLineNumber, this.showSku, this.showDiscountColumn, this.showAmountInWords,
-						this.showPageNumbers, this.pageFooterText, this.showPageFooterText));
+						this.showPageNumbers, this.pageFooterText, this.showPageFooterText, this.tableHeaderAlignment,
+						this.fontFamily));
 	}
 
 	void apply(InvoiceSettings values) {
@@ -304,6 +313,8 @@ class InvoiceSetting extends AuditableEntity {
 		this.showPageNumbers = a.showPageNumbers();
 		this.pageFooterText = a.pageFooterText();
 		this.showPageFooterText = a.showPageFooterText();
+		this.tableHeaderAlignment = a.tableHeaderAlignment();
+		this.fontFamily = a.fontFamily();
 	}
 
 }

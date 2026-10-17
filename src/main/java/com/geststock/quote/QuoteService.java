@@ -248,7 +248,8 @@ public class QuoteService {
 				source.getContractReference(), source.getDeliveryTerms(), source.getPaymentTerms(),
 				source.getExecutionDelay(), source.getNotes(),
 				source.getLines().stream()
-					.map((l) -> new QuoteRequest.Line(l.getProductId(), l.getQuantity(), l.getUnitPrice()))
+					.map((l) -> new QuoteRequest.Line(l.getProductId(), l.getQuantity(), l.getQuantityPerBeneficiary(),
+							l.getUnitPrice()))
 					.toList());
 		return create(copy, currentWarehouseId);
 	}
@@ -342,15 +343,38 @@ public class QuoteService {
 				throw new BusinessRuleException(ErrorCode.PRODUCT_INACTIVE,
 						"Le produit " + product.sku() + " est désactivé : retirez-le du devis.");
 			}
+			int quantity = quantityOf(line, request.beneficiaries(), product);
 			BigDecimal unitPrice = line.unitPrice().setScale(2, RoundingMode.HALF_UP);
-			BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(line.quantity())).setScale(2,
-					RoundingMode.UNNECESSARY);
-			quote.addLine(product.id(), product.sku(), product.name(), line.quantity(), unitPrice, lineTotal);
+			BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.UNNECESSARY);
+			quote.addLine(product.id(), product.sku(), product.name(), quantity, line.quantityPerBeneficiary(), unitPrice,
+					lineTotal);
 		}
 		if (quote.getTotal().compareTo(MAX_AMOUNT) > 0) {
 			throw new InvalidRequestException(ErrorCode.QUOTE_AMOUNT_OUT_OF_RANGE,
 					ErrorCode.QUOTE_AMOUNT_OUT_OF_RANGE.defaultMessage());
 		}
+	}
+
+	/**
+	 * Quantité totale d'une ligne : quantité par bénéficiaire × nombre de bénéficiaires si elle est
+	 * renseignée (calcul serveur), sinon quantité saisie. C'est elle qui est chiffrée et, à la
+	 * facturation, sortie du stock par la vente.
+	 */
+	private static int quantityOf(QuoteRequest.Line line, Integer beneficiaries, ProductSnapshot product) {
+		if (line.quantityPerBeneficiary() == null) {
+			return line.quantity();
+		}
+		if (beneficiaries == null || beneficiaries <= 0) {
+			throw new InvalidRequestException(ErrorCode.QUOTE_BENEFICIARIES_REQUIRED,
+					"Renseignez le nombre de bénéficiaires : la ligne " + product.sku()
+							+ " est chiffrée par bénéficiaire.");
+		}
+		long total = (long) line.quantityPerBeneficiary() * beneficiaries;
+		if (total > 100_000) {
+			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Quantité totale de " + product.sku() + " ("
+					+ total + ") supérieure à 100 000 : réduisez la quantité par bénéficiaire.");
+		}
+		return (int) total;
 	}
 
 	private static Specification<Quote> statusIs(QuoteDisplayStatus status, LocalDate today) {
@@ -411,7 +435,7 @@ public class QuoteService {
 	private static QuoteResponse toResponse(Quote quote, LocalDate today) {
 		List<QuoteResponse.LineResponse> lines = quote.getLines().stream()
 			.map((l) -> new QuoteResponse.LineResponse(l.getId(), l.getLineNumber(), l.getProductId(), l.getProductSku(),
-					l.getProductName(), l.getQuantity(), l.getUnitPrice(), l.getLineTotal()))
+					l.getProductName(), l.getQuantity(), l.getQuantityPerBeneficiary(), l.getUnitPrice(), l.getLineTotal()))
 			.toList();
 		return new QuoteResponse(quote.getId(), quote.getNumber(), quote.getWarehouseId(), quote.getCustomerId(),
 				quote.getCustomerName(), quote.getQuoteDate(), quote.getValidUntil(), quote.getSubject(),

@@ -48,9 +48,13 @@ public record QuoteResponse(
 		Instant createdAt,
 		Instant updatedAt) {
 
+	/**
+	 * @param quantity               quantité totale (multipliée par le prix, sortie du stock à la vente)
+	 * @param quantityPerBeneficiary quantité pour un bénéficiaire, ou {@code null} (quantité saisie directement)
+	 */
 	@Schema(name = "QuoteLine")
 	public record LineResponse(UUID id, int lineNumber, UUID productId, String productSku, String productName,
-			int quantity, BigDecimal unitPrice, BigDecimal lineTotal) {
+			int quantity, Integer quantityPerBeneficiary, BigDecimal unitPrice, BigDecimal lineTotal) {
 	}
 
 }

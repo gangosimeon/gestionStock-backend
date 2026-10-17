@@ -16,6 +16,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.geststock.settings.InvoiceTemplate;
 import com.geststock.settings.LogoPosition;
+import com.geststock.settings.InvoiceFont;
+import com.geststock.settings.TableHeaderAlignment;
 import com.geststock.settings.TextAlignment;
 import com.geststock.settings.ThousandsSeparator;
 
@@ -44,7 +46,8 @@ public record InvoiceSettings(
 				new Footer("Merci pour votre confiance !", true, "", true, "", true, "", true, "", true, "", true, "",
 						true, "", true, "", true, TextAlignment.CENTER, true),
 				new Appearance(InvoiceTemplate.MODERN, "#1E3A8A", "#F59E0B", "#1F2937", "dd/MM/yyyy", "FCFA",
-						ThousandsSeparator.SPACE, 0, true, true, true, true, true, "", true));
+						ThousandsSeparator.SPACE, 0, true, true, true, true, true, "", true, TableHeaderAlignment.CENTER,
+						InvoiceFont.MODEL));
 	}
 
 	static String text(String value) {
@@ -163,13 +166,19 @@ public record InvoiceSettings(
 			boolean showAmountInWords,
 			boolean showPageNumbers,
 			@Size(max = 200) @Schema(description = "Mention en bas de chaque page du PDF") String pageFooterText,
-			boolean showPageFooterText) {
+			boolean showPageFooterText,
+			@Schema(description = "Alignement des intitulés de colonnes du tableau des produits ; CENTER si absent",
+					example = "CENTER") TableHeaderAlignment tableHeaderAlignment,
+			@Schema(description = "Police du document ; MODEL (celle du modèle) si absente", example = "TIMES_NEW_ROMAN")
+			InvoiceFont fontFamily) {
 
 		public Appearance {
 			primaryColor = primaryColor == null ? null : primaryColor.trim().toUpperCase(Locale.ROOT);
 			secondaryColor = secondaryColor == null ? null : secondaryColor.trim().toUpperCase(Locale.ROOT);
 			textColor = textColor == null ? null : textColor.trim().toUpperCase(Locale.ROOT);
 			pageFooterText = text(pageFooterText);
+			tableHeaderAlignment = Objects.requireNonNullElse(tableHeaderAlignment, TableHeaderAlignment.CENTER);
+			fontFamily = Objects.requireNonNullElse(fontFamily, InvoiceFont.MODEL);
 		}
 
 		@AssertTrue(message = "nombre de décimales : 0 ou 2")
