@@ -15,7 +15,8 @@ final class SaleMapper {
 				sale.getLines().stream().map(SaleMapper::toResponse).toList(), sale.getPaymentMethod(),
 				sale.getSubtotal(), sale.getDiscountTotal(), sale.getTotal(), sale.getPaidAmount(),
 				sale.getCreditAmount(), sale.getCostTotal(), sale.getProfit(), sale.getNote(), sale.getCreatedAt(),
-				sale.getCreatedBy(), sale.getCancelledAt(), sale.getCancellationReason());
+				sale.getCreatedBy(), sale.getCancelledAt(), sale.getCancellationReason(), sale.getCashReceived(),
+				sale.getChangeGiven());
 	}
 
 	private static SaleItemResponse toResponse(SaleLine line) {

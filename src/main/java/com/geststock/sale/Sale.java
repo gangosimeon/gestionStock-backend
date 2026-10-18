@@ -81,6 +81,12 @@ public class Sale extends AuditableEntity {
 	@Column(name = "note", length = 500, updatable = false)
 	private String note;
 
+	@Column(name = "cash_received", precision = 14, scale = 2, updatable = false)
+	private BigDecimal cashReceived;
+
+	@Column(name = "change_given", precision = 14, scale = 2, updatable = false)
+	private BigDecimal changeGiven;
+
 	@Column(name = "cancelled_at")
 	private Instant cancelledAt;
 
@@ -182,6 +188,26 @@ public class Sale extends AuditableEntity {
 
 	public BigDecimal getProfit() {
 		return this.profit;
+	}
+
+	/**
+	 * Espèces remises par le client : la monnaie rendue est la différence avec le montant payé.
+	 * Avant l'enregistrement seulement (colonnes immuables).
+	 */
+	void recordCashTender(BigDecimal received) {
+		if (received.compareTo(this.paidAmount) < 0) {
+			throw new IllegalArgumentException("Montant reçu inférieur au montant payé.");
+		}
+		this.cashReceived = received;
+		this.changeGiven = received.subtract(this.paidAmount);
+	}
+
+	public BigDecimal getCashReceived() {
+		return this.cashReceived;
+	}
+
+	public BigDecimal getChangeGiven() {
+		return this.changeGiven;
 	}
 
 	public BigDecimal getPaidAmount() {

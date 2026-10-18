@@ -111,6 +111,8 @@ public enum ErrorCode {
 	CUSTOMER_REQUIRED_FOR_CREDIT(HttpStatus.UNPROCESSABLE_CONTENT,
 			"Une vente avec un reste à payer exige un client identifié."),
 	SALE_AMOUNT_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "Montant de vente trop élevé."),
+	INVALID_CASH_RECEIVED(HttpStatus.BAD_REQUEST,
+			"Montant reçu invalide : en espèces seulement, et au moins égal au montant payé."),
 	SALE_NOT_CANCELLABLE(HttpStatus.CONFLICT, "Cette vente est déjà annulée."),
 	SALE_CREDIT_ALREADY_SETTLED(HttpStatus.CONFLICT,
 			"Le client a déjà réglé tout ou partie du crédit de cette vente : passez par un retour avec avoir."),

@@ -47,7 +47,7 @@ public record InvoiceSettings(
 						true, "", true, "", true, TextAlignment.CENTER, true, ""),
 				new Appearance(InvoiceTemplate.MODERN, "#1E3A8A", "#F59E0B", "#1F2937", "dd/MM/yyyy", "FCFA",
 						ThousandsSeparator.SPACE, 0, true, true, true, true, true, "", true, TableHeaderAlignment.CENTER,
-						InvoiceFont.MODEL));
+						InvoiceFont.MODEL, true));
 	}
 
 	static String text(String value) {
@@ -173,7 +173,9 @@ public record InvoiceSettings(
 			@Schema(description = "Alignement des intitulés de colonnes du tableau des produits ; CENTER si absent",
 					example = "CENTER") TableHeaderAlignment tableHeaderAlignment,
 			@Schema(description = "Police du document ; MODEL (celle du modèle) si absente", example = "TIMES_NEW_ROMAN")
-			InvoiceFont fontFamily) {
+			InvoiceFont fontFamily,
+			@Schema(description = "Afficher le montant reçu du client et la monnaie rendue (ventes en espèces)")
+			Boolean showCashTender) {
 
 		public Appearance {
 			primaryColor = primaryColor == null ? null : primaryColor.trim().toUpperCase(Locale.ROOT);
@@ -182,6 +184,7 @@ public record InvoiceSettings(
 			pageFooterText = text(pageFooterText);
 			tableHeaderAlignment = Objects.requireNonNullElse(tableHeaderAlignment, TableHeaderAlignment.CENTER);
 			fontFamily = Objects.requireNonNullElse(fontFamily, InvoiceFont.MODEL);
+			showCashTender = Objects.requireNonNullElse(showCashTender, Boolean.TRUE);
 		}
 
 		@AssertTrue(message = "nombre de décimales : 0 ou 2")

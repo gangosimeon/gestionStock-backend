@@ -499,6 +499,71 @@ class SaleApiIT {
 		assertThat(level(this.main, this.frame)).as("aucune sortie de stock").isEqualTo(10);
 	}
 
+	// --- Montant reçu et monnaie rendue -----------------------------------------------------------
+
+	@Test
+	void cashReceivedAndChangeGivenAreKeptForVerification() throws Exception {
+		String id = idOf(sell(manager(), """
+				{"paymentMethod": "CASH", "cashReceived": 50000,
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.frame))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.paidAmount").value(35000))
+			.andExpect(jsonPath("$.cashReceived").value(50000))
+			.andExpect(jsonPath("$.changeGiven").value(15000)));
+
+		// Relu pour vérification ; la caisse n'encaisse que le montant payé.
+		this.mvc.perform(get("/api/sales/{id}", id).with(manager()))
+			.andExpect(jsonPath("$.cashReceived").value(50000))
+			.andExpect(jsonPath("$.changeGiven").value(15000));
+		assertThat(this.jdbc.queryForObject("select amount from cash_entry where source_id = ?::uuid", java.math.BigDecimal.class,
+				id)).isEqualByComparingTo("35000");
+
+		// Montant non saisi : rien n'est enregistré (ventes antérieures, autres moyens de paiement).
+		this.mvc.perform(get("/api/sales/{id}", idOf(sell(manager(), """
+				{"paymentMethod": "CASH", "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.frame)))).with(manager()))
+			.andExpect(jsonPath("$.cashReceived").isEmpty())
+			.andExpect(jsonPath("$.changeGiven").isEmpty());
+
+		// Immuables : la base refuse toute modification (en dernier : l'erreur interrompt la transaction du test).
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> this.jdbc.update("update sale set change_given = 0 where id = ?::uuid", id))
+			.hasMessageContaining("non modifiables");
+	}
+
+	@Test
+	void partialPaymentChangeIsComputedOnTheAmountPaidNow() throws Exception {
+		sell(manager(), """
+				{"customerId": "%s", "paymentMethod": "CASH", "paidAmount": 20000, "cashReceived": 25000,
+				 "items": [{"productId": "%s", "quantity": 1}]}""".formatted(this.customer, this.frame))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.paidAmount").value(20000))
+			.andExpect(jsonPath("$.creditAmount").value(15000))
+			.andExpect(jsonPath("$.changeGiven").value(5000));
+	}
+
+	@Test
+	void anInvalidCashReceivedIsRefusedAndNothingIsSold() throws Exception {
+		int before = saleCount();
+		// Inférieur au montant payé.
+		sell(manager(), """
+				{"paymentMethod": "CASH", "cashReceived": 30000, "items": [{"productId": "%s", "quantity": 1}]}"""
+			.formatted(this.frame))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_CASH_RECEIVED"));
+		// Paiement autre qu'en espèces.
+		sell(manager(), """
+				{"paymentMethod": "MOBILE_MONEY", "cashReceived": 50000, "items": [{"productId": "%s", "quantity": 1}]}"""
+			.formatted(this.frame))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_CASH_RECEIVED"));
+		// Négatif.
+		sell(manager(), """
+				{"paymentMethod": "CASH", "cashReceived": -1, "items": [{"productId": "%s", "quantity": 1}]}"""
+			.formatted(this.frame))
+			.andExpect(status().isBadRequest());
+		assertThat(saleCount()).isEqualTo(before);
+	}
+
 	// --- Outils ------------------------------------------------------------------------------------
 
 	/** Déclenche les contraintes différées de V017 avant le rollback du test. */

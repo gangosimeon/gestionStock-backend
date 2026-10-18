@@ -27,6 +27,7 @@ import org.springframework.util.StringUtils;
 
 import com.geststock.audit.AuditService;
 import com.geststock.cash.CashService;
+import com.geststock.cash.PaymentMethod;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.common.security.ActorIdentity;
@@ -262,11 +263,29 @@ public class SaleService {
 		if (paid.signum() > 0) {
 			this.cash.requireOpenSession(warehouseId);
 		}
+		// Espèces remises par le client (vérification) : monnaie rendue = reçu − payé.
+		BigDecimal received = request.cashReceived() != null ? request.cashReceived().setScale(2) : null;
+		if (received != null) {
+			if (request.paymentMethod() != PaymentMethod.CASH || paid.signum() <= 0) {
+				throw new InvalidRequestException(ErrorCode.INVALID_CASH_RECEIVED,
+						"Le montant reçu ne concerne qu'un paiement en espèces.");
+			}
+			if (received.compareTo(paid) < 0) {
+				throw new InvalidRequestException(ErrorCode.INVALID_CASH_RECEIVED, "Montant reçu ("
+						+ received.toPlainString() + ") inférieur au montant payé (" + paid.toPlainString() + ").");
+			}
+			if (received.compareTo(MAX_AMOUNT) > 0) {
+				throw new InvalidRequestException(ErrorCode.INVALID_CASH_RECEIVED, "Montant reçu trop élevé.");
+			}
+		}
 
 		// 4 : vente, au nom de l'utilisateur connecté (created_by).
 		Sale sale = this.sales.save(new Sale(nextNumber(), warehouseId, customer != null ? customer.id() : null,
 				customer != null ? customer.name() : null, priceType, subtotal, discountTotal, costTotal, paid,
 				paid.signum() > 0 ? request.paymentMethod() : null, blankToNull(request.note())));
+		if (received != null) {
+			sale.recordCashTender(received);
+		}
 		this.entityManager.flush();
 
 		// 5 : sorties de stock, sous verrou ; refus = rollback de toute la vente.
@@ -306,7 +325,9 @@ public class SaleService {
 		SaleResponse response = SaleMapper.toResponse(sale);
 		this.audit.success("CREATE", "SALE", sale.getId().toString(), sale.getNumber(),
 				"Vente " + sale.getNumber() + " : total " + total.toPlainString() + ", payé " + paid.toPlainString()
-						+ (credit.signum() > 0 ? ", crédit " + credit.toPlainString() : ""),
+						+ (credit.signum() > 0 ? ", crédit " + credit.toPlainString() : "")
+						+ (received != null ? ", reçu " + received.toPlainString() + ", monnaie rendue "
+								+ sale.getChangeGiven().toPlainString() : ""),
 				response, warehouseId);
 		return response;
 	}

@@ -41,7 +41,9 @@ public record SaleResponse(
 		Instant createdAt,
 		UUID createdByUserId,
 		Instant cancelledAt,
-		String cancellationReason) {
+		String cancellationReason,
+		@Schema(description = "Espèces remises par le client (vente en espèces, si saisi à la caisse)") BigDecimal cashReceived,
+		@Schema(description = "Monnaie rendue = montant reçu − montant payé") BigDecimal changeGiven) {
 
 	/**
 	 * Article vendu.

@@ -46,12 +46,21 @@ public record CreateSaleRequest(
 		@DecimalMin("0") @Digits(integer = 12, fraction = 2) BigDecimal paidAmount,
 		@Size(max = 500) String note,
 		@NotEmpty(message = "le panier est vide") @Size(max = 200) @JsonAlias("lines") List<@Valid @NotNull Item> items,
-		@Valid NewCustomer newCustomer) {
+		@Valid NewCustomer newCustomer,
+		@DecimalMin("0") @Digits(integer = 12, fraction = 2)
+		@Schema(description = "Espèces remises par le client (paiement en espèces) : la monnaie rendue est calculée et "
+				+ "conservée par le serveur ; au moins égal au montant payé", example = "10000") BigDecimal cashReceived) {
+
+	/** Vente sans montant reçu saisi (signature antérieure). */
+	public CreateSaleRequest(PriceCategory type, UUID customerId, UUID warehouseId, PaymentMethod paymentMethod,
+			BigDecimal paidAmount, String note, List<Item> items, NewCustomer newCustomer) {
+		this(type, customerId, warehouseId, paymentMethod, paidAmount, note, items, newCustomer, null);
+	}
 
 	/** Vente à un client existant ou au comptoir (signature d'origine). */
 	public CreateSaleRequest(PriceCategory type, UUID customerId, UUID warehouseId, PaymentMethod paymentMethod,
 			BigDecimal paidAmount, String note, List<Item> items) {
-		this(type, customerId, warehouseId, paymentMethod, paidAmount, note, items, null);
+		this(type, customerId, warehouseId, paymentMethod, paidAmount, note, items, null, null);
 	}
 
 	@AssertTrue(message = "choisir un client existant ou en saisir un nouveau, pas les deux")

@@ -149,7 +149,8 @@ class InvoiceSettingsApiIT {
 			.put("decimals", 2)
 			.put("showSku", false)
 			.put("tableHeaderAlignment", "RIGHT")
-			.put("fontFamily", "TIMES_NEW_ROMAN");
+			.put("fontFamily", "TIMES_NEW_ROMAN")
+			.put("showCashTender", false);
 
 		this.mvc.perform(put("/api/settings/invoice").with(admin()).contentType(MediaType.APPLICATION_JSON)
 			.content(body.toString()))
@@ -173,6 +174,7 @@ class InvoiceSettingsApiIT {
 		assertThat(saved.get("appearance").get("showSku").asBoolean()).isFalse();
 		assertThat(saved.get("appearance").get("tableHeaderAlignment").asString()).isEqualTo("RIGHT");
 		assertThat(saved.get("appearance").get("fontFamily").asString()).isEqualTo("TIMES_NEW_ROMAN");
+		assertThat(saved.get("appearance").get("showCashTender").asBoolean()).isFalse();
 
 		String after = this.jdbc.queryForObject("""
 				select after_state::text from audit_log

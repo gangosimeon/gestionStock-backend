@@ -224,6 +224,9 @@ class InvoiceSetting extends AuditableEntity {
 	@Column(name = "font_family", nullable = false, length = 20)
 	private InvoiceFont fontFamily;
 
+	@Column(name = "show_cash_tender", nullable = false)
+	private boolean showCashTender;
+
 	protected InvoiceSetting() {
 	}
 
@@ -244,7 +247,7 @@ class InvoiceSetting extends AuditableEntity {
 						this.dateFormat, this.currencyLabel, this.thousandsSeparator, this.decimals,
 						this.showLineNumber, this.showSku, this.showDiscountColumn, this.showAmountInWords,
 						this.showPageNumbers, this.pageFooterText, this.showPageFooterText, this.tableHeaderAlignment,
-						this.fontFamily));
+						this.fontFamily, this.showCashTender));
 	}
 
 	void apply(InvoiceSettings values) {
@@ -319,6 +322,7 @@ class InvoiceSetting extends AuditableEntity {
 		this.showPageFooterText = a.showPageFooterText();
 		this.tableHeaderAlignment = a.tableHeaderAlignment();
 		this.fontFamily = a.fontFamily();
+		this.showCashTender = a.showCashTender();
 	}
 
 }
