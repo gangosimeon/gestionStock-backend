@@ -270,6 +270,31 @@ class StockServiceIT {
 	}
 
 	@Test
+	void aTransferOfSeveralProductsIsAllOrNothing() {
+		apply(RECEIPT, this.depot, this.frame, 10);
+		apply(RECEIPT, this.depot, this.lens, 3);
+		java.util.Map<UUID, Integer> quantities = new java.util.LinkedHashMap<>();
+		quantities.put(this.frame, 4);
+		quantities.put(this.lens, 5);
+
+		// La deuxième ligne manque de stock : la première n'est pas transférée non plus.
+		assertThatThrownBy(() -> runAs(this.actor, () -> this.stock.moveBetween(this.depot, this.store, quantities,
+				"Réassort", UUID.randomUUID(), UUID.randomUUID(), null)))
+			.isInstanceOfSatisfying(ApiException.class,
+					ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.STOCK_INSUFFICIENT));
+		assertThat(this.fixtures.level(this.depot, this.frame)).isEqualTo(10);
+		assertThat(this.fixtures.level(this.store, this.frame)).isZero();
+
+		quantities.put(this.lens, 3);
+		List<StockMovement> legs = runAs(this.actor, () -> this.stock.moveBetween(this.depot, this.store, quantities,
+				"Réassort", UUID.randomUUID(), UUID.randomUUID(), null));
+		assertThat(legs).extracting(StockMovement::getQuantity).containsExactly(-4, 4, -3, 3);
+		assertThat(this.fixtures.level(this.store, this.frame)).isEqualTo(4);
+		assertThat(this.fixtures.level(this.store, this.lens)).isEqualTo(3);
+		assertThat(this.fixtures.level(this.depot, this.lens)).isZero();
+	}
+
+	@Test
 	void aTransferMovesAPositiveQuantityAndAManualMovementOnlyItsOwnSource() {
 		apply(RECEIPT, this.depot, this.frame, 5);
 		for (int quantity : new int[] { 0, -2 }) {

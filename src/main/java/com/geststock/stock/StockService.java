@@ -160,27 +160,17 @@ public class StockService {
 	/**
 	 * Transfert entre deux dépôts : sortie {@code TRANSFER_OUT} du dépôt source et entrée
 	 * {@code TRANSFER_IN} dans le dépôt destination, dans la même transaction et sous le même
-	 * identifiant de corrélation.
+	 * identifiant de corrélation. Sans pièce numérotée : l'API passe par
+	 * {@link StockTransferService}, qui enregistre le transfert et son reçu.
 	 *
 	 * @return les deux mouvements (sortie, entrée)
 	 */
 	public List<StockMovement> transfer(UUID fromWarehouseId, UUID toWarehouseId, UUID productId, int quantity,
 			String reason) {
-		if (fromWarehouseId.equals(toWarehouseId)) {
-			throw new InvalidRequestException(ErrorCode.SAME_WAREHOUSE_TRANSFER,
-					ErrorCode.SAME_WAREHOUSE_TRANSFER.defaultMessage());
-		}
-		if (quantity <= 0) {
-			throw new InvalidRequestException(ErrorCode.INVALID_STOCK_QUANTITY,
-					ErrorCode.INVALID_STOCK_QUANTITY.defaultMessage());
-		}
 		UUID transferId = UUID.randomUUID();
 		String note = StringUtils.hasText(reason) ? reason.trim() : "Transfert entre dépôts";
-		List<StockMovement> written = applyMovements(List.of(
-				StockMovementCommand.of(fromWarehouseId, productId, StockMovementType.TRANSFER_OUT, -quantity,
-						StockSourceType.TRANSFER, note).withSource(transferId, null).withCorrelation(transferId),
-				StockMovementCommand.of(toWarehouseId, productId, StockMovementType.TRANSFER_IN, quantity,
-						StockSourceType.TRANSFER, note).withSource(transferId, null).withCorrelation(transferId)));
+		List<StockMovement> written = moveBetween(fromWarehouseId, toWarehouseId, Map.of(productId, quantity), note,
+				transferId, transferId, null);
 		StockMovement out = written.get(0);
 		StockMovement in = written.get(1);
 		this.audit.record(AuditEvent.of("TRANSFER", "WAREHOUSE_TRANSFER", transferId, productLabel(productId))
@@ -193,6 +183,38 @@ public class StockService {
 			.meta("productId", productId)
 			.warehouse(fromWarehouseId));
 		return written;
+	}
+
+	/**
+	 * Les mouvements d'un transfert (ou de son retour), sans trace d'audit : l'appelant trace
+	 * l'opération. Pour chaque produit, sortie {@code TRANSFER_OUT} de {@code fromWarehouseId}
+	 * puis entrée {@code TRANSFER_IN} dans {@code toWarehouseId} ; tous atomiques (un produit
+	 * insuffisant annule l'ensemble).
+	 *
+	 * @param quantities    quantité à transférer par produit, dans l'ordre des lignes
+	 * @param sourceId      pièce de transfert (ou identifiant du transfert sans pièce)
+	 * @param correlationId regroupe les mouvements de cette opération
+	 * @param reference     numéro de la pièce, ou {@code null}
+	 * @return les mouvements, par produit : sortie puis entrée
+	 */
+	List<StockMovement> moveBetween(UUID fromWarehouseId, UUID toWarehouseId, Map<UUID, Integer> quantities,
+			String note, UUID sourceId, UUID correlationId, String reference) {
+		if (fromWarehouseId.equals(toWarehouseId)) {
+			throw new InvalidRequestException(ErrorCode.SAME_WAREHOUSE_TRANSFER,
+					ErrorCode.SAME_WAREHOUSE_TRANSFER.defaultMessage());
+		}
+		if (quantities.isEmpty() || quantities.values().stream().anyMatch((quantity) -> quantity == null || quantity <= 0)) {
+			throw new InvalidRequestException(ErrorCode.INVALID_STOCK_QUANTITY,
+					ErrorCode.INVALID_STOCK_QUANTITY.defaultMessage());
+		}
+		List<StockMovementCommand> commands = new ArrayList<>(quantities.size() * 2);
+		quantities.forEach((productId, quantity) -> {
+			commands.add(StockMovementCommand.of(fromWarehouseId, productId, StockMovementType.TRANSFER_OUT, -quantity,
+					StockSourceType.TRANSFER, note).withSource(sourceId, reference).withCorrelation(correlationId));
+			commands.add(StockMovementCommand.of(toWarehouseId, productId, StockMovementType.TRANSFER_IN, quantity,
+					StockSourceType.TRANSFER, note).withSource(sourceId, reference).withCorrelation(correlationId));
+		});
+		return applyMovements(commands);
 	}
 
 	/**

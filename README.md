@@ -256,7 +256,12 @@ Tout ou rien : un refus annule l'ensemble, et un module appelant (vente, achat�
 | `POST /api/stock/movements` `{productId, quantity signée, reason: SUPPLY\|SALE\|LOSS\|ADJUSTMENT, note}` | `stock:adjust` |
 | `POST /api/stock/movements/{id}/reversal` | `stock:adjust` |
 | `GET /api/stock/levels` | `stock:read` |
-| `POST /api/warehouses/transfer` (contrat front, réponse `{ok: true, …}`) | `stock:transfer` + accès aux deux dépôts |
+| `POST /api/warehouses/transfer` `{fromWarehouseId, toWarehouseId, items: [{productId, quantity}], note}` (ou `productId` + `quantity` pour un seul produit ; réponse `{ok: true, transfer, …}`) | `stock:transfer` + accès aux deux dépôts |
+| `GET /api/stock/transfers` (`direction=SENT\|RECEIVED`, `q`, `status`, `productId`, `from`, `to`, `allWarehouses`) | `stock:read` (+ `warehouse:all` pour `allWarehouses`) |
+| `GET /api/stock/transfers/{id}` (reçu) | `stock:read` |
+| `POST /api/stock/transfers/{id}/return` `{reason}` | `stock:transfer` + accès aux deux dépôts, depuis l'un d'eux |
+
+**Transferts** (V043, V044) : chaque transfert est une pièce `stock_transfer` numérotée `TRF-AAAA-nnnnnn` (reçu), visible depuis ses deux dépôts, avec une ou plusieurs lignes `stock_transfer_line` (un produit au plus une fois). Tous les produits passent ensemble ou aucun. Le retour renvoie toutes les lignes au dépôt d'origine, une seule fois (statut `RETURNED`), par de nouveaux mouvements rattachés à la même pièce ; refusé si la destination n'a plus l'un des produits.
 
 **Garde-fous PostgreSQL** (V013) : `stock_movement` en ajout seul ; une ligne de `stock_level` naît à zéro, ne peut être supprimée et ne varie que si elle désigne un nouveau mouvement du même couple qui explique exactement la variation (`fn_stock_level_guard`) ; `CHECK quantity >= 0`. Une écriture SQL directe est refusée par la base.
 

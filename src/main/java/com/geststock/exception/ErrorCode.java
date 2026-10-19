@@ -224,6 +224,10 @@ public enum ErrorCode {
 			"Ce mouvement ne peut pas être annulé ici : annulez la pièce qui l'a produit (vente, réception, transfert…)."),
 	MOVEMENT_ALREADY_REVERSED(HttpStatus.CONFLICT, "Ce mouvement a déjà été annulé."),
 	SAME_WAREHOUSE_TRANSFER(HttpStatus.BAD_REQUEST, "Magasins identiques."),
+	STOCK_TRANSFER_NOT_FOUND(HttpStatus.NOT_FOUND, "Transfert introuvable."),
+	STOCK_TRANSFER_ALREADY_RETURNED(HttpStatus.CONFLICT, "Ce transfert a déjà été retourné au dépôt d'origine."),
+	STOCK_TRANSFER_DUPLICATE_PRODUCT(HttpStatus.BAD_REQUEST,
+			"Un même produit figure sur plusieurs lignes : regroupez les quantités sur une seule ligne."),
 
 	// Devis
 	QUOTE_NOT_FOUND(HttpStatus.NOT_FOUND, "Devis introuvable."),

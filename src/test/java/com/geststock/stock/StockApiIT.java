@@ -199,6 +199,143 @@ class StockApiIT {
 	}
 
 	@Test
+	void transferIsANumberedReceiptSeenAsSentAndReceived() throws Exception {
+		movement(manager(), "{\"productId\": \"%s\", \"quantity\": 6, \"reason\": \"SUPPLY\"}");
+
+		String id = transfer(4, "Réassort dépôt")
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.transfer.number").value(org.hamcrest.Matchers.matchesPattern("TRF-\\d{4}-\\d{6}")))
+			.andExpect(jsonPath("$.transfer.status").value("COMPLETED"))
+			.andExpect(jsonPath("$.transfer.totalQuantity").value(4))
+			.andExpect(jsonPath("$.transfer.note").value("Réassort dépôt"))
+			.andExpect(jsonPath("$.transfer.toWarehouseName").value("Dépôt API stock"))
+			.andExpect(jsonPath("$.transfer.lines[0].productSku").value("STK-API-1"))
+			.andExpect(jsonPath("$.transfer.lines[0].quantity").value(4))
+			.andExpect(jsonPath("$.transfer.createdByUsername").value("stock_api_mgr"))
+			.andReturn().getResponse().getContentAsString();
+		String transferId = this.json.readTree(id).get("transferId").asString();
+		String number = this.json.readTree(id).get("transfer").get("number").asString();
+
+		// Les deux mouvements portent le numéro du reçu.
+		this.mvc.perform(get("/api/stock/movements").with(manager()).param("q", number))
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].sourceId").value(transferId));
+		this.mvc.perform(get("/api/stock/transfers").with(manager()).param("direction", "SENT"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].id").value(transferId));
+		this.mvc.perform(get("/api/stock/transfers").with(manager()).param("direction", "RECEIVED"))
+			.andExpect(jsonPath("$.total").value(0));
+		this.mvc.perform(get("/api/stock/transfers").with(manager()).header("X-Warehouse-Id", this.depot.toString())
+			.param("direction", "RECEIVED"))
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].number").value(number));
+		this.mvc.perform(get("/api/stock/transfers/{id}", transferId).with(manager()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.fromWarehouseId").value(this.main.toString()));
+	}
+
+	@Test
+	void severalProductsAreTransferredAndReturnedTogether() throws Exception {
+		UUID second = this.jdbc.queryForObject("""
+				insert into product (sku, name, category_id, purchase_price)
+				values ('STK-API-2', 'Étui API', (select id from category where name = 'Montures'), 2000)
+				returning id""", UUID.class);
+		movement(manager(), "{\"productId\": \"%s\", \"quantity\": 6, \"reason\": \"SUPPLY\"}");
+		this.mvc.perform(post("/api/stock/movements").with(manager()).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"productId\": \"" + second + "\", \"quantity\": 10, \"reason\": \"SUPPLY\"}"))
+			.andExpect(status().isCreated());
+
+		// Un produit en double : refusé avant tout mouvement.
+		this.mvc.perform(post("/api/warehouses/transfer").with(manager()).contentType(MediaType.APPLICATION_JSON)
+			.content("""
+					{"fromWarehouseId": "%s", "toWarehouseId": "%s",
+					 "items": [{"productId": "%s", "quantity": 1}, {"productId": "%s", "quantity": 2}]}
+					""".formatted(this.main, this.depot, this.product, this.product)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("STOCK_TRANSFER_DUPLICATE_PRODUCT"));
+
+		String body = this.mvc.perform(post("/api/warehouses/transfer").with(manager())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+					{"fromWarehouseId": "%s", "toWarehouseId": "%s", "note": "Réassort",
+					 "items": [{"productId": "%s", "quantity": 2}, {"productId": "%s", "quantity": 7}]}
+					""".formatted(this.main, this.depot, this.product, second)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.transfer.lines.length()").value(2))
+			.andExpect(jsonPath("$.transfer.lines[1].productSku").value("STK-API-2"))
+			.andExpect(jsonPath("$.transfer.lines[1].lineNumber").value(2))
+			.andExpect(jsonPath("$.transfer.totalQuantity").value(9))
+			.andExpect(jsonPath("$.movements.length()").value(4))
+			.andReturn().getResponse().getContentAsString();
+		String transferId = this.json.readTree(body).get("transferId").asString();
+
+		this.mvc.perform(get("/api/stock/transfers").with(manager()).param("q", "étui"))
+			.andExpect(jsonPath("$.total").value(1));
+		this.mvc.perform(get("/api/stock/transfers").with(manager()).param("productId", second.toString()))
+			.andExpect(jsonPath("$.total").value(1));
+		this.mvc.perform(post("/api/stock/transfers/{id}/return", transferId).with(manager()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("RETURNED"));
+		this.mvc.perform(get("/api/stock/levels").with(manager()).header("X-Warehouse-Id", this.depot.toString()))
+			.andExpect(jsonPath("$.items[*].quantity", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(0))));
+		this.mvc.perform(get("/api/stock/levels").with(manager()).param("productId", second.toString()))
+			.andExpect(jsonPath("$.items[0].quantity").value(10));
+	}
+
+	@Test
+	void transferCanBeReturnedOnceToItsOrigin() throws Exception {
+		movement(manager(), "{\"productId\": \"%s\", \"quantity\": 6, \"reason\": \"SUPPLY\"}");
+		String transferId = transferIdOf(transfer(4, null));
+
+		this.mvc.perform(post("/api/stock/transfers/{id}/return", transferId).with(manager())
+			.header("X-Warehouse-Id", this.depot.toString()).contentType(MediaType.APPLICATION_JSON)
+			.content("{\"reason\": \"Erreur de dépôt\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("RETURNED"))
+			.andExpect(jsonPath("$.returnReason").value("Erreur de dépôt"))
+			.andExpect(jsonPath("$.returnedByUsername").value("stock_api_mgr"))
+			.andExpect(jsonPath("$.returnedAt").isString());
+		this.mvc.perform(get("/api/stock/levels").with(manager()).param("productId", this.product.toString()))
+			.andExpect(jsonPath("$.items[0].quantity").value(6));
+		this.mvc.perform(get("/api/stock/levels").with(manager()).header("X-Warehouse-Id", this.depot.toString())
+			.param("productId", this.product.toString()))
+			.andExpect(jsonPath("$.items[0].quantity").value(0));
+
+		this.mvc.perform(post("/api/stock/transfers/{id}/return", transferId).with(manager()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("STOCK_TRANSFER_ALREADY_RETURNED"));
+		this.mvc.perform(get("/api/stock/transfers").with(manager()).param("status", "RETURNED"))
+			.andExpect(jsonPath("$.total").value(1));
+	}
+
+	@Test
+	void transferReturnIsRefusedWhenTheStockIsGoneOrFromAnotherWarehouse() throws Exception {
+		movement(manager(), "{\"productId\": \"%s\", \"quantity\": 6, \"reason\": \"SUPPLY\"}");
+		String transferId = transferIdOf(transfer(4, null));
+		this.mvc.perform(post("/api/stock/movements").with(manager()).header("X-Warehouse-Id", this.depot.toString())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"productId\": \"" + this.product + "\", \"quantity\": -1, \"reason\": \"LOSS\"}"))
+			.andExpect(status().isCreated());
+
+		this.mvc.perform(post("/api/stock/transfers/{id}/return", transferId).with(manager()))
+			.andExpect(status().isUnprocessableContent())
+			.andExpect(jsonPath("$.code").value("STOCK_INSUFFICIENT"));
+		UUID other = this.jdbc.queryForObject(
+				"insert into warehouse (code, name, type) values ('ZZ-STK2', 'Autre dépôt', 'WAREHOUSE') returning id",
+				UUID.class);
+		this.mvc.perform(post("/api/stock/transfers/{id}/return", transferId).with(manager())
+			.header("X-Warehouse-Id", other.toString()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("WAREHOUSE_MISMATCH"));
+		Authentication reader = StockFixtures.authentication(this.manager, Permissions.STOCK_READ);
+		this.mvc.perform(post("/api/stock/transfers/{id}/return", transferId).with(authentication(reader)))
+			.andExpect(status().isForbidden());
+		this.mvc.perform(get("/api/stock/transfers/{id}", transferId).with(manager()))
+			.andExpect(jsonPath("$.status").value("COMPLETED"));
+	}
+
+	@Test
 	void manualMovementCanBeReversedOnce() throws Exception {
 		String id = idOf(movement(manager(), "{\"productId\": \"%s\", \"quantity\": 4, \"reason\": \"SUPPLY\"}"));
 
@@ -287,6 +424,20 @@ class StockApiIT {
 			String template) throws Exception {
 		return this.mvc.perform(post("/api/stock/movements").with(actor).contentType(MediaType.APPLICATION_JSON)
 			.content(template.formatted(this.product)));
+	}
+
+	private ResultActions transfer(int quantity, String note) throws Exception {
+		return this.mvc.perform(post("/api/warehouses/transfer").with(manager()).contentType(MediaType.APPLICATION_JSON)
+			.content("""
+					{"fromWarehouseId": "%s", "toWarehouseId": "%s", "productId": "%s", "quantity": %d, "note": %s}
+					""".formatted(this.main, this.depot, this.product, quantity,
+					note != null ? "\"" + note + "\"" : "null")));
+	}
+
+	private String transferIdOf(ResultActions result) throws Exception {
+		return this.json.readTree(result.andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+			.get("transferId")
+			.asString();
 	}
 
 	private String idOf(ResultActions result) throws Exception {
