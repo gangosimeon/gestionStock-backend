@@ -67,7 +67,9 @@ class OpenApiDocumentationIT {
 
 	/** Routes publiques, et seulement elles. */
 	private static final Set<String> PUBLIC = Set.of("POST /api/auth/login", "POST /api/auth/refresh",
-			"POST /api/auth/logout", "POST /api/auth/forgot-password", "GET /api/health");
+			"POST /api/auth/logout", "POST /api/auth/forgot-password", "POST /api/auth/activate",
+			"POST /api/platform/auth/login", "POST /api/platform/auth/refresh", "POST /api/platform/auth/logout",
+			"GET /api/public/companies/{code}/branding", "GET /api/public/companies/{code}/logo", "GET /api/health");
 
 	@Autowired
 	private MockMvc mvc;

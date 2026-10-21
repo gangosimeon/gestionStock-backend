@@ -1,12 +1,8 @@
 package com.geststock.common.health;
 
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
-
-import javax.sql.DataSource;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -25,6 +21,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.platform.PlatformDb;
+
 /**
  * Point de contrôle public {@code GET /api/health}, destiné au front, aux sondes de
  * supervision et aux tests de démarrage. Ne révèle aucune information sensible : uniquement
@@ -37,9 +35,7 @@ class HealthController {
 
 	private static final Logger log = LoggerFactory.getLogger(HealthController.class);
 
-	private static final int DATABASE_TIMEOUT_SECONDS = 2;
-
-	private final DataSource dataSource;
+	private final PlatformDb platform;
 
 	private final Clock clock;
 
@@ -47,9 +43,9 @@ class HealthController {
 
 	private final String version;
 
-	HealthController(DataSource dataSource, Clock clock, ObjectProvider<BuildProperties> buildProperties,
+	HealthController(PlatformDb platform, Clock clock, ObjectProvider<BuildProperties> buildProperties,
 			@Value("${spring.application.name}") String applicationName) {
-		this.dataSource = dataSource;
+		this.platform = platform;
 		this.clock = clock;
 		this.applicationName = applicationName;
 		BuildProperties build = buildProperties.getIfAvailable();
@@ -70,14 +66,13 @@ class HealthController {
 		return ResponseEntity.status(httpStatus).body(body);
 	}
 
+	/** Base plateforme (annuaire des entreprises) : sans elle, aucune entreprise n'est joignable. */
 	private String databaseStatus() {
-		try (Connection connection = this.dataSource.getConnection()) {
-			return connection.isValid(DATABASE_TIMEOUT_SECONDS) ? HealthResponse.UP : HealthResponse.DOWN;
+		if (this.platform.isReachable()) {
+			return HealthResponse.UP;
 		}
-		catch (SQLException | RuntimeException ex) {
-			log.warn("Base de données injoignable : {}", ex.getMessage());
-			return HealthResponse.DOWN;
-		}
+		log.warn("Base plateforme injoignable.");
+		return HealthResponse.DOWN;
 	}
 
 }

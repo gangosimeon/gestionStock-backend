@@ -36,6 +36,7 @@ import com.geststock.common.api.PageResponse;
 import com.geststock.common.security.Permissions;
 import com.geststock.common.security.RequiresPermission;
 import com.geststock.exception.ApiError;
+import com.geststock.user.dto.AccessLinkResponse;
 import com.geststock.user.dto.AssignRolesRequest;
 import com.geststock.user.dto.CreateUserRequest;
 import com.geststock.user.dto.ResetPasswordRequest;
@@ -61,8 +62,11 @@ class UserController {
 
 	private final UserService service;
 
-	UserController(UserService service) {
+	private final AccountAccessService accessLinks;
+
+	UserController(UserService service, AccountAccessService accessLinks) {
 		this.service = service;
+		this.accessLinks = accessLinks;
 	}
 
 	@GetMapping
@@ -140,6 +144,17 @@ class UserController {
 	OkResponse delete(@PathVariable UUID id) {
 		this.service.delete(id);
 		return OkResponse.success();
+	}
+
+	@PostMapping("/{id}/access-link")
+	@Audited(action = "ACCESS_LINK", entityType = "USER")
+	@Operation(summary = "Créer un lien de définition du mot de passe",
+			description = "Lien à usage unique (48 h) à transmettre à l'utilisateur ; les liens précédents sont invalidés. Le mot de passe actuel reste valable jusqu'à son utilisation.")
+	@ApiResponse(responseCode = "200", description = "Lien créé (montré une seule fois)")
+	AccessLinkResponse createAccessLink(@PathVariable UUID id) {
+		this.service.get(id);
+		AccountAccessService.AccessLink link = this.accessLinks.issue(id, AccountAccessService.Purpose.PASSWORD_RESET);
+		return new AccessLinkResponse(link.token(), link.expiresAt());
 	}
 
 	@PutMapping("/{id}/password")

@@ -35,6 +35,17 @@ class ProductionSafetyCheckTest {
 	}
 
 	@Test
+	void multiCompanyProductionNeedsItsOwnPlatformDatabaseAndNoDefaultCompany() {
+		String key = "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLTAwMDA=";
+		assertThat(ProductionSafetyCheck.tenancyProblems(null, "jdbc:postgresql://db/geststock_platform",
+				"jdbc:postgresql://db/postgres", key, "Un-Mot2Passe-Solide")).isEmpty();
+		// Entreprise par défaut : une base serait visée sans authentification.
+		assertThat(ProductionSafetyCheck.tenancyProblems("principale", "jdbc:postgresql://db/p", "jdbc:postgresql://db/a", key,
+				null)).singleElement().asString().contains("GESTSTOCK_DEFAULT_COMPANY");
+		assertThat(ProductionSafetyCheck.tenancyProblems(null, null, null, null, "court")).hasSize(4);
+	}
+
+	@Test
 	void aShortAdminPasswordAndFlywayCleanAreRefused() {
 		assertThat(ProductionSafetyCheck.problems(List.of("https://a.example"), false, "court", false)).hasSize(2);
 	}

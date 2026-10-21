@@ -46,6 +46,22 @@ public enum ErrorCode {
 	INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Session expirée. Veuillez vous reconnecter."),
 	CURRENT_PASSWORD_INVALID(HttpStatus.BAD_REQUEST, "Le mot de passe actuel est incorrect."),
 
+	// --- Entreprises et plateforme -----------------------------------------------------
+	COMPANY_REQUIRED(HttpStatus.BAD_REQUEST, "Indiquez le code de votre entreprise."),
+	COMPANY_SUSPENDED(HttpStatus.FORBIDDEN,
+			"L'accès de votre entreprise est suspendu. Contactez le support GestStock pour le rétablir."),
+	COMPANY_UNAVAILABLE(HttpStatus.FORBIDDEN, "L'espace de votre entreprise n'est pas encore disponible."),
+	SERVICE_CAPACITY_REACHED(HttpStatus.SERVICE_UNAVAILABLE,
+			"Service momentanément saturé. Réessayez dans quelques instants."),
+	COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "Entreprise introuvable."),
+	COMPANY_CODE_ALREADY_USED(HttpStatus.CONFLICT, "Ce code d'entreprise est déjà utilisé."),
+	COMPANY_INVALID_TRANSITION(HttpStatus.CONFLICT, "Opération impossible dans l'état actuel de l'entreprise."),
+	PROVISIONING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
+			"Création des bases indisponible : configuration de provisionnement incomplète."),
+	BRANDING_INVALID_LOGO(HttpStatus.BAD_REQUEST, "Logo refusé : image PNG ou JPEG de 1 Mo au plus."),
+	BRANDING_NOT_EDITABLE(HttpStatus.FORBIDDEN, "La personnalisation de votre entreprise est gérée par GestStock."),
+	ACTIVATION_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "Lien d'activation invalide, déjà utilisé ou expiré."),
+
 	// --- Codes métier ------------------------------------------------------------------
 
 	// Pagination / tri

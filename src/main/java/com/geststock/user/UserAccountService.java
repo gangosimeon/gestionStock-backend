@@ -122,6 +122,43 @@ public class UserAccountService {
 	}
 
 	/**
+	 * Administrateur initial d'une nouvelle entreprise (provisionnement) : rôle ADMIN, <b>aucun mot de
+	 * passe</b> (connexion impossible tant que le lien d'activation n'a pas servi). Idempotent : si
+	 * l'identifiant existe déjà, son compte est renvoyé tel quel.
+	 */
+	@Transactional
+	public UUID createCompanyAdministrator(String username, String firstName, String lastName, String email, String phone) {
+		Optional<AppUser> existing = this.repository.findWithAccessByUsername(username);
+		if (existing.isPresent()) {
+			return existing.get().getId();
+		}
+		AppUser admin = new AppUser(username, firstName, lastName);
+		admin.changeContact(email, phone);
+		admin.replaceRoles(this.roleService.findAllByCodes(java.util.List.of(RoleService.ADMIN)));
+		UUID id = this.repository.saveAndFlush(admin).getId();
+		this.audit.record(AuditEvent.of("CREATE", "USER", id, username)
+			.details("Administrateur de l'entreprise créé par GestStock (activation par lien)"));
+		return id;
+	}
+
+	/**
+	 * Mot de passe choisi par l'utilisateur via un lien d'accès (activation ou réinitialisation) : politique
+	 * appliquée, mot de passe définitif, toutes les sessions existantes fermées.
+	 */
+	@Transactional
+	public void setPasswordFromAccessLink(UUID id, String newPassword) {
+		AppUser user = this.repository.findById(id)
+			.orElseThrow(() -> new NotFoundException(ErrorCode.USER_NOT_FOUND, ErrorCode.USER_NOT_FOUND.defaultMessage()));
+		this.passwordPolicy.check(newPassword, user.getUsername());
+		user.changePasswordHash(this.passwordEncoder.encode(newPassword), false, Instant.now(this.clock));
+		this.repository.saveAndFlush(user);
+		this.events.publishEvent(new UserCredentialsChangedEvent(id));
+		this.audit.record(AuditEvent.of("PASSWORD_CHANGE", "USER", id, user.getUsername())
+			.module(AuditModule.AUTH)
+			.details("Mot de passe défini par lien d'accès ; autres sessions fermées"));
+	}
+
+	/**
 	 * Identifiants des utilisateurs dont l'identifiant de connexion, le prénom ou le nom contient le
 	 * texte : recherches des autres modules (historiques). 500 au plus.
 	 */

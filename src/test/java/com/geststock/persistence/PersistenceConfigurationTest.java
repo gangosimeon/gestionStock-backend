@@ -41,6 +41,10 @@ class PersistenceConfigurationTest {
 		if (file.equals("application.yml")) {
 			assertThat(ddlAuto).as("valeur de référence dans %s", file).hasToString("validate");
 		}
+		else if (file.equals("application-prod.yml")) {
+			// Production multi-entreprises : aucune connexion au démarrage, donc ni validation ni génération.
+			assertThat(ddlAuto).as("prod : Hibernate ne touche jamais au schéma").hasToString("none");
+		}
 		else {
 			assertThat(ddlAuto).as("un profil ne doit pas surcharger ddl-auto (%s)", file).isNull();
 		}

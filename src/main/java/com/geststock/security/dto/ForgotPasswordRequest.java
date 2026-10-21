@@ -8,5 +8,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /** Demande de réinitialisation (contrat du front : {@code {email}}). */
 @Schema(name = "ForgotPasswordRequest")
-public record ForgotPasswordRequest(@NotBlank @Email @Size(max = 254) String email) {
+public record ForgotPasswordRequest(@NotBlank @Email @Size(max = 254) String email,
+		@Size(max = 40) @Schema(description = "Code de l'entreprise") String company) {
 }

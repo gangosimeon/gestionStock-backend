@@ -52,7 +52,7 @@ class SchemaConventionsIT {
 
 	@Test
 	void foundationTablesExistAndNothingElse() {
-		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("alert_setting", "app_user", "appointment", "audit_log", "brand",
+		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("account_access_token", "alert_setting", "app_user", "appointment", "audit_log", "brand",
 				"cash_entry", "cash_session", "category", "customer", "customer_account_entry", "customer_return",
 				"customer_return_line", "expense", "goods_receipt", "goods_receipt_line", "inventory_line", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product", "purchase_order",
 				"purchase_order_line", "quote", "quote_line", "refresh_token", "role", "role_permission", "sale", "sale_line", "stock_level",
@@ -191,7 +191,7 @@ class SchemaConventionsIT {
 	void referenceDataIsLoaded() {
 		assertThat(this.jdbc.queryForList("select code from role where built_in order by code", String.class))
 			.containsExactly("ADMIN", "CAISSIER", "GESTIONNAIRE");
-		assertThat(this.jdbc.queryForObject("select count(*) from permission", Integer.class)).isEqualTo(50);
+		assertThat(this.jdbc.queryForObject("select count(*) from permission", Integer.class)).isEqualTo(51);
 
 		Map<String, Object> matrix = this.jdbc.queryForMap("""
 				select count(*) filter (where r.code = 'ADMIN') as admin,
@@ -199,8 +199,8 @@ class SchemaConventionsIT {
 				       count(*) filter (where r.code = 'CAISSIER') as caissier
 				from role_permission rp join role r on r.id = rp.role_id
 				""");
-		// Gestionnaire : 40 droits en V021, moins warehouse:all et warehouse:manage en V029.
-		assertThat(matrix).containsEntry("admin", 50L).containsEntry("gestionnaire", 40L).containsEntry("caissier", 15L);
+		// Gestionnaire : 40 droits en V021, moins warehouse:all et warehouse:manage en V029. Admin : + company:manage (V045).
+		assertThat(matrix).containsEntry("admin", 51L).containsEntry("gestionnaire", 40L).containsEntry("caissier", 15L);
 
 		assertThat(this.jdbc.queryForObject("select name from warehouse where code = 'MAG-01'", String.class))
 			.isEqualTo("Magasin principal");

@@ -15,7 +15,10 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.stereotype.Component;
 
+import com.geststock.exception.ErrorCode;
 import com.geststock.role.RoleService;
+import com.geststock.tenancy.TenantContext;
+import com.geststock.tenancy.TenantDirectory;
 import com.geststock.user.UserAccount;
 import com.geststock.user.UserAccountService;
 
@@ -37,14 +40,29 @@ public class JwtUserAuthenticationConverter implements JwtAuthenticationResolver
 
 	private final Clock clock;
 
-	JwtUserAuthenticationConverter(UserAccountService accounts, RoleService roles, Clock clock) {
+	private final TenantDirectory directory;
+
+	private final PlatformTokenResolver platformTokens;
+
+	JwtUserAuthenticationConverter(UserAccountService accounts, RoleService roles, Clock clock, TenantDirectory directory,
+			PlatformTokenResolver platformTokens) {
 		this.accounts = accounts;
 		this.roles = roles;
 		this.clock = clock;
+		this.directory = directory;
+		this.platformTokens = platformTokens;
 	}
 
 	@Override
 	public AbstractAuthenticationToken resolve(Jwt jwt) {
+		String type = jwt.getClaimAsString(JwtTokenService.TYPE_CLAIM);
+		if (JwtTokenService.PLATFORM_TYPE.equals(type)) {
+			return this.platformTokens.resolve(jwt);
+		}
+		if (!JwtTokenService.TENANT_TYPE.equals(type)) {
+			throw new InvalidBearerTokenException("Type de jeton inconnu");
+		}
+		enterCompany(jwt);
 		UUID userId = parseSubject(jwt.getSubject());
 		UserAccount account = this.accounts.findById(userId)
 			.orElseThrow(() -> new InvalidBearerTokenException("Compte inconnu"));
@@ -69,6 +87,23 @@ public class JwtUserAuthenticationConverter implements JwtAuthenticationResolver
 	}
 
 	/**
+	 * Base de l'entreprise inscrite dans le jeton (claim signé, jamais une donnée du client). Le compte
+	 * est ensuite relu dans cette base : un jeton de l'entreprise A ne désigne aucun compte de B.
+	 */
+	private void enterCompany(Jwt jwt) {
+		UUID companyId = parseUuid(jwt.getClaimAsString(JwtTokenService.TENANT_CLAIM));
+		TenantDirectory.TenantStatus company = this.directory.findById(companyId)
+			.orElseThrow(() -> new InvalidBearerTokenException("Entreprise inconnue"));
+		if (company.isSuspended()) {
+			throw new CompanyAccessException(ErrorCode.COMPANY_SUSPENDED);
+		}
+		if (!company.isActive()) {
+			throw new CompanyAccessException(ErrorCode.COMPANY_UNAVAILABLE);
+		}
+		TenantContext.set(company.ref());
+	}
+
+	/**
 	 * {@code iat} est à la seconde près : on compare à l'instant de changement tronqué à la
 	 * seconde, pour ne pas rejeter le jeton émis juste après un changement de mot de passe.
 	 */
@@ -79,11 +114,15 @@ public class JwtUserAuthenticationConverter implements JwtAuthenticationResolver
 	}
 
 	private static UUID parseSubject(String subject) {
+		return parseUuid(subject);
+	}
+
+	private static UUID parseUuid(String value) {
 		try {
-			return UUID.fromString(subject);
+			return UUID.fromString(value);
 		}
 		catch (IllegalArgumentException | NullPointerException ex) {
-			throw new InvalidBearerTokenException("Sujet du jeton invalide");
+			throw new InvalidBearerTokenException("Jeton invalide");
 		}
 	}
 

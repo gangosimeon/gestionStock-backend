@@ -49,6 +49,9 @@ class UserControllerTest {
 	@MockitoBean
 	private UserService service;
 
+	@MockitoBean
+	private AccountAccessService accessLinks;
+
 	@Test
 	void requiresAuthentication() throws Exception {
 		this.mvc.perform(get("/api/users"))

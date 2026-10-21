@@ -48,15 +48,47 @@ class ProductionSafetyCheck implements InitializingBean {
 
 	@Override
 	public void afterPropertiesSet() {
-		List<String> problems = problems(this.cors.allowedOrigins(),
+		List<String> problems = new ArrayList<>(problems(this.cors.allowedOrigins(),
 				this.environment.getProperty("geststock.production.allow-http-origins", Boolean.class, false),
 				this.security.bootstrapAdmin().password(),
-				this.environment.getProperty("spring.flyway.clean-disabled", Boolean.class, true));
+				this.environment.getProperty("spring.flyway.clean-disabled", Boolean.class, true)));
+		problems.addAll(tenancyProblems(this.environment.getProperty("geststock.tenancy.default-company"),
+				this.environment.getProperty("geststock.platform.datasource.url"),
+				this.environment.getProperty("geststock.platform.provisioner.url"),
+				this.environment.getProperty("geststock.platform.credentials-key"),
+				this.environment.getProperty("geststock.platform.bootstrap-admin.password")));
 		if (!problems.isEmpty()) {
 			throw new IllegalStateException("Configuration de production refusée :\n - " + String.join("\n - ", problems));
 		}
 		log.info("Contrôles de production passés : CORS {} ; secret JWT vérifié ; Flyway clean interdit.",
 				this.cors.allowedOrigins());
+	}
+
+	/**
+	 * Multi-entreprises : aucune entreprise par défaut (jamais de base visée sans authentification), base
+	 * plateforme séparée, compte de provisionnement et clé de chiffrement définis, mot de passe du premier
+	 * Super Admin robuste s'il est fourni.
+	 */
+	static List<String> tenancyProblems(String defaultCompany, String platformUrl, String provisionerUrl,
+			String credentialsKey, String platformAdminPassword) {
+		List<String> problems = new ArrayList<>();
+		if (defaultCompany != null && !defaultCompany.isBlank()) {
+			problems.add("GESTSTOCK_DEFAULT_COMPANY est interdit en production (dev/test uniquement).");
+		}
+		if (platformUrl == null || platformUrl.isBlank()) {
+			problems.add("GESTSTOCK_PLATFORM_DB_URL est vide : la base plateforme doit être une base distincte.");
+		}
+		if (provisionerUrl == null || provisionerUrl.isBlank()) {
+			problems.add("GESTSTOCK_PROVISIONER_DB_URL est vide : compte de provisionnement requis.");
+		}
+		if (credentialsKey == null || credentialsKey.isBlank()) {
+			problems.add("GESTSTOCK_TENANT_CREDENTIALS_KEY est vide : clé AES-256 (Base64, 32 octets) requise.");
+		}
+		if (platformAdminPassword != null && !platformAdminPassword.isBlank()
+				&& platformAdminPassword.length() < MIN_ADMIN_PASSWORD_LENGTH) {
+			problems.add("GESTSTOCK_PLATFORM_ADMIN_PASSWORD : " + MIN_ADMIN_PASSWORD_LENGTH + " caractères au moins.");
+		}
+		return problems;
 	}
 
 	/** Problèmes bloquants (liste vide : configuration acceptée). */

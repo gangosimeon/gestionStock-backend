@@ -1,10 +1,5 @@
 package com.geststock.common.health;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-
-import javax.sql.DataSource;
-
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,11 +8,10 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.geststock.platform.PlatformDb;
 import com.geststock.support.WebLayerTestConfiguration;
 
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -31,13 +25,11 @@ class HealthControllerTest {
 	private MockMvc mvc;
 
 	@MockitoBean
-	private DataSource dataSource;
+	private PlatformDb platform;
 
 	@Test
 	void returnsUpWithoutAuthenticationWhenDatabaseIsReachable() throws Exception {
-		Connection connection = mock(Connection.class);
-		given(connection.isValid(anyInt())).willReturn(true);
-		given(this.dataSource.getConnection()).willReturn(connection);
+		given(this.platform.isReachable()).willReturn(true);
 
 		this.mvc.perform(get("/api/health"))
 			.andExpect(status().isOk())
@@ -49,7 +41,7 @@ class HealthControllerTest {
 
 	@Test
 	void returns503WhenDatabaseIsUnreachable() throws Exception {
-		given(this.dataSource.getConnection()).willThrow(new SQLException("connection refused"));
+		given(this.platform.isReachable()).willReturn(false);
 
 		this.mvc.perform(get("/api/health"))
 			.andExpect(status().isServiceUnavailable())

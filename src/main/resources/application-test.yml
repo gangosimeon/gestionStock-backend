@@ -24,3 +24,13 @@ geststock:
       secret: test-only-signing-key-not-for-production-0123456789
     login:
       max-failed-attempts: 3
+  # Base de test = entreprise « test », visée sans contexte (identités simulées, JdbcTemplate des tests).
+  tenancy:
+    default-company: test
+    database-prefix: gst_test_company_
+  platform:
+    legacy-company:
+      code: test
+      name: Entreprise de test
+    # Clé publique de test, sans valeur hors des tests automatisés.
+    credentials-key: dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLTAwMDA=

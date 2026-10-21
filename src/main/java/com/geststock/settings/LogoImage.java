@@ -21,7 +21,7 @@ import com.geststock.exception.InvalidRequestException;
  * l'en-tête avant tout décodage (une image de 100 000 × 100 000 pixels serait refusée sans être
  * chargée en mémoire), puis l'image est décodée entièrement pour écarter un fichier tronqué.
  */
-record LogoImage(String contentType, byte[] data, int width, int height, String sha256) {
+public record LogoImage(String contentType, byte[] data, int width, int height, String sha256) {
 
 	static final int MAX_BYTES = 2 * 1024 * 1024;
 
@@ -32,10 +32,15 @@ record LogoImage(String contentType, byte[] data, int width, int height, String 
 	private static final byte[] JPEG_SIGNATURE = { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF };
 
 	static LogoImage of(byte[] data) {
+		return of(data, MAX_BYTES, MAX_DIMENSION);
+	}
+
+	/** Image vérifiée avec des limites propres à l'usage (logo d'entreprise de l'interface, par exemple). */
+	public static LogoImage of(byte[] data, int maxBytes, int maxDimension) {
 		if (data == null || data.length == 0) {
 			throw invalid("Le fichier est vide.");
 		}
-		if (data.length > MAX_BYTES) {
+		if (data.length > maxBytes) {
 			throw new InvalidRequestException(ErrorCode.FILE_TOO_LARGE, ErrorCode.FILE_TOO_LARGE.defaultMessage());
 		}
 		String contentType = startsWith(data, PNG_SIGNATURE) ? "image/png"
@@ -55,8 +60,8 @@ record LogoImage(String contentType, byte[] data, int width, int height, String 
 				reader.setInput(input, true, true);
 				int width = reader.getWidth(0);
 				int height = reader.getHeight(0);
-				if (width < 1 || height < 1 || width > MAX_DIMENSION || height > MAX_DIMENSION) {
-					throw invalid("Image trop grande : " + MAX_DIMENSION + " × " + MAX_DIMENSION + " pixels maximum.");
+				if (width < 1 || height < 1 || width > maxDimension || height > maxDimension) {
+					throw invalid("Image trop grande : " + maxDimension + " × " + maxDimension + " pixels maximum.");
 				}
 				BufferedImage image = reader.read(0);
 				if (image == null) {

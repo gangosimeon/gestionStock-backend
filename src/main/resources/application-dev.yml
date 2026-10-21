@@ -20,6 +20,13 @@ geststock:
     jwt:
       # Sans GESTSTOCK_JWT_SECRET : clé aléatoire à chaque démarrage (sessions perdues).
       allow-ephemeral-secret: true
+  # Base de dev rattachée comme entreprise « principale » et visée sans contexte (outils, scripts).
+  tenancy:
+    default-company: ${GESTSTOCK_DEFAULT_COMPANY:principale}
+    database-prefix: ${GESTSTOCK_TENANT_DATABASE_PREFIX:geststock_dev_company_}
+  platform:
+    legacy-company:
+      code: ${GESTSTOCK_LEGACY_COMPANY_CODE:principale}
 
 logging:
   level:

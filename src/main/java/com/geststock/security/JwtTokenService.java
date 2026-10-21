@@ -12,6 +12,7 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 
+import com.geststock.tenancy.CurrentTenant;
 import com.geststock.user.UserAccount;
 
 /**
@@ -28,30 +29,59 @@ public class JwtTokenService {
 
 	static final String ROLES_CLAIM = "roles";
 
+	/** Type de jeton : {@value #TENANT_TYPE} (utilisateur d'entreprise) ou {@value #PLATFORM_TYPE} (Super Admin). */
+	public static final String TYPE_CLAIM = "typ";
+
+	/** Entreprise du jeton d'un utilisateur d'entreprise (identifiant interne, signé par le serveur). */
+	public static final String TENANT_CLAIM = "tid";
+
+	public static final String TENANT_TYPE = "tenant";
+
+	public static final String PLATFORM_TYPE = "platform";
+
 	private final JwtEncoder encoder;
 
 	private final GestStockSecurityProperties.Jwt properties;
 
 	private final Clock clock;
 
-	JwtTokenService(JwtEncoder encoder, GestStockSecurityProperties properties, Clock clock) {
+	private final CurrentTenant currentTenant;
+
+	JwtTokenService(JwtEncoder encoder, GestStockSecurityProperties properties, Clock clock, CurrentTenant currentTenant) {
 		this.encoder = encoder;
 		this.properties = properties.jwt();
 		this.clock = clock;
+		this.currentTenant = currentTenant;
 	}
 
+	/** Jeton d'un utilisateur d'entreprise : l'entreprise courante y est inscrite ({@code tid}). */
 	public AccessToken issue(UserAccount account) {
+		JwtClaimsSet.Builder claims = baseClaims(account.id(), account.username())
+			.claim(TYPE_CLAIM, TENANT_TYPE)
+			.claim(TENANT_CLAIM, this.currentTenant.require().companyId().toString())
+			.claim(ROLES_CLAIM, List.copyOf(account.roles()));
+		return encode(claims);
+	}
+
+	/** Jeton d'un Super Admin : aucune entreprise, valable uniquement sur {@code /api/platform/**}. */
+	public AccessToken issuePlatform(UUID adminId, String username) {
+		return encode(baseClaims(adminId, username).claim(TYPE_CLAIM, PLATFORM_TYPE));
+	}
+
+	private JwtClaimsSet.Builder baseClaims(UUID subject, String username) {
 		Instant now = Instant.now(this.clock);
-		Instant expiresAt = now.plus(this.properties.accessTokenTtl());
-		JwtClaimsSet claims = JwtClaimsSet.builder()
+		return JwtClaimsSet.builder()
 			.issuer(this.properties.issuer())
-			.subject(account.id().toString())
+			.subject(subject.toString())
 			.issuedAt(now)
-			.expiresAt(expiresAt)
+			.expiresAt(now.plus(this.properties.accessTokenTtl()))
 			.id(UUID.randomUUID().toString())
-			.claim(USERNAME_CLAIM, account.username())
-			.claim(ROLES_CLAIM, List.copyOf(account.roles()))
-			.build();
+			.claim(USERNAME_CLAIM, username);
+	}
+
+	private AccessToken encode(JwtClaimsSet.Builder builder) {
+		JwtClaimsSet claims = builder.build();
+		Instant expiresAt = claims.getExpiresAt();
 		JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).type("JWT").build();
 		String value = this.encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
 		return new AccessToken(value, this.properties.accessTokenTtl().toSeconds(), expiresAt);

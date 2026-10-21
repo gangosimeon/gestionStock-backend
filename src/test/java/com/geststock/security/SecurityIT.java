@@ -30,6 +30,7 @@ import com.geststock.role.dto.CreateRoleRequest;
 import com.geststock.role.dto.UpdateRoleRequest;
 import com.geststock.support.PostgresTestConfiguration;
 import com.geststock.support.WithPermissionsSecurityContextFactory;
+import com.geststock.tenancy.CurrentTenant;
 import com.geststock.user.UserService;
 import com.geststock.user.dto.CreateUserRequest;
 import com.geststock.user.dto.ResetPasswordRequest;
@@ -71,6 +72,9 @@ class SecurityIT {
 
 	@Autowired
 	private JwtEncoder jwtEncoder;
+
+	@Autowired
+	private CurrentTenant currentTenant;
 
 	@Autowired
 	private RoleService roles;
@@ -392,6 +396,8 @@ class SecurityIT {
 			.issuedAt(issuedAt)
 			.expiresAt(expiresAt)
 			.claim("roles", roles)
+			.claim(JwtTokenService.TYPE_CLAIM, JwtTokenService.TENANT_TYPE)
+			.claim(JwtTokenService.TENANT_CLAIM, this.currentTenant.require().companyId().toString())
 			.build();
 		return this.jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
 			.getTokenValue();

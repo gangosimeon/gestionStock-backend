@@ -17,5 +17,6 @@ import com.geststock.user.dto.UserResponse;
 public record MeResponse(
 		@JsonUnwrapped UserResponse profile,
 		@Schema(description = "Permissions effectives (domaine:action)", example = "[\"sale:create\", \"cash:operate\"]")
-		Set<String> permissions) {
+		Set<String> permissions,
+		@Schema(description = "Entreprise de l'utilisateur") CompanySummary company) {
 }

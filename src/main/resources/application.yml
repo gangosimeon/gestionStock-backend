@@ -122,6 +122,9 @@ management:
         readiness:
           include: readinessState, db
   health:
+    # Santé « db » : base plateforme (PlatformHealthIndicator), pas la source routée (sans entreprise).
+    db:
+      enabled: false
     livenessstate:
       enabled: true
     readinessstate:
@@ -175,6 +178,39 @@ geststock:
   dashboard:
     # Fuseau de l'entreprise : « aujourd'hui » et découpage par jour des indicateurs.
     time-zone: ${GESTSTOCK_DASHBOARD_TIME_ZONE:Africa/Abidjan}
+  # --- Multi-entreprises (docs/architecture-saas.md) -------------------------------
+  tenancy:
+    # Entreprise visée sans contexte : dev/test UNIQUEMENT (refusée en prod).
+    default-company: ${GESTSTOCK_DEFAULT_COMPANY:}
+    # Bases dédiées : <préfixe><numéro sur 4 chiffres>, ex. geststock_company_0002.
+    database-prefix: ${GESTSTOCK_TENANT_DATABASE_PREFIX:geststock_company_}
+    pool:
+      max-size: ${GESTSTOCK_TENANT_POOL_MAX_SIZE:5}
+      legacy-max-size: ${GESTSTOCK_DB_POOL_SIZE:10}
+      max-pools: ${GESTSTOCK_TENANT_MAX_POOLS:50}
+      idle-eviction: ${GESTSTOCK_TENANT_POOL_IDLE_EVICTION:15m}
+  platform:
+    # Base plateforme (entreprises, Super Admin). Vide : schéma « platform » de la base historique (dev/test).
+    datasource:
+      url: ${GESTSTOCK_PLATFORM_DB_URL:}
+      username: ${GESTSTOCK_PLATFORM_DB_USERNAME:}
+      password: ${GESTSTOCK_PLATFORM_DB_PASSWORD:}
+      pool-size: ${GESTSTOCK_PLATFORM_DB_POOL_SIZE:5}
+    # Compte CREATEDB/CREATEROLE (création des bases d'entreprise). Vide : identifiants historiques (dev/test).
+    provisioner:
+      url: ${GESTSTOCK_PROVISIONER_DB_URL:}
+      username: ${GESTSTOCK_PROVISIONER_DB_USERNAME:}
+      password: ${GESTSTOCK_PROVISIONER_DB_PASSWORD:}
+    # Clé AES-256 (Base64, 32 octets) des mots de passe des rôles d'exécution.
+    credentials-key: ${GESTSTOCK_TENANT_CREDENTIALS_KEY:}
+    # Base historique (spring.datasource) rattachée comme entreprise sous ce code.
+    legacy-company:
+      code: ${GESTSTOCK_LEGACY_COMPANY_CODE:}
+      name: ${GESTSTOCK_LEGACY_COMPANY_NAME:Entreprise principale}
+    # Premier Super Admin, créé s'il n'en existe aucun actif. Aucune valeur par défaut.
+    bootstrap-admin:
+      username: ${GESTSTOCK_PLATFORM_ADMIN_USERNAME:}
+      password: ${GESTSTOCK_PLATFORM_ADMIN_PASSWORD:}
 
 logging:
   pattern:

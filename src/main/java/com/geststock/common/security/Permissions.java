@@ -71,6 +71,7 @@ public final class Permissions {
 	public static final String ROLE_MANAGE = "role:manage";
 	public static final String AUDIT_READ = "audit:read";
 	public static final String SETTINGS_MANAGE = "settings:manage";
+	public static final String COMPANY_MANAGE = "company:manage";
 
 	// Devis
 	public static final String QUOTE_READ = "quote:read";
@@ -84,7 +85,7 @@ public final class Permissions {
 			CUSTOMER_CREATE, CUSTOMER_UPDATE, CUSTOMER_DELETE, CUSTOMER_PAY, CUSTOMER_CREDIT, SALE_READ, SALE_CREATE,
 			SALE_CANCEL, RETURN_CREATE, CASH_READ, CASH_OPERATE, EXPENSE_READ, EXPENSE_CREATE, EXPENSE_DELETE,
 			APPOINTMENT_READ, APPOINTMENT_MANAGE, REPORT_READ, ALERT_CONFIGURE, USER_MANAGE, ROLE_MANAGE, AUDIT_READ,
-			SETTINGS_MANAGE, QUOTE_READ, QUOTE_MANAGE);
+			SETTINGS_MANAGE, COMPANY_MANAGE, QUOTE_READ, QUOTE_MANAGE);
 
 	private Permissions() {
 	}

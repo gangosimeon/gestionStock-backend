@@ -1,5 +1,7 @@
 package com.geststock.security;
 
+import java.util.function.Supplier;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.context.annotation.Bean;
@@ -11,14 +13,20 @@ import org.springframework.security.core.annotation.AnnotationTemplateExpression
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+
+import com.geststock.platform.admin.PlatformAuthentication;
 
 /**
  * Chaîne de sécurité HTTP de l'API.
@@ -43,8 +51,18 @@ public class SecurityConfig {
 			"/api/auth/login",
 			"/api/auth/refresh",
 			"/api/auth/logout",
-			"/api/auth/forgot-password"
+			"/api/auth/forgot-password",
+			"/api/auth/activate",
+			"/api/platform/auth/login",
+			"/api/platform/auth/refresh",
+			"/api/platform/auth/logout"
 	};
+
+	/** Lectures publiques : marque d'une entreprise pour l'écran de connexion (aucune donnée métier). */
+	static final String[] PUBLIC_GET_PATHS = { "/api/public/**" };
+
+	/** Profil et changement de mot de passe : seules routes ouvertes au Super Admin qui doit changer son mot de passe. */
+	static final String[] PLATFORM_ACCOUNT_PATHS = { "/api/platform/auth/me", "/api/platform/auth/change-password" };
 
 	/** Autres routes accessibles sans authentification. */
 	static final String[] PUBLIC_PATHS = {
@@ -89,9 +107,24 @@ public class SecurityConfig {
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 				.requestMatchers(HttpMethod.POST, PUBLIC_AUTH_PATHS).permitAll()
+				.requestMatchers(HttpMethod.GET, PUBLIC_GET_PATHS).permitAll()
 				.requestMatchers(PUBLIC_PATHS).permitAll()
-				.anyRequest().authenticated());
+				// Espace Super Admin : jetons plateforme uniquement.
+				.requestMatchers(PLATFORM_ACCOUNT_PATHS)
+				.hasAnyRole(PlatformAuthentication.ROLE, PlatformAuthentication.PASSWORD_CHANGE_ROLE)
+				.requestMatchers("/api/platform/**").hasRole(PlatformAuthentication.ROLE)
+				// Tout le reste est métier : fermé aux jetons plateforme (aucune entreprise courante).
+				.anyRequest().access(SecurityConfig::companyUser));
 		return http.build();
+	}
+
+	/** Utilisateur d'entreprise authentifié : tout jeton sauf un jeton Super Admin. */
+	static AuthorizationDecision companyUser(Supplier<? extends Authentication> authentication, RequestAuthorizationContext context) {
+		Authentication auth = authentication.get();
+		boolean granted = auth != null && auth.isAuthenticated() && !(auth instanceof PlatformAuthentication)
+				&& auth.getAuthorities().stream().map(GrantedAuthority::getAuthority)
+					.noneMatch(a -> a.equals(PlatformAuthentication.AUTHORITY) || a.equals(PlatformAuthentication.PASSWORD_CHANGE_AUTHORITY));
+		return new AuthorizationDecision(granted);
 	}
 
 	/**

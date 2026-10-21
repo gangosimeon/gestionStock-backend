@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.geststock.audit.AuditModule;
 import com.geststock.audit.Audited;
 import com.geststock.exception.ApiError;
+import com.geststock.security.dto.ActivateAccountRequest;
 import com.geststock.security.dto.AuthResponse;
 import com.geststock.security.dto.ChangePasswordRequest;
 import com.geststock.security.dto.ForgotPasswordRequest;
@@ -36,6 +37,7 @@ import com.geststock.security.dto.LoginRequest;
 import com.geststock.security.dto.LogoutRequest;
 import com.geststock.security.dto.MeResponse;
 import com.geststock.security.dto.RefreshRequest;
+import com.geststock.user.AccountAccessService;
 
 /**
  * Authentification. Chemins et formats identiques au contrat du front
@@ -50,8 +52,14 @@ class AuthController {
 
 	private final AuthService service;
 
-	AuthController(AuthService service) {
+	private final AuthCompanyResolver companies;
+
+	private final AccountAccessService accessLinks;
+
+	AuthController(AuthService service, AuthCompanyResolver companies, AccountAccessService accessLinks) {
 		this.service = service;
+		this.companies = companies;
+		this.accessLinks = accessLinks;
 	}
 
 	@PostMapping("/login")
@@ -61,6 +69,7 @@ class AuthController {
 	@ApiResponse(responseCode = "401", description = "INVALID_CREDENTIALS, ACCOUNT_LOCKED ou ACCOUNT_DISABLED",
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
 	AuthResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+		this.companies.enter(request.company());
 		return this.service.login(request.username(), request.password(), ClientInfo.from(http));
 	}
 
@@ -72,6 +81,7 @@ class AuthController {
 			content = @Content(schema = @Schema(implementation = ApiError.class)))
 	@ApiResponse(responseCode = "200", description = "OK")
 	AuthResponse refresh(@Valid @RequestBody RefreshRequest request, HttpServletRequest http) {
+		this.companies.enter(request.company());
 		return this.service.refresh(request.refreshToken(), ClientInfo.from(http));
 	}
 
@@ -81,7 +91,9 @@ class AuthController {
 	@Operation(summary = "Se déconnecter", description = "Révoque le refresh token fourni. Toujours 204.")
 	@ApiResponse(responseCode = "204", description = "Session fermée")
 	ResponseEntity<Void> logout(@Valid @RequestBody(required = false) LogoutRequest request) {
-		this.service.logout(request != null ? request.refreshToken() : null);
+		if (request != null && this.companies.tryEnter(request.company()).isPresent()) {
+			this.service.logout(request.refreshToken());
+		}
 		return ResponseEntity.noContent().build();
 	}
 
@@ -103,6 +115,20 @@ class AuthController {
 	AuthResponse changePassword(@AuthenticationPrincipal CurrentUser user, @Valid @RequestBody ChangePasswordRequest request,
 			HttpServletRequest http) {
 		return this.service.changePassword(user, request.currentPassword(), request.newPassword(), ClientInfo.from(http));
+	}
+
+	@PostMapping("/activate")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@SecurityRequirements
+	@Operation(summary = "Définir son mot de passe avec un lien d'accès",
+			description = "Activation du compte initial d'une entreprise ou réinitialisation demandée par un administrateur. Lien à usage unique.")
+	@ApiResponse(responseCode = "204", description = "Mot de passe défini : se connecter")
+	@ApiResponse(responseCode = "400", description = "ACTIVATION_TOKEN_INVALID ou PASSWORD_POLICY_VIOLATION",
+			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	ResponseEntity<Void> activate(@Valid @RequestBody ActivateAccountRequest request) {
+		this.companies.enter(request.company());
+		this.accessLinks.usePassword(request.token(), request.newPassword());
+		return ResponseEntity.noContent().build();
 	}
 
 	/**

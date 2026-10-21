@@ -18,7 +18,10 @@ import com.geststock.exception.UnauthorizedException;
 import com.geststock.role.RoleService;
 import com.geststock.security.RefreshToken.RevocationReason;
 import com.geststock.security.dto.AuthResponse;
+import com.geststock.security.dto.CompanySummary;
 import com.geststock.security.dto.MeResponse;
+import com.geststock.tenancy.CurrentTenant;
+import com.geststock.tenancy.TenantDirectory;
 import com.geststock.user.UserAccount;
 import com.geststock.user.UserAccountService;
 
@@ -43,8 +46,11 @@ public class AuthService {
 
 	private final Clock clock;
 
+	private final CurrentTenant currentTenant;
+
 	AuthService(LoginAuthenticationProvider loginProvider, UserAccountService accounts, RoleService roles,
-			JwtTokenService jwtTokens, RefreshTokenService refreshTokens, AuditService audit, Clock clock) {
+			JwtTokenService jwtTokens, RefreshTokenService refreshTokens, AuditService audit, Clock clock,
+			CurrentTenant currentTenant) {
 		this.loginManager = new ProviderManager(loginProvider);
 		this.accounts = accounts;
 		this.roles = roles;
@@ -52,6 +58,7 @@ public class AuthService {
 		this.refreshTokens = refreshTokens;
 		this.audit = audit;
 		this.clock = clock;
+		this.currentTenant = currentTenant;
 	}
 
 	public AuthResponse login(String username, String password, ClientInfo client) {
@@ -111,7 +118,7 @@ public class AuthService {
 	}
 
 	public MeResponse me(CurrentUser user) {
-		return new MeResponse(this.accounts.profile(user.id()), user.permissions());
+		return new MeResponse(this.accounts.profile(user.id()), user.permissions(), company());
 	}
 
 	/** Change le mot de passe, ferme toutes les sessions, puis en ouvre une nouvelle. */
@@ -124,8 +131,14 @@ public class AuthService {
 
 	private AuthResponse response(UserAccount account, String refreshToken) {
 		JwtTokenService.AccessToken accessToken = this.jwtTokens.issue(account);
-		MeResponse user = new MeResponse(this.accounts.profile(account.id()), this.roles.permissionsOf(account.roles()));
+		MeResponse user = new MeResponse(this.accounts.profile(account.id()), this.roles.permissionsOf(account.roles()),
+				company());
 		return new AuthResponse(accessToken.value(), refreshToken, accessToken.expiresInSeconds(), user);
+	}
+
+	private CompanySummary company() {
+		TenantDirectory.TenantStatus company = this.currentTenant.status();
+		return new CompanySummary(company.ref().code(), company.name());
 	}
 
 }

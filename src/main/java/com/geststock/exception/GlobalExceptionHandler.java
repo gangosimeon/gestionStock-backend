@@ -206,6 +206,13 @@ public class GlobalExceptionHandler {
 	 */
 	@ExceptionHandler(Exception.class)
 	ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
+		// Plafond de pools de connexions atteint (souvent enveloppé par la couche transactionnelle) : 503.
+		for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+			if (cause instanceof com.geststock.tenancy.TenantCapacityException) {
+				log.warn("Capacité de connexions atteinte sur {} {}", request.getMethod(), request.getRequestURI());
+				return respond(ErrorCode.SERVICE_CAPACITY_REACHED, null, request);
+			}
+		}
 		HttpStatusCode status = (ex instanceof ErrorResponse errorResponse) ? errorResponse.getStatusCode()
 				: ErrorCode.INTERNAL_ERROR.status();
 		if (status.is5xxServerError()) {

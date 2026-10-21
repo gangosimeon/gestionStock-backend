@@ -39,6 +39,11 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 	@Override
 	public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException ex)
 			throws IOException {
+		if (ex instanceof CompanyAccessException companyAccess) {
+			// Jeton valide mais entreprise suspendue ou indisponible : 403 explicite, pas de reconnexion.
+			this.errorWriter.write(response, this.errorFactory.create(companyAccess.code(), null, request));
+			return;
+		}
 		boolean invalidToken = ex instanceof OAuth2AuthenticationException;
 		response.setHeader(HttpHeaders.WWW_AUTHENTICATE, invalidToken ? "Bearer error=\"invalid_token\"" : "Bearer");
 		ErrorCode code = invalidToken ? ErrorCode.INVALID_TOKEN : ErrorCode.UNAUTHENTICATED;
