@@ -45,10 +45,28 @@ public class ProvisionerAccess {
 		return this.settings.isConfigured() ? this.settings.username() : this.legacy.connection().username();
 	}
 
+	/**
+	 * Indice de configuration après un refus d'authentification, sans rien révéler du mot de passe :
+	 * source des identifiants, mot de passe absent ou entouré d'espaces (copier-coller).
+	 */
+	String passwordHint() {
+		String source = this.settings.isConfigured() ? " (GESTSTOCK_PROVISIONER_DB_*)" : " (identifiants de la base historique)";
+		String password = password();
+		if (password == null || password.isEmpty()) {
+			return source + " ; mot de passe vide";
+		}
+		if (!password.equals(password.strip())) {
+			return source + " ; le mot de passe commence ou finit par un espace";
+		}
+		return source;
+	}
+
+	private String password() {
+		return this.settings.isConfigured() ? this.settings.password() : this.legacy.connection().password();
+	}
+
 	private DataSource dataSource(String url) {
-		String username = username();
-		String password = this.settings.isConfigured() ? this.settings.password() : this.legacy.connection().password();
-		return new DriverManagerDataSource(url, username, password);
+		return new DriverManagerDataSource(url, username(), password());
 	}
 
 }

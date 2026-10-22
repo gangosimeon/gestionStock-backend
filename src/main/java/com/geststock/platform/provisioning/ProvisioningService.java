@@ -317,7 +317,12 @@ public class ProvisioningService implements ApplicationRunner, DisposableBean {
 		}
 	}
 
-	private static String sqlMessage(SQLException ex) {
+	private String sqlMessage(SQLException ex) {
+		if ("28P01".equals(ex.getSQLState())) {
+			// Connexion refusée : le compte réellement utilisé aide à diagnostiquer (jamais le mot de passe).
+			return "PostgreSQL (28P01) : authentification refusée pour « " + this.provisioner.username() + " »"
+					+ this.provisioner.passwordHint();
+		}
 		String message = ex.getMessage() != null ? ex.getMessage().lines().findFirst().orElse("") : "";
 		if (message.toLowerCase().contains("password")) {
 			message = "erreur SQL";
