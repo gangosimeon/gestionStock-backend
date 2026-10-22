@@ -46,6 +46,24 @@ public class ProvisionerAccess {
 	}
 
 	/**
+	 * Compte utilisé, affiché seulement s'il a la forme d'un nom de rôle PostgreSQL : une valeur
+	 * inattendue (souvent un mot de passe collé dans la mauvaise variable) n'est jamais recopiée.
+	 */
+	String usernameHint() {
+		String username = username();
+		if (username == null || username.isBlank()) {
+			return "un utilisateur vide";
+		}
+		if (ROLE_NAME.matcher(username).matches()) {
+			return "« " + username + " »";
+		}
+		return "un utilisateur inattendu (" + username.length()
+				+ " caractères, ressemble à un mot de passe : vérifier la variable USERNAME)";
+	}
+
+	private static final java.util.regex.Pattern ROLE_NAME = java.util.regex.Pattern.compile("[a-z_][a-z0-9_$]{0,62}");
+
+	/**
 	 * Indice de configuration après un refus d'authentification, sans rien révéler du mot de passe :
 	 * source des identifiants, mot de passe absent ou entouré d'espaces (copier-coller).
 	 */

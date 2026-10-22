@@ -25,9 +25,21 @@ class ProvisionerAccessTest {
 		assertThat(access("").passwordHint()).contains("mot de passe vide");
 	}
 
+	@Test
+	void aRoleNameIsShownButAPasswordPastedAsUsernameIsNot() {
+		assertThat(access("geststock_provisioner", "x").usernameHint()).isEqualTo("« geststock_provisioner »");
+		assertThat(access("hgRIQ0Mixed9Case4Secret", "x").usernameHint())
+			.contains("inattendu")
+			.doesNotContain("hgRIQ0Mixed9Case4Secret");
+	}
+
 	private static ProvisionerAccess access(String password) {
+		return access("geststock_provisioner", password);
+	}
+
+	private static ProvisionerAccess access(String username, String password) {
 		PlatformProperties properties = new PlatformProperties(null,
-				new PlatformProperties.Datasource("jdbc:postgresql://db:5432/geststock", "geststock_provisioner", password, 5),
+				new PlatformProperties.Datasource("jdbc:postgresql://db:5432/geststock", username, password, 5),
 				null, null, null);
 		return new ProvisionerAccess(properties, mock(LegacyDatabase.class), mock(CompanyDirectory.class));
 	}
