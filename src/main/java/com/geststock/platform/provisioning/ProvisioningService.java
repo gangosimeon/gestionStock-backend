@@ -239,10 +239,38 @@ public class ProvisioningService implements ApplicationRunner, DisposableBean {
 		boolean exists = this.provisionerQuery("select count(*) from pg_roles where rolname = ?", db.role()) > 0;
 		// Mot de passe toujours réaligné sur celui stocké (reprise après un échec partiel).
 		String verb = exists ? "ALTER ROLE " : "CREATE ROLE ";
-		// Vérificateur SCRAM pré-calculé : le mot de passe en clair n'est jamais envoyé au serveur.
-		executeDdl(verb + quote(db.role()) + " WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '"
-				+ ScramSha256.verifier(password) + "'");
-		return exists ? "Rôle " + db.role() + " déjà présent (mot de passe réaligné)" : "Rôle " + db.role() + " créé";
+		String ddl = verb + quote(db.role()) + " WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ";
+		// Vérificateur SCRAM pré-calculé : le mot de passe en clair n'est pas envoyé au serveur.
+		String verifier = ScramSha256.verifier(password);
+		String hashing = "";
+		try {
+			runDdl(ddl + "'" + verifier + "'");
+		}
+		catch (SQLException ex) {
+			if (isConnectionFailure(ex)) {
+				throw new ProvisioningException(sqlMessage(ex, verifier, password));
+			}
+			// Certains hébergeurs (ex. Neon) refusent les mots de passe pré-hachés : ils contrôlent eux-mêmes la
+			// robustesse du mot de passe. Il est alors transmis (connexion TLS) et haché par le serveur ; il
+			// n'apparaît jamais dans les journaux ni les messages de l'application. Alphabet sans apostrophe.
+			log.warn("Rôle {} : vérificateur SCRAM refusé par le serveur ({}), mot de passe haché par le serveur.",
+					db.role(), ex.getSQLState());
+			try {
+				runDdl(ddl + "'" + password + "'");
+			}
+			catch (SQLException retry) {
+				throw new ProvisioningException(sqlMessage(retry, verifier, password));
+			}
+			hashing = " (mot de passe haché par le serveur)";
+		}
+		return (exists ? "Rôle " + db.role() + " déjà présent (mot de passe réaligné)" : "Rôle " + db.role() + " créé")
+				+ hashing;
+	}
+
+	/** Connexion impossible (réseau, authentification) : inutile de retenter l'instruction autrement. */
+	private static boolean isConnectionFailure(SQLException ex) {
+		String state = ex.getSQLState();
+		return state == null || state.startsWith("08") || state.startsWith("28");
 	}
 
 	private String ensureDatabase(Company company) {
@@ -308,23 +336,44 @@ public class ProvisioningService implements ApplicationRunner, DisposableBean {
 
 	/** DDL hors transaction, sur la base d'administration ; message d'erreur sans l'instruction (mot de passe). */
 	private void executeDdl(String ddl) {
-		try (Connection connection = this.provisioner.server().getConnection(); Statement statement = connection.createStatement()) {
-			connection.setAutoCommit(true);
-			statement.execute(ddl);
+		try {
+			runDdl(ddl);
 		}
 		catch (SQLException ex) {
 			throw new ProvisioningException(sqlMessage(ex));
 		}
 	}
 
+	private void runDdl(String ddl) throws SQLException {
+		try (Connection connection = this.provisioner.server().getConnection(); Statement statement = connection.createStatement()) {
+			connection.setAutoCommit(true);
+			statement.execute(ddl);
+		}
+	}
+
 	private String sqlMessage(SQLException ex) {
+		return sqlMessage(ex, (String[]) null);
+	}
+
+	/**
+	 * Message d'erreur PostgreSQL affichable. Avec les secrets de l'instruction : message réel, secrets
+	 * remplacés par « *** ». Sans : tout message évoquant un mot de passe est masqué par prudence.
+	 */
+	String sqlMessage(SQLException ex, String... secrets) {
 		if ("28P01".equals(ex.getSQLState())) {
 			// Connexion refusée : le compte réellement utilisé aide à diagnostiquer (jamais le mot de passe).
 			return "PostgreSQL (28P01) : authentification refusée pour " + this.provisioner.usernameHint()
 					+ this.provisioner.passwordHint();
 		}
 		String message = ex.getMessage() != null ? ex.getMessage().lines().findFirst().orElse("") : "";
-		if (message.toLowerCase().contains("password")) {
+		if (secrets != null) {
+			for (String secret : secrets) {
+				if (secret != null && !secret.isEmpty()) {
+					message = message.replace(secret, "***");
+				}
+			}
+		}
+		else if (message.toLowerCase().contains("password")) {
 			message = "erreur SQL";
 		}
 		return "PostgreSQL (" + ex.getSQLState() + ") : " + message;
