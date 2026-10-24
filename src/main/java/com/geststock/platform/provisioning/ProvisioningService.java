@@ -352,12 +352,13 @@ public class ProvisioningService implements ApplicationRunner, DisposableBean {
 	}
 
 	private String sqlMessage(SQLException ex) {
-		return sqlMessage(ex, (String[]) null);
+		return sqlMessage(ex, new String[0]);
 	}
 
 	/**
-	 * Message d'erreur PostgreSQL affichable. Avec les secrets de l'instruction : message réel, secrets
-	 * remplacés par « *** ». Sans : tout message évoquant un mot de passe est masqué par prudence.
+	 * Message d'erreur PostgreSQL affichable : message réel du serveur (indispensable au diagnostic),
+	 * avec les secrets connus remplacés par « *** » — ceux de l'instruction et ceux du compte de
+	 * provisionnement. Les instructions DDL elles-mêmes ne sont jamais recopiées.
 	 */
 	String sqlMessage(SQLException ex, String... secrets) {
 		if ("28P01".equals(ex.getSQLState())) {
@@ -366,17 +367,12 @@ public class ProvisioningService implements ApplicationRunner, DisposableBean {
 					+ this.provisioner.passwordHint();
 		}
 		String message = ex.getMessage() != null ? ex.getMessage().lines().findFirst().orElse("") : "";
-		if (secrets != null) {
-			for (String secret : secrets) {
-				if (secret != null && !secret.isEmpty()) {
-					message = message.replace(secret, "***");
-				}
+		for (String secret : secrets) {
+			if (secret != null && !secret.isEmpty()) {
+				message = message.replace(secret, "***");
 			}
 		}
-		else if (message.toLowerCase().contains("password")) {
-			message = "erreur SQL";
-		}
-		return "PostgreSQL (" + ex.getSQLState() + ") : " + message;
+		return "PostgreSQL (" + ex.getSQLState() + ") : " + this.provisioner.redact(message);
 	}
 
 	static String safeMessage(RuntimeException ex) {

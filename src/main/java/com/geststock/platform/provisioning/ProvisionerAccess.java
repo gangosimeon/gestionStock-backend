@@ -79,6 +79,29 @@ public class ProvisionerAccess {
 		return source;
 	}
 
+	/** Retire d'un message les identifiants de connexion (mot de passe, et nom d'utilisateur s'il en a l'air). */
+	String redact(String message) {
+		if (message == null) {
+			return "";
+		}
+		java.util.List<String> secrets = new java.util.ArrayList<>();
+		String password = password();
+		if (password != null && !password.isBlank()) {
+			secrets.add(password);
+		}
+		String username = username();
+		if (username != null && !username.isBlank() && !ROLE_NAME.matcher(username).matches()) {
+			secrets.add(username);
+		}
+		// Le plus long d'abord : un secret court contenu dans un plus long ne le laisse pas à moitié visible.
+		secrets.sort(java.util.Comparator.comparingInt(String::length).reversed());
+		String result = message;
+		for (String secret : secrets) {
+			result = result.replace(secret, "***");
+		}
+		return result;
+	}
+
 	private String password() {
 		return this.settings.isConfigured() ? this.settings.password() : this.legacy.connection().password();
 	}

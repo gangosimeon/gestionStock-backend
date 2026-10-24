@@ -33,6 +33,15 @@ class ProvisionerAccessTest {
 			.doesNotContain("hgRIQ0Mixed9Case4Secret");
 	}
 
+	@Test
+	void serverMessagesAreShownWithoutTheConnectionSecrets() {
+		assertThat(access("Secret2026").redact("FATAL: bad option Secret2026 for endpoint"))
+			.isEqualTo("FATAL: bad option *** for endpoint");
+		assertThat(access("hgRIQ0Mixed9Case4Secret", "x").redact("role \"hgRIQ0Mixed9Case4Secret\" unknown"))
+			.isEqualTo("role \"***\" unknown");
+		assertThat(access("Secret2026").redact(null)).isEmpty();
+	}
+
 	private static ProvisionerAccess access(String password) {
 		return access("geststock_provisioner", password);
 	}
