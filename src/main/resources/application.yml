@@ -184,6 +184,9 @@ geststock:
     default-company: ${GESTSTOCK_DEFAULT_COMPANY:}
     # Bases dédiées : <préfixe><numéro sur 4 chiffres>, ex. geststock_company_0002.
     database-prefix: ${GESTSTOCK_TENANT_DATABASE_PREFIX:geststock_company_}
+    # Migrations Flyway de chaque entreprise au démarrage. false : démarrage rapide (hébergement à délai
+    # de démarrage court, ex. Vercel) ; les migrations sont alors jouées à part à chaque mise à jour du schéma.
+    migrate-on-startup: ${GESTSTOCK_TENANT_MIGRATE_ON_STARTUP:true}
     pool:
       max-size: ${GESTSTOCK_TENANT_POOL_MAX_SIZE:5}
       legacy-max-size: ${GESTSTOCK_DB_POOL_SIZE:10}

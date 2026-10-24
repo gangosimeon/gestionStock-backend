@@ -24,23 +24,20 @@ RUN ./mvnw -B -q package -DskipTests \
 # --- Exécution ---------------------------------------------------------------------
 FROM eclipse-temurin:21-jre
 
-RUN groupadd --system geststock \
-    && useradd --system --gid geststock --home /app --shell /usr/sbin/nologin geststock
-
 WORKDIR /app
 COPY --from=build /workspace/extracted/dependencies/ ./
 COPY --from=build /workspace/extracted/spring-boot-loader/ ./
 COPY --from=build /workspace/extracted/snapshot-dependencies/ ./
 COPY --from=build /workspace/extracted/application/ ./
 
-USER geststock
-
+# Pas d'utilisateur dédié : Vercel impose le port ($PORT, 80 par défaut) et seul root écoute sous 1024.
+# Isolation assurée par la micro-VM de Vercel.
+# Migrations des entreprises hors démarrage : Vercel coupe le conteneur si le port n'est pas ouvert en ~28 s.
 ENV SPRING_PROFILES_ACTIVE=prod \
     TZ=UTC \
-    PORT=8080 \
-    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:TieredStopAtLevel=1 -Djava.security.egd=file:/dev/./urandom"
+    GESTSTOCK_TENANT_MIGRATE_ON_STARTUP=false \
+    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:TieredStopAtLevel=1 -Xshare:auto -Djava.security.egd=file:/dev/./urandom"
 
-EXPOSE 8080
+EXPOSE 80
 
-# Écoute sur $PORT (utilisateur non root : un port >= 1024, d'où PORT=8080 côté Vercel).
-ENTRYPOINT ["sh", "-c", "exec java -Dserver.port=${PORT:-8080} org.springframework.boot.loader.launch.JarLauncher"]
+ENTRYPOINT ["sh", "-c", "exec java -Dserver.port=${PORT:-80} org.springframework.boot.loader.launch.JarLauncher"]
