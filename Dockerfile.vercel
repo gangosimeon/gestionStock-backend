@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Image du backend GestStock pour Vercel (runtime « Container », bêta) : détectée
+# automatiquement à la racine du projet ; tout le trafic du projet lui est envoyé.
+# Même construction que Dockerfile ; différences :
+#   - port d'écoute : variable PORT fournie par Vercel (à définir à 8080 dans le projet) ;
+#   - pas de HEALTHCHECK Docker (Vercel ne l'utilise pas).
+# Aucun secret dans l'image : variables d'environnement du projet Vercel.
+# =============================================================================
+
+# --- Construction ------------------------------------------------------------------
+FROM eclipse-temurin:21-jdk AS build
+WORKDIR /workspace
+
+COPY mvnw pom.xml ./
+COPY .mvn .mvn
+RUN chmod +x mvnw && ./mvnw -B -q dependency:go-offline
+
+COPY src src
+RUN ./mvnw -B -q package -DskipTests \
+    && cp target/geststock-backend-*.jar app.jar \
+    && java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
+
+# --- Exécution ---------------------------------------------------------------------
+FROM eclipse-temurin:21-jre
+
+RUN groupadd --system geststock \
+    && useradd --system --gid geststock --home /app --shell /usr/sbin/nologin geststock
+
+WORKDIR /app
+COPY --from=build /workspace/extracted/dependencies/ ./
+COPY --from=build /workspace/extracted/spring-boot-loader/ ./
+COPY --from=build /workspace/extracted/snapshot-dependencies/ ./
+COPY --from=build /workspace/extracted/application/ ./
+
+USER geststock
+
+ENV SPRING_PROFILES_ACTIVE=prod \
+    TZ=UTC \
+    PORT=8080 \
+    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:TieredStopAtLevel=1 -Djava.security.egd=file:/dev/./urandom"
+
+EXPOSE 8080
+
+# Écoute sur $PORT (utilisateur non root : un port >= 1024, d'où PORT=8080 côté Vercel).
+ENTRYPOINT ["sh", "-c", "exec java -Dserver.port=${PORT:-8080} org.springframework.boot.loader.launch.JarLauncher"]
