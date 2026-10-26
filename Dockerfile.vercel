@@ -3,13 +3,14 @@
 # Image du backend GestStock pour Vercel (runtime « Container », bêta) : détectée
 # automatiquement à la racine du projet ; tout le trafic du projet lui est envoyé.
 # Même construction que Dockerfile ; différences :
-#   - port d'écoute : variable PORT fournie par Vercel (à définir à 8080 dans le projet) ;
+#   - images Alpine (moins de paquets système, donc moins de failles signalées) ;
+#   - port d'écoute : variable PORT fournie par Vercel (80 par défaut) ;
 #   - pas de HEALTHCHECK Docker (Vercel ne l'utilise pas).
 # Aucun secret dans l'image : variables d'environnement du projet Vercel.
 # =============================================================================
 
 # --- Construction ------------------------------------------------------------------
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:21-jdk-alpine AS build
 WORKDIR /workspace
 
 COPY mvnw pom.xml ./
@@ -22,7 +23,10 @@ RUN ./mvnw -B -q package -DskipTests \
     && java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 # --- Exécution ---------------------------------------------------------------------
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre-alpine
+
+# Correctifs de sécurité publiés depuis la construction de l'image de base.
+RUN apk upgrade --no-cache
 
 WORKDIR /app
 COPY --from=build /workspace/extracted/dependencies/ ./
@@ -40,4 +44,5 @@ ENV SPRING_PROFILES_ACTIVE=prod \
 
 EXPOSE 80
 
-ENTRYPOINT ["sh", "-c", "exec java -Dserver.port=${PORT:-80} org.springframework.boot.loader.launch.JarLauncher"]
+# ${PORT:80} est résolu par Spring (variable d'environnement PORT, sinon 80) : pas de shell nécessaire.
+ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher", "--server.port=${PORT:80}"]

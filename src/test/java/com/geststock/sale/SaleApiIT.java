@@ -511,6 +511,13 @@ class SaleApiIT {
 			.andExpect(jsonPath("$.cashReceived").value(50000))
 			.andExpect(jsonPath("$.changeGiven").value(15000)));
 
+		// Enregistrés en base (lecture JDBC : la relecture HTTP de ce test transactionnel passe par le
+		// cache d'Hibernate et ne verrait pas une valeur restée en mémoire).
+		java.util.Map<String, Object> stored = this.jdbc
+			.queryForMap("select cash_received, change_given from sale where id = ?::uuid", id);
+		assertThat((java.math.BigDecimal) stored.get("cash_received")).isEqualByComparingTo("50000");
+		assertThat((java.math.BigDecimal) stored.get("change_given")).isEqualByComparingTo("15000");
+
 		// Relu pour vérification ; la caisse n'encaisse que le montant payé.
 		this.mvc.perform(get("/api/sales/{id}", id).with(manager()))
 			.andExpect(jsonPath("$.cashReceived").value(50000))

@@ -280,12 +280,15 @@ public class SaleService {
 		}
 
 		// 4 : vente, au nom de l'utilisateur connecté (created_by).
-		Sale sale = this.sales.save(new Sale(nextNumber(), warehouseId, customer != null ? customer.id() : null,
+		Sale created = new Sale(nextNumber(), warehouseId, customer != null ? customer.id() : null,
 				customer != null ? customer.name() : null, priceType, subtotal, discountTotal, costTotal, paid,
-				paid.signum() > 0 ? request.paymentMethod() : null, blankToNull(request.note())));
+				paid.signum() > 0 ? request.paymentMethod() : null, blankToNull(request.note()));
+		// Avant save() : Hibernate fige les valeurs de l'INSERT à la persistance, et ces colonnes
+		// (updatable = false, immuables en base) seraient omises de l'UPDATE qui suivrait.
 		if (received != null) {
-			sale.recordCashTender(received);
+			created.recordCashTender(received);
 		}
+		Sale sale = this.sales.save(created);
 		this.entityManager.flush();
 
 		// 5 : sorties de stock, sous verrou ; refus = rollback de toute la vente.

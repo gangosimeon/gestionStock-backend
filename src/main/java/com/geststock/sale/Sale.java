@@ -195,6 +195,10 @@ public class Sale extends AuditableEntity {
 	 * Avant l'enregistrement seulement (colonnes immuables).
 	 */
 	void recordCashTender(BigDecimal received) {
+		if (getId() != null) {
+			// Après persistance, la valeur resterait en mémoire : colonnes exclues de tout UPDATE.
+			throw new IllegalStateException("Montant reçu à renseigner avant l'enregistrement de la vente.");
+		}
 		if (received.compareTo(this.paidAmount) < 0) {
 			throw new IllegalArgumentException("Montant reçu inférieur au montant payé.");
 		}
