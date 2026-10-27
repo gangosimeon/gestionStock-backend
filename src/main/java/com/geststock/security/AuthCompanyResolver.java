@@ -7,12 +7,14 @@ import org.springframework.stereotype.Component;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.ForbiddenOperationException;
 import com.geststock.exception.InvalidRequestException;
+import com.geststock.exception.ServiceUnavailableException;
 import com.geststock.exception.UnauthorizedException;
 import com.geststock.tenancy.DefaultTenant;
 import com.geststock.tenancy.TenantContext;
 import com.geststock.tenancy.TenantDirectory;
 import com.geststock.tenancy.TenantDirectory.TenantStatus;
 import com.geststock.tenancy.TenantRef;
+import com.geststock.tenancy.TenantSchemaRegistry;
 
 /**
  * Entreprise d'une requête d'authentification (connexion, renouvellement, activation) : le code
@@ -29,17 +31,33 @@ public class AuthCompanyResolver {
 
 	private final DefaultTenant defaultTenant;
 
-	AuthCompanyResolver(TenantDirectory directory, DefaultTenant defaultTenant) {
+	private final TenantSchemaRegistry schemas;
+
+	AuthCompanyResolver(TenantDirectory directory, DefaultTenant defaultTenant, TenantSchemaRegistry schemas) {
 		this.directory = directory;
 		this.defaultTenant = defaultTenant;
+		this.schemas = schemas;
 	}
 
 	/** Fixe l'entreprise de la requête (connexion) ; erreur si elle est inconnue ou inaccessible. */
 	public TenantRef enter(String companyCode) {
 		TenantStatus status = find(companyCode).orElseThrow(() -> new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS));
 		requireActive(status);
+		schemaRefusal(this.schemas, status.ref()).ifPresent(code -> {
+			throw new ServiceUnavailableException(code);
+		});
 		TenantContext.set(status.ref());
 		return status.ref();
+	}
+
+	/**
+	 * Base de l'entreprise en cours de mise à jour ou dont la mise à jour a échoué : 503. Le code déployé
+	 * ne tourne jamais sur un schéma en retard.
+	 */
+	static Optional<ErrorCode> schemaRefusal(TenantSchemaRegistry schemas, TenantRef tenant) {
+		return schemas.blockingState(tenant.companyId())
+			.map(state -> state == TenantSchemaRegistry.State.UPGRADING ? ErrorCode.SCHEMA_UPGRADE_IN_PROGRESS
+					: ErrorCode.SCHEMA_UPGRADE_FAILED);
 	}
 
 	/** Variante silencieuse (déconnexion) : rien n'est fixé si l'entreprise est inconnue ou inaccessible. */

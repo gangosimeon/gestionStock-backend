@@ -19,6 +19,7 @@ import com.geststock.exception.ErrorCode;
 import com.geststock.role.RoleService;
 import com.geststock.tenancy.TenantContext;
 import com.geststock.tenancy.TenantDirectory;
+import com.geststock.tenancy.TenantSchemaRegistry;
 import com.geststock.user.UserAccount;
 import com.geststock.user.UserAccountService;
 
@@ -44,13 +45,16 @@ public class JwtUserAuthenticationConverter implements JwtAuthenticationResolver
 
 	private final PlatformTokenResolver platformTokens;
 
+	private final TenantSchemaRegistry schemas;
+
 	JwtUserAuthenticationConverter(UserAccountService accounts, RoleService roles, Clock clock, TenantDirectory directory,
-			PlatformTokenResolver platformTokens) {
+			PlatformTokenResolver platformTokens, TenantSchemaRegistry schemas) {
 		this.accounts = accounts;
 		this.roles = roles;
 		this.clock = clock;
 		this.directory = directory;
 		this.platformTokens = platformTokens;
+		this.schemas = schemas;
 	}
 
 	@Override
@@ -100,6 +104,9 @@ public class JwtUserAuthenticationConverter implements JwtAuthenticationResolver
 		if (!company.isActive()) {
 			throw new CompanyAccessException(ErrorCode.COMPANY_UNAVAILABLE);
 		}
+		AuthCompanyResolver.schemaRefusal(this.schemas, company.ref()).ifPresent(code -> {
+			throw new CompanyAccessException(code);
+		});
 		TenantContext.set(company.ref());
 	}
 

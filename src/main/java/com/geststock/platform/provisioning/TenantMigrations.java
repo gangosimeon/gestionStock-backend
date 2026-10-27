@@ -43,15 +43,7 @@ public class TenantMigrations {
 
 	public MigrateResult migrate(TenantRef tenant, Configuration base) {
 		DatabaseInfo info = info(tenant.companyId());
-		DataSource owner = info.legacy() ? legacyOwner() : this.provisioner.database(info.databaseName());
-		var configuration = Flyway.configure().configuration(base).dataSource(owner);
-		if (!info.legacy()) {
-			// Jamais de données de démonstration (comptes, mots de passe connus) dans une base d'entreprise.
-			configuration.locations(java.util.Arrays.stream(base.getLocations())
-				.filter(location -> !location.getDescriptor().contains("db/seed"))
-				.toArray(org.flywaydb.core.api.Location[]::new));
-		}
-		MigrateResult result = configuration.load().migrate();
+		MigrateResult result = flyway(info, base).migrate();
 		if (!info.legacy()) {
 			grantRuntimePrivileges(info.databaseName(), info.runtimeRole());
 		}
@@ -76,6 +68,24 @@ public class TenantMigrations {
 		jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO " + role);
 		jdbc.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
 		jdbc.execute("REVOKE INSERT, UPDATE, DELETE ON public.flyway_schema_history FROM " + role);
+	}
+
+	/** Migrations disponibles mais pas encore appliquées à la base de l'entreprise (lecture seule). */
+	public int pendingCount(TenantRef tenant, Configuration base) {
+		return flyway(info(tenant.companyId()), base).info().pending().length;
+	}
+
+	/** Flyway de la base de l'entreprise, avec le compte propriétaire de ses objets. */
+	private Flyway flyway(DatabaseInfo info, Configuration base) {
+		DataSource owner = info.legacy() ? legacyOwner() : this.provisioner.database(info.databaseName());
+		var configuration = Flyway.configure().configuration(base).dataSource(owner);
+		if (!info.legacy()) {
+			// Jamais de données de démonstration (comptes, mots de passe connus) dans une base d'entreprise.
+			configuration.locations(java.util.Arrays.stream(base.getLocations())
+				.filter(location -> !location.getDescriptor().contains("db/seed"))
+				.toArray(org.flywaydb.core.api.Location[]::new));
+		}
+		return configuration.load();
 	}
 
 	private DataSource legacyOwner() {

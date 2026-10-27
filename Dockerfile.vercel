@@ -36,7 +36,8 @@ COPY --from=build /workspace/extracted/application/ ./
 
 # Pas d'utilisateur dédié : Vercel impose le port ($PORT, 80 par défaut) et seul root écoute sous 1024.
 # Isolation assurée par la micro-VM de Vercel.
-# Migrations des entreprises hors démarrage : Vercel coupe le conteneur si le port n'est pas ouvert en ~28 s.
+# Migrations des entreprises après le démarrage, en arrière-plan (SchemaUpgradeService) : Vercel coupe le
+# conteneur si le port n'est pas ouvert en ~28 s. État et relance : espace Super Admin.
 ENV SPRING_PROFILES_ACTIVE=prod \
     TZ=UTC \
     GESTSTOCK_TENANT_MIGRATE_ON_STARTUP=false \

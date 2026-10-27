@@ -40,7 +40,8 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 	public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException ex)
 			throws IOException {
 		if (ex instanceof CompanyAccessException companyAccess) {
-			// Jeton valide mais entreprise suspendue ou indisponible : 403 explicite, pas de reconnexion.
+			// Jeton valide mais entreprise suspendue, indisponible ou en mise à jour : réponse explicite (403 ou
+			// 503 selon le code), pas de reconnexion.
 			this.errorWriter.write(response, this.errorFactory.create(companyAccess.code(), null, request));
 			return;
 		}

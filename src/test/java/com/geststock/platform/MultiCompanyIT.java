@@ -47,6 +47,8 @@ import com.geststock.support.PostgresTestConfiguration;
 import com.geststock.tenancy.TenantConnection;
 import com.geststock.tenancy.TenantContext;
 import com.geststock.tenancy.TenantDataSourceRegistry;
+import com.geststock.tenancy.TenantRef;
+import com.geststock.tenancy.TenantSchemaRegistry;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -114,6 +116,9 @@ class MultiCompanyIT {
 
 	@MockitoSpyBean
 	private TenantMigrations migrations;
+
+	@Autowired
+	private TenantSchemaRegistry schemas;
 
 	private final String suffix = UUID.randomUUID().toString().substring(0, 6).toLowerCase(Locale.ROOT);
 
@@ -425,7 +430,110 @@ class MultiCompanyIT {
 		this.mvc.perform(get("/api/public/companies/{code}/logo", this.b.code())).andExpect(status().isNotFound());
 	}
 
+	// --- Mise à jour des bases après un déploiement -------------------------------------------------
+
+	@Test
+	void theSchemaUpgradeIsReservedToTheSuperAdminAndChecksEveryActiveCompany() throws Exception {
+		this.mvc.perform(post("/api/platform/schema-upgrades").with(bearer(this.a.token())))
+			.andExpect(status().isForbidden());
+		this.mvc.perform(get("/api/platform/schema-upgrades").with(bearer(this.a.token())))
+			.andExpect(status().isForbidden());
+
+		this.mvc.perform(post("/api/platform/schema-upgrades").with(bearer(this.superToken)))
+			.andExpect(status().isAccepted());
+		JsonNode done = awaitSchemaUpgrade();
+
+		assertThat(schemaEntry(done, this.a.code()).get("state").asString()).isEqualTo("UP_TO_DATE");
+		assertThat(schemaEntry(done, this.b.code()).get("state").asString()).isEqualTo("UP_TO_DATE");
+		this.mvc.perform(get("/api/auth/me").with(bearer(this.a.token()))).andExpect(status().isOk());
+	}
+
+	@Test
+	void aCompanyIsRefusedWhileItsDatabaseIsUpgradedAndRestoredAfterwards() throws Exception {
+		TenantRef refA = new TenantRef(this.a.id(), this.a.code());
+		try {
+			this.schemas.upgrading(refA, 2);
+			// Requête authentifiée et connexion : 503 explicite, l'autre entreprise n'est pas concernée.
+			this.mvc.perform(get("/api/auth/me").with(bearer(this.a.token())))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("SCHEMA_UPGRADE_IN_PROGRESS"));
+			login(this.a.code(), "admin", ADMIN_PASSWORD).andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("SCHEMA_UPGRADE_IN_PROGRESS"));
+			this.mvc.perform(get("/api/auth/me").with(bearer(this.b.token()))).andExpect(status().isOk());
+
+			this.schemas.failed(refA, 2, "échec simulé");
+			this.mvc.perform(get("/api/auth/me").with(bearer(this.a.token())))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("SCHEMA_UPGRADE_FAILED"));
+
+			this.schemas.upToDate(refA, 2, 2);
+			this.mvc.perform(get("/api/auth/me").with(bearer(this.a.token()))).andExpect(status().isOk());
+		}
+		finally {
+			this.schemas.upToDate(refA, 0, 0);
+		}
+	}
+
+	@Test
+	void aFailedUpgradeKeepsTheCompanyClosedUntilARetrySucceeds() throws Exception {
+		org.mockito.ArgumentMatcher<TenantRef> companyA = tenant -> tenant != null && tenant.companyId().equals(this.a.id());
+		try {
+			// Migrations en attente détectées, puis échec de leur application pour l'entreprise A seulement.
+			org.mockito.Mockito.doReturn(2).when(this.migrations).pendingCount(argThat(companyA), any());
+			doThrow(new IllegalStateException("Migration simulée en échec")).when(this.migrations)
+				.migrate(argThat(companyA), any());
+			this.mvc.perform(post("/api/platform/schema-upgrades").with(bearer(this.superToken)))
+				.andExpect(status().isAccepted());
+			JsonNode failed = awaitSchemaUpgrade();
+
+			JsonNode entryA = schemaEntry(failed, this.a.code());
+			assertThat(entryA.get("state").asString()).isEqualTo("FAILED");
+			assertThat(entryA.get("pending").asInt()).isEqualTo(2);
+			assertThat(entryA.get("message").asString()).contains("Migration simulée en échec");
+			assertThat(schemaEntry(failed, this.b.code()).get("state").asString()).isEqualTo("UP_TO_DATE");
+			this.mvc.perform(get("/api/auth/me").with(bearer(this.a.token())))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("SCHEMA_UPGRADE_FAILED"));
+
+			// Cause corrigée : relance par le Super Admin, entreprise rouverte.
+			doCallRealMethod().when(this.migrations).migrate(any(), any());
+			doCallRealMethod().when(this.migrations).pendingCount(any(), any());
+			this.mvc.perform(post("/api/platform/schema-upgrades").with(bearer(this.superToken)))
+				.andExpect(status().isAccepted());
+			assertThat(schemaEntry(awaitSchemaUpgrade(), this.a.code()).get("state").asString()).isEqualTo("UP_TO_DATE");
+			this.mvc.perform(get("/api/auth/me").with(bearer(this.a.token()))).andExpect(status().isOk());
+		}
+		finally {
+			doCallRealMethod().when(this.migrations).migrate(any(), any());
+			doCallRealMethod().when(this.migrations).pendingCount(any(), any());
+			this.schemas.upToDate(new TenantRef(this.a.id(), this.a.code()), 0, 0);
+		}
+	}
+
 	// --- Outils -------------------------------------------------------------------------------------
+
+	/** Attend la fin de la mise à jour en arrière-plan (état renvoyé au Super Admin). */
+	private JsonNode awaitSchemaUpgrade() throws Exception {
+		long deadline = System.currentTimeMillis() + 60_000;
+		while (true) {
+			JsonNode status = read(this.mvc.perform(get("/api/platform/schema-upgrades").with(bearer(this.superToken)))
+				.andExpect(status().isOk()));
+			if (!status.get("running").asBoolean()) {
+				return status;
+			}
+			assertThat(System.currentTimeMillis()).as("mise à jour des bases terminée en 60 s").isLessThan(deadline);
+			Thread.sleep(100);
+		}
+	}
+
+	private static JsonNode schemaEntry(JsonNode status, String code) {
+		for (JsonNode entry : status.get("companies")) {
+			if (code.equals(entry.get("code").asString())) {
+				return entry;
+			}
+		}
+		throw new AssertionError("Base de l'entreprise « " + code + " » non vérifiée");
+	}
 
 	private Company provision(String code, String name, String color) throws Exception {
 		JsonNode created = read(this.mvc.perform(post("/api/platform/companies").with(bearer(this.superToken))

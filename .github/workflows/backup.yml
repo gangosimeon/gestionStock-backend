@@ -1,0 +1,68 @@
+# Sauvegarde quotidienne chiffrée de toutes les bases GestStock (historique, plateforme, entreprises),
+# hors de l'hébergeur des bases, avec test de restauration à chaque exécution.
+#
+# Secrets du dépôt (Settings > Secrets and variables > Actions) — jamais écrits dans les journaux :
+#   GESTSTOCK_BACKUP_ADMIN_URL        postgresql://neondb_owner:<mot de passe>@<hôte Neon>
+#   GESTSTOCK_BACKUP_PROVISIONER_URL  postgresql://geststock_provisioner:<mot de passe>@<hôte Neon>
+#   GESTSTOCK_BACKUP_PASSPHRASE       phrase secrète de chiffrement (à conserver aussi hors de GitHub)
+# Restauration : scripts/backup/README.md.
+name: backup
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # chaque nuit, 02:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # Serveur de test jetable pour vérifier que la sauvegarde se restaure (jamais la production).
+      verify-db:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: verify
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Client PostgreSQL 18 (version égale ou supérieure à celle du serveur)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-18
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
+      - name: Sauvegarde chiffrée
+        env:
+          GESTSTOCK_BACKUP_ADMIN_URL: ${{ secrets.GESTSTOCK_BACKUP_ADMIN_URL }}
+          GESTSTOCK_BACKUP_PROVISIONER_URL: ${{ secrets.GESTSTOCK_BACKUP_PROVISIONER_URL }}
+          GESTSTOCK_BACKUP_PASSPHRASE: ${{ secrets.GESTSTOCK_BACKUP_PASSPHRASE }}
+          GESTSTOCK_BACKUP_DIR: backup-out
+        run: bash scripts/backup/backup-databases.sh
+
+      - name: Test de restauration
+        env:
+          GESTSTOCK_BACKUP_PASSPHRASE: ${{ secrets.GESTSTOCK_BACKUP_PASSPHRASE }}
+          GESTSTOCK_VERIFY_URL: postgresql://postgres:verify@localhost:5432
+        run: bash scripts/backup/verify-backup.sh backup-out/*.tar.gpg
+
+      - name: Conservation (artefact privé, 30 jours)
+        uses: actions/upload-artifact@v4
+        with:
+          name: geststock-backup-${{ github.run_id }}
+          path: backup-out/
+          retention-days: 30
+          if-no-files-found: error
