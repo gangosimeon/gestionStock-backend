@@ -136,7 +136,9 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(MaxUploadSizeExceededException.class)
 	ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException ex, HttpServletRequest request) {
-		return respond(ErrorCode.FILE_TOO_LARGE, ErrorCode.FILE_TOO_LARGE.defaultMessage(), request);
+		// Au-delà de la limite globale des envois (photo de produit : 8 Mo) ; chaque usage applique en plus
+		// sa propre limite, plus basse le cas échéant (logo : 2 Mo).
+		return respond(ErrorCode.FILE_TOO_LARGE, "Fichier trop volumineux : 8 Mo maximum.", request);
 	}
 
 	@ExceptionHandler(MissingServletRequestPartException.class)

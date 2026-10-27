@@ -96,6 +96,8 @@ public enum ErrorCode {
 	BRAND_NAME_ALREADY_USED(HttpStatus.CONFLICT, "Une marque porte déjà ce nom."),
 	BRAND_INACTIVE(HttpStatus.UNPROCESSABLE_CONTENT, "Cette marque est désactivée : choisissez une marque active."),
 	PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "Produit introuvable."),
+	PRODUCT_IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Aucune photo pour ce produit."),
+	INVALID_PRODUCT_IMAGE(HttpStatus.BAD_REQUEST, "Photo refusée : choisissez une image JPEG ou PNG."),
 	SKU_ALREADY_USED(HttpStatus.CONFLICT, "Cette référence (SKU) est déjà utilisée."),
 	BARCODE_ALREADY_USED(HttpStatus.CONFLICT, "Ce code-barres est déjà attribué à un autre produit."),
 	PRODUCT_INACTIVE(HttpStatus.UNPROCESSABLE_CONTENT, "Ce produit est désactivé."),

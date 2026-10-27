@@ -75,7 +75,8 @@ class ProductServiceTest {
 	@BeforeEach
 	void setUp() {
 		this.service = new ProductService(this.repository, this.categories, this.brands, this.suppliers,
-				this.stockReaderProvider, this.entityManager, org.mockito.Mockito.mock(AuditService.class));
+				this.stockReaderProvider, this.entityManager, org.mockito.Mockito.mock(AuditService.class),
+				org.mockito.Mockito.mock(ProductImageService.class));
 		this.frames = withId(new Category("Montures", null));
 	}
 

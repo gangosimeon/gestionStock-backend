@@ -54,7 +54,7 @@ class SchemaConventionsIT {
 	void foundationTablesExistAndNothingElse() {
 		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("account_access_token", "alert_setting", "app_user", "appointment", "audit_log", "brand",
 				"cash_entry", "cash_session", "category", "customer", "customer_account_entry", "customer_return",
-				"customer_return_line", "expense", "goods_receipt", "goods_receipt_line", "inventory_line", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product", "purchase_order",
+				"customer_return_line", "expense", "goods_receipt", "goods_receipt_line", "inventory_line", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product", "product_image", "purchase_order",
 				"purchase_order_line", "quote", "quote_line", "refresh_token", "role", "role_permission", "sale", "sale_line", "stock_level",
 				"stock_movement", "stock_transfer", "stock_transfer_line", "supplier", "supplier_payment", "supplier_payment_allocation", "user_role", "user_warehouse",
 				"warehouse");
@@ -168,7 +168,7 @@ class SchemaConventionsIT {
 				  and table_name <> 'flyway_schema_history'
 				""", String.class);
 		assertThat(tablesWithVersion).containsExactlyInAnyOrder("alert_setting", "app_user", "appointment", "brand", "cash_session", "category", "customer", "expense", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product",
-				"purchase_order", "quote", "role", "sale", "stock_transfer", "supplier", "warehouse");
+				"product_image", "purchase_order", "quote", "role", "sale", "stock_transfer", "supplier", "warehouse");
 
 		for (String table : tablesWithVersion) {
 			List<String> columns = this.jdbc.queryForList("""

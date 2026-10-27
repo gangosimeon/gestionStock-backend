@@ -76,9 +76,11 @@ public class ProductService {
 
 	private final AuditService audit;
 
+	private final ProductImageService images;
+
 	ProductService(ProductRepository repository, CategoryService categories, BrandService brands,
 			SupplierService suppliers, ObjectProvider<ProductStockReader> stockReader, EntityManager entityManager,
-			AuditService audit) {
+			AuditService audit, ProductImageService images) {
 		this.repository = repository;
 		this.categories = categories;
 		this.brands = brands;
@@ -86,17 +88,19 @@ public class ProductService {
 		this.stockReader = stockReader;
 		this.entityManager = entityManager;
 		this.audit = audit;
+		this.images = images;
 	}
 
 	public Page<ProductResponse> search(ProductFilter filter, PageQuery query, UUID warehouseId) {
 		Page<Product> page = this.repository.findAll(ProductSpecifications.matching(filter), query.toPageable(SORTS));
 		Map<UUID, Integer> stock = stockOf(page.getContent(), warehouseId);
-		return page.map(product -> toResponse(product, stock));
+		Map<UUID, String> photos = imagesOf(page.getContent());
+		return page.map(product -> toResponse(product, stock, photos));
 	}
 
 	public ProductResponse get(UUID id, UUID warehouseId) {
 		Product product = load(id);
-		return toResponse(product, stockOf(List.of(product), warehouseId));
+		return toResponse(product, stockOf(List.of(product), warehouseId), imagesOf(List.of(product)));
 	}
 
 	@Transactional
@@ -109,7 +113,7 @@ public class ProductService {
 		Product product = new Product(sku, request.name().trim(), category);
 		apply(product, request, sku, barcode, true);
 		Product saved = this.repository.saveAndFlush(product);
-		ProductResponse created = toResponse(saved, stockOf(List.of(saved), warehouseId));
+		ProductResponse created = toResponse(saved, stockOf(List.of(saved), warehouseId), imagesOf(List.of(saved)));
 		this.audit.record(AuditEvent.of("CREATE", "PRODUCT", saved.getId(), label(saved))
 			.details("Création du produit " + label(saved))
 			.after(created));
@@ -119,13 +123,13 @@ public class ProductService {
 	@Transactional
 	public ProductResponse update(UUID id, ProductRequest request, UUID warehouseId) {
 		Product product = load(id);
-		ProductResponse before = toResponse(product, stockOf(List.of(product), warehouseId));
+		ProductResponse before = toResponse(product, stockOf(List.of(product), warehouseId), imagesOf(List.of(product)));
 		String sku = request.sku().trim();
 		String barcode = blankToNull(request.barcode());
 		requireUniqueIdentifiers(sku, barcode, id);
 		apply(product, request, sku, barcode, false);
 		Product saved = this.repository.saveAndFlush(product);
-		ProductResponse updated = toResponse(saved, stockOf(List.of(saved), warehouseId));
+		ProductResponse updated = toResponse(saved, stockOf(List.of(saved), warehouseId), imagesOf(List.of(saved)));
 		this.audit.record(AuditEvent.of("UPDATE", "PRODUCT", id, label(saved))
 			.details("Modification du produit " + label(saved))
 			.before(before)
@@ -154,7 +158,7 @@ public class ProductService {
 				.before(Map.of("active", wasActive))
 				.after(Map.of("active", active)));
 		}
-		return toResponse(saved, stockOf(List.of(saved), warehouseId));
+		return toResponse(saved, stockOf(List.of(saved), warehouseId), imagesOf(List.of(saved)));
 	}
 
 	private static String label(Product product) {
@@ -273,7 +277,12 @@ public class ProductService {
 		return reader.quantities(products.stream().map(Product::getId).toList(), warehouseId);
 	}
 
-	private static ProductResponse toResponse(Product product, Map<UUID, Integer> stock) {
+	/** Version de la photo des produits qui en ont une (sans lire les images). */
+	private Map<UUID, String> imagesOf(List<Product> products) {
+		return products.isEmpty() ? Map.of() : this.images.versions(products.stream().map(Product::getId).toList());
+	}
+
+	private static ProductResponse toResponse(Product product, Map<UUID, Integer> stock, Map<UUID, String> photos) {
 		Category category = product.getCategory();
 		Brand brand = product.getBrand();
 		return new ProductResponse(product.getId(), product.getSku(), product.getBarcode(), product.getName(),
@@ -281,7 +290,7 @@ public class ProductService {
 				brand != null ? brand.getName() : null, product.getDefaultSupplierId(), product.getUnit(),
 				product.getPurchasePrice(), product.getRetailPrice(), product.getWholesalePrice(),
 				product.getAlertThreshold(), product.getMaxStockLevel(), stock.getOrDefault(product.getId(), 0),
-				product.isActive(), product.getCreatedAt(), product.getUpdatedAt());
+				product.isActive(), product.getCreatedAt(), product.getUpdatedAt(), photos.get(product.getId()));
 	}
 
 	private static String blankToNull(String value) {

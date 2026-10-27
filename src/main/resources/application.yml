@@ -14,9 +14,10 @@ spring:
 
   servlet:
     multipart:
-      # Seul envoi de fichier : le logo des factures (2 Mo au plus, vérifié aussi par le service).
-      max-file-size: 2MB
-      max-request-size: 3MB
+      # Envois de fichiers : photo de produit (8 Mo au plus, réduite par le serveur) et logo des
+      # factures (2 Mo au plus, limite vérifiée par son service).
+      max-file-size: 8MB
+      max-request-size: 9MB
 
   autoconfigure:
     # Pas d'utilisateur en mémoire généré par Spring Boot : l'authentification

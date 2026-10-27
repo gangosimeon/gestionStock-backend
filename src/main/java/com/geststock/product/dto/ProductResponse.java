@@ -37,5 +37,8 @@ public record ProductResponse(
 		int stockQuantity,
 		boolean active,
 		Instant createdAt,
-		Instant updatedAt) {
+		Instant updatedAt,
+		@Schema(description = "Version de la photo du produit (empreinte), absente sans photo ; l'image se lit sur "
+				+ "GET /api/products/{id}/image", accessMode = Schema.AccessMode.READ_ONLY)
+		String imageVersion) {
 }
