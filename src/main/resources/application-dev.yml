@@ -27,6 +27,10 @@ geststock:
   platform:
     legacy-company:
       code: ${GESTSTOCK_LEGACY_COMPANY_CODE:principale}
+  # Flux d'intégration boutique en ligne : publication active en dev (désactivée par défaut).
+  integration:
+    publish:
+      enabled: true
 
 logging:
   level:

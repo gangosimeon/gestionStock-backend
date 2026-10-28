@@ -34,3 +34,7 @@ geststock:
       name: Entreprise de test
     # Clé publique de test, sans valeur hors des tests automatisés.
     credentials-key: dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLTAwMDA=
+  # Flux d'intégration boutique en ligne : publication active en test (désactivée par défaut).
+  integration:
+    publish:
+      enabled: true
