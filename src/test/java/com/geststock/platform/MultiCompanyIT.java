@@ -315,6 +315,25 @@ class MultiCompanyIT {
 		}
 	}
 
+	@Test
+	void theRuntimeRoleOfACompanyCanWriteTheIntegrationFeed() throws Exception {
+		TenantConnection connection = this.directory.connection(this.a.id());
+		try (Connection c = DriverManager.getConnection(connection.jdbcUrl(), connection.username(), connection.password())) {
+			c.setAutoCommit(false);
+			try (Statement statement = c.createStatement()) {
+				// Écriture d'un événement (seq attribué plus tard) et verrou puis mise à jour de l'état du flux.
+				statement.execute("""
+						insert into integration_outbox (type, operation, object_id, object_version)
+						values ('CATEGORY', 'UPSERT', gen_random_uuid(), 1)""");
+				statement.execute("select last_seq from integration_feed_state for update skip locked");
+				assertThat(statement.executeUpdate("update integration_feed_state set last_seq = last_seq")).isEqualTo(1);
+			}
+			finally {
+				c.rollback();
+			}
+		}
+	}
+
 	// --- Jetons et rôles ---------------------------------------------------------------------------
 
 	@Test
