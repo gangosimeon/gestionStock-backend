@@ -15,4 +15,13 @@ public interface ChangeFilter {
 	/** {@code true} si l'événement de ce type, sur cet objet, est servi à la liaison. */
 	boolean accepts(IntegrationEventType type, UUID objectId);
 
+	/**
+	 * {@code true} si l'événement d'un type stocké mais <b>inconnu de ce code</b> est servi. Servi par défaut :
+	 * le contrat prévoit que le consommateur ignore un type inconnu et avance son curseur ; un filtre de liaison
+	 * peut le refuser en redéfinissant cette méthode.
+	 */
+	default boolean acceptsUnknown(String typeName, UUID objectId) {
+		return true;
+	}
+
 }

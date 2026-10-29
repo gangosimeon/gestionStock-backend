@@ -16,8 +16,11 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -42,6 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(PostgresTestConfiguration.class)
+@ExtendWith(OutputCaptureExtension.class)
 class ChangeFeedServiceIT {
 
 	private static final String FEED_STATE_ID = "00000000-0000-0000-0000-000000000001";
@@ -57,6 +61,9 @@ class ChangeFeedServiceIT {
 
 	@Autowired
 	private JsonMapper jsonMapper;
+
+	@Autowired
+	private ChangeFeedProperties properties;
 
 	@Autowired
 	private TenantDataSourceRegistry registry;
@@ -341,11 +348,78 @@ class ChangeFeedServiceIT {
 		assertThat(this.availability.calls).isEmpty();
 	}
 
+	// --- Type inconnu du code ---------------------------------------------------------------------------
+
+	@Test
+	void anUnknownTypeIsServedAsStoredAndDoesNotBlockTheFeed(CapturedOutput output) {
+		insertCategories(1);
+		insertRaw("LOYALTY_POINTS", 9, "{\"marker\":\"payload-jamais-journalise\"}");
+		insertCategories(1);
+
+		ChangePage page = this.feed.read(0, 2, ChangeFilter.ALL);
+		assertThat(page.items()).extracting(ChangeEvent::seq).containsExactly(1L, 2L);
+		ChangeEvent unknown = page.items().get(1);
+		assertThat(unknown.isKnownType()).isFalse();
+		assertThat(unknown.type()).isNull();
+		assertThat(unknown.typeName()).isEqualTo("LOYALTY_POINTS");
+		assertThat(unknown.operation()).isEqualTo(IntegrationOperation.UPSERT);
+		assertThat(unknown.version()).isEqualTo(9L);
+		assertThat(unknown.data().get("marker").asString()).isEqualTo("payload-jamais-journalise");
+		assertThat(page.items().get(0).typeName()).isEqualTo("CATEGORY");
+		assertThat(page.lastSeq()).isEqualTo(2L);
+		assertThat(page.hasMore()).isTrue();
+
+		ChangePage next = this.feed.read(page.lastSeq(), null, ChangeFilter.ALL);
+		assertThat(next.items()).extracting(ChangeEvent::seq).containsExactly(3L);
+		assertThat(next.hasMore()).isFalse();
+
+		assertThat(output.getAll()).contains("WARN").contains("LOYALTY_POINTS").contains("seq=2")
+			.doesNotContain("payload-jamais-journalise");
+	}
+
+	@Test
+	void aLinkFilterCanRejectAnUnknownTypeAndLastSeqStillAdvances() {
+		insertRaw("LOYALTY_POINTS", 1, "{}");
+		ChangeFilter knownOnly = new ChangeFilter() {
+
+			@Override
+			public boolean accepts(IntegrationEventType type, UUID objectId) {
+				return true;
+			}
+
+			@Override
+			public boolean acceptsUnknown(String typeName, UUID objectId) {
+				return false;
+			}
+
+		};
+		ChangePage page = this.feed.read(0, null, knownOnly);
+		assertThat(page.items()).isEmpty();
+		assertThat(page.lastSeq()).isEqualTo(1L);
+	}
+
+	// --- Délai de la transaction de lecture -------------------------------------------------------------
+
+	@Test
+	void theConfiguredStatementTimeoutAppliesToTheReadTransaction() {
+		UUID product = UUID.randomUUID();
+		insert(IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, product, 0, null);
+		this.feed.read(0, null, ChangeFilter.ALL);
+		assertThat(this.availability.statementTimeout).isEqualTo("3500ms");
+		assertThat(this.properties.statementTimeout()).as("valeur par défaut").isEqualTo(Duration.ofSeconds(5));
+	}
+
 	// --- Outils ------------------------------------------------------------------------------------------
 
 	private ChangeFeedService service(FeedSequencer feedSequencer) {
 		return new ChangeFeedService(feedSequencer, this.dataSource, this.transactionManager, this.availability,
-				this.jsonMapper);
+				this.jsonMapper, new ChangeFeedProperties(Duration.ofMillis(3500)));
+	}
+
+	private void insertRaw(String type, long version, String payload) {
+		this.jdbc.update("""
+				insert into integration_outbox (type, operation, object_id, object_version, payload)
+				values (?, 'UPSERT', ?, ?, cast(? as jsonb))""", type, UUID.randomUUID(), version, payload);
 	}
 
 	private void reset() {
@@ -395,6 +469,8 @@ class ChangeFeedServiceIT {
 
 		private String readOnly;
 
+		private String statementTimeout;
+
 		FakeAvailability(JdbcTemplate jdbc) {
 			this.jdbc = jdbc;
 		}
@@ -408,6 +484,7 @@ class ChangeFeedServiceIT {
 			this.calls.add(productId);
 			this.isolation = this.jdbc.queryForObject("show transaction_isolation", String.class);
 			this.readOnly = this.jdbc.queryForObject("show transaction_read_only", String.class);
+			this.statementTimeout = this.jdbc.queryForObject("show statement_timeout", String.class);
 			return Map.of("productId", productId, "available", this.values.getOrDefault(productId, 0),
 					"computedAt", "2026-01-01T00:00:00Z");
 		}

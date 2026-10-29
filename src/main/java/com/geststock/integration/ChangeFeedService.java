@@ -12,6 +12,8 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.IllegalTransactionStateException;
@@ -42,9 +44,15 @@ import tools.jackson.databind.json.JsonMapper;
  * même avancer {@code lastSeq} (P1). Les événements minces {@code AVAILABILITY} d'un même produit sont fusionnés
  * en celui de plus grand {@code seq}, dont la valeur est calculée à la lecture et la version est le {@code seq}
  * (P3). {@code hasMore} (P2) : un événement de {@code seq > lastSeq} ou un événement validé sans {@code seq}.
+ *
+ * <p>Un type stocké mais inconnu de ce code (écrit par une version plus récente, par exemple) ne bloque jamais
+ * le flux : il est servi tel qu'il est stocké, soumis à {@link ChangeFilter#acceptsUnknown}, et journalisé en
+ * WARN (type et {@code seq}, jamais la charge). Le consommateur ignore un type inconnu et avance son curseur.
  */
 @Service
 public class ChangeFeedService {
+
+	private static final Logger log = LoggerFactory.getLogger(ChangeFeedService.class);
 
 	static final int DEFAULT_LIMIT = 100;
 
@@ -74,8 +82,10 @@ public class ChangeFeedService {
 
 	private final JsonMapper jsonMapper;
 
+	private final ChangeFeedProperties properties;
+
 	ChangeFeedService(FeedSequencer sequencer, DataSource dataSource, PlatformTransactionManager transactionManager,
-			AvailabilityProvider availability, JsonMapper jsonMapper) {
+			AvailabilityProvider availability, JsonMapper jsonMapper, ChangeFeedProperties properties) {
 		this.sequencer = sequencer;
 		this.jdbc = JdbcClient.create(dataSource);
 		this.transaction = new TransactionTemplate(transactionManager);
@@ -83,6 +93,7 @@ public class ChangeFeedService {
 		this.transaction.setReadOnly(true);
 		this.availability = availability;
 		this.jsonMapper = jsonMapper;
+		this.properties = properties;
 	}
 
 	/**
@@ -111,6 +122,8 @@ public class ChangeFeedService {
 	}
 
 	private ChangePage page(long after, int limit, ChangeFilter filter) {
+		// Valeur numérique issue de la configuration : SET n'accepte pas de paramètre lié.
+		this.jdbc.sql("set local statement_timeout = " + this.properties.statementTimeout().toMillis()).update();
 		FeedState state = this.jdbc.sql(READ_STATE)
 			.param("id", FeedSequencer.FEED_STATE_ID)
 			.query((rs, row) -> new FeedState(rs.getLong("last_seq"), rs.getLong("purged_through_seq")))
@@ -129,14 +142,14 @@ public class ChangeFeedService {
 			.query(this::storedEvent)
 			.list();
 		long lastSeq = examined.isEmpty() ? after : examined.getLast().seq();
-		List<StoredEvent> accepted = examined.stream().filter(e -> filter.accepts(e.type(), e.objectId())).toList();
+		List<StoredEvent> accepted = examined.stream().filter(e -> e.acceptedBy(filter)).toList();
 
 		// Fusion des événements minces : seul le plus grand seq de chaque objet est servi.
 		Map<UUID, Long> latestThin = new HashMap<>();
-		accepted.stream().filter(e -> e.type().isThin()).forEach(e -> latestThin.put(e.objectId(), e.seq()));
+		accepted.stream().filter(StoredEvent::isThin).forEach(e -> latestThin.put(e.objectId(), e.seq()));
 		List<ChangeEvent> items = new ArrayList<>();
 		for (StoredEvent event : accepted) {
-			if (!event.type().isThin()) {
+			if (!event.isThin()) {
 				items.add(event.toChange(event.objectVersion(), event.payload()));
 			}
 			else if (latestThin.get(event.objectId()) == event.seq()) {
@@ -157,22 +170,47 @@ public class ChangeFeedService {
 	}
 
 	private StoredEvent storedEvent(ResultSet rs, int row) throws SQLException {
+		long seq = rs.getLong("seq");
+		String typeName = rs.getString("type");
+		IntegrationEventType type = knownType(typeName);
+		if (type == null) {
+			log.warn("Flux d'intégration : type d'événement inconnu de ce code, servi tel quel (type={}, seq={})",
+					typeName, seq);
+		}
 		String payload = rs.getString("payload");
-		return new StoredEvent(rs.getLong("seq"), IntegrationEventType.valueOf(rs.getString("type")),
-				IntegrationOperation.valueOf(rs.getString("operation")), rs.getObject("object_id", UUID.class),
-				rs.getLong("object_version"), payload != null ? this.jsonMapper.readTree(payload) : null,
-				rs.getObject("created_at", OffsetDateTime.class));
+		return new StoredEvent(seq, type, typeName, IntegrationOperation.valueOf(rs.getString("operation")),
+				rs.getObject("object_id", UUID.class), rs.getLong("object_version"),
+				payload != null ? this.jsonMapper.readTree(payload) : null, rs.getObject("created_at", OffsetDateTime.class));
+	}
+
+	private static IntegrationEventType knownType(String typeName) {
+		for (IntegrationEventType type : IntegrationEventType.values()) {
+			if (type.name().equals(typeName)) {
+				return type;
+			}
+		}
+		return null;
 	}
 
 	private record FeedState(long lastSeq, long purgedThroughSeq) {
 	}
 
-	private record StoredEvent(long seq, IntegrationEventType type, IntegrationOperation operation, UUID objectId,
-			long objectVersion, JsonNode payload, OffsetDateTime createdAt) {
+	/** Ligne du flux ; {@code type} vaut {@code null} si {@code typeName} est inconnu de ce code. */
+	private record StoredEvent(long seq, IntegrationEventType type, String typeName, IntegrationOperation operation,
+			UUID objectId, long objectVersion, JsonNode payload, OffsetDateTime createdAt) {
+
+		boolean isThin() {
+			return this.type != null && this.type.isThin();
+		}
+
+		boolean acceptedBy(ChangeFilter filter) {
+			return this.type != null ? filter.accepts(this.type, this.objectId)
+					: filter.acceptsUnknown(this.typeName, this.objectId);
+		}
 
 		ChangeEvent toChange(long version, JsonNode data) {
-			return new ChangeEvent(this.seq, this.type, this.objectId, version, this.operation, this.createdAt.toInstant(),
-					data);
+			return new ChangeEvent(this.seq, this.type, this.typeName, this.objectId, version, this.operation,
+					this.createdAt.toInstant(), data);
 		}
 
 	}
