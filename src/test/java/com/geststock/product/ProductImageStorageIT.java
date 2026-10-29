@@ -1,6 +1,7 @@
 package com.geststock.product;
 
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
@@ -30,13 +31,19 @@ import com.geststock.support.WithPermissions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Non-régression du stockage des photos (lot 1, étape 2+4b) : une image source fixe, envoyée par la route
- * de l'application puis relue par la même route que le navigateur, donne exactement les octets, la taille
- * et l'empreinte relevés <b>avant</b> l'étape 2+4b (valeurs de référence obtenues sur le commit 8294b64,
- * avant toute modification du service des images).
+ * de l'application puis relue par la même route que le navigateur, donne exactement les octets produits par
+ * le traitement de l'image dans la même exécution ; taille et empreinte enregistrées concordent avec ces
+ * octets ; l'image servie est un JPEG aux dimensions attendues. Aucune valeur figée : l'encodeur JPEG dépend
+ * du JDK.
+ *
+ * <p>Historique : mesure de référence du 2026-10-29, sur le commit 8294b64 (avant toute modification du
+ * service des images), pour cette image source : 24 996 octets, SHA-256
+ * 71528b3deeb1c8a377c660c3f0139bc50eb8f55d11eabaeed8257169c34a0d3b ; identique après l'étape 2+4b.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -45,11 +52,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 @WithPermissions(all = true)
 class ProductImageStorageIT {
-
-	/** Relevés avant l'étape 2+4b, sur l'image source de {@link #referenceSource()}. */
-	private static final int REFERENCE_SIZE = 24996;
-
-	private static final String REFERENCE_SHA256 = "71528b3deeb1c8a377c660c3f0139bc50eb8f55d11eabaeed8257169c34a0d3b";
 
 	@Autowired
 	private MockMvc mvc;
@@ -71,7 +73,7 @@ class ProductImageStorageIT {
 	}
 
 	@Test
-	void aStoredPhotoIsReadBackByteForByteAsBeforeTheStep() throws Exception {
+	void aStoredPhotoIsReadBackByteForByteAsProcessed() throws Exception {
 		byte[] source = referenceSource();
 		ProductImageProcessor.Processed expected = ProductImageProcessor.process(source);
 
@@ -82,18 +84,30 @@ class ProductImageStorageIT {
 
 		byte[] served = this.mvc.perform(get("/api/products/{id}/image", this.productId))
 			.andExpect(status().isOk())
+			.andExpect(header().string("Content-Type", "image/jpeg"))
 			.andReturn().getResponse().getContentAsByteArray();
 
-		assertThat(served).as("octets relus = sortie du traitement inchangé").isEqualTo(expected.data());
-		assertThat(sha256(served)).as("empreinte relevée avant l'étape").isEqualTo(REFERENCE_SHA256);
-		assertThat(served.length).as("taille relevée avant l'étape").isEqualTo(REFERENCE_SIZE);
+		assertThat(served).as("octets relus = sortie du traitement, même exécution").isEqualTo(expected.data());
+
+		// Format et dimensions : JPEG, 800 × 600 réduit à 512 px de côté au plus, proportions gardées.
+		assertThat(served).startsWith((byte) 0xFF, (byte) 0xD8, (byte) 0xFF);
+		BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(served));
+		assertThat(decoded.getWidth()).isEqualTo(512).isEqualTo(expected.width());
+		assertThat(decoded.getHeight()).isEqualTo(384).isEqualTo(expected.height());
 
 		Integer storedSize = this.jdbc.queryForObject("select size_bytes from product_image where product_id = ?::uuid",
 				Integer.class, this.productId);
 		String storedSha = this.jdbc.queryForObject("select sha256 from product_image where product_id = ?::uuid",
 				String.class, this.productId);
-		assertThat(storedSize).isEqualTo(served.length);
-		assertThat(storedSha).isEqualTo(sha256(served)).isEqualTo(expected.sha256());
+		Integer storedWidth = this.jdbc.queryForObject("select width from product_image where product_id = ?::uuid",
+				Integer.class, this.productId);
+		Integer storedHeight = this.jdbc.queryForObject("select height from product_image where product_id = ?::uuid",
+				Integer.class, this.productId);
+		assertThat(storedSize).as("size_bytes = octets servis").isEqualTo(served.length);
+		assertThat(storedSha).as("sha256 = empreinte des octets servis").isEqualTo(sha256(served))
+			.isEqualTo(expected.sha256());
+		assertThat(storedWidth).isEqualTo(512);
+		assertThat(storedHeight).isEqualTo(384);
 	}
 
 	/** Image source déterministe (dégradé et motif), sans dépendance au hasard ni à un fichier. */

@@ -24,32 +24,33 @@ class CategoryIntegrationEvents {
 	}
 
 	/**
-	 * @param before état exposé avant la modification ({@link Exposed#of}) ; {@code null} pour une création
+	 * @param before charge avant la modification, version neutralisée ({@code Payload.of(…).withoutVersion()}) ;
+	 *               {@code null} pour une création
 	 * @param after  catégorie enregistrée et flushée
 	 */
-	void publishIfChanged(Exposed before, Category after) {
-		if (Exposed.of(after).equals(before)) {
+	void publishIfChanged(Payload before, Category after) {
+		Payload now = Payload.of(after);
+		if (now.withoutVersion().equals(before)) {
 			return;
 		}
 		this.events.publish(IntegrationEventType.CATEGORY,
-				after.isActive() ? IntegrationOperation.UPSERT : IntegrationOperation.ARCHIVE, after, Payload.of(after));
+				after.isActive() ? IntegrationOperation.UPSERT : IntegrationOperation.ARCHIVE, after, now);
 	}
 
-	/** Champs du schéma {@code Category} hors identifiant et version : base de la comparaison. */
-	record Exposed(String name, String description, boolean active) {
-
-		static Exposed of(Category category) {
-			return new Exposed(category.getName(), category.getDescription(), category.isActive());
-		}
-
-	}
-
-	/** Charge : schéma {@code Category} du contrat, exactement. */
+	/**
+	 * Charge : schéma {@code Category} du contrat, exactement. Seule source des champs exposés : la détection
+	 * « rien n'a changé » compare cette sortie, version neutralisée.
+	 */
 	record Payload(UUID id, String name, String description, boolean active, long version) {
 
 		static Payload of(Category category) {
 			return new Payload(category.getId(), category.getName(), category.getDescription(), category.isActive(),
 					category.getVersion());
+		}
+
+		/** Même charge, version à 0 : base de la comparaison avant/après. */
+		Payload withoutVersion() {
+			return new Payload(this.id, this.name, this.description, this.active, 0L);
 		}
 
 	}

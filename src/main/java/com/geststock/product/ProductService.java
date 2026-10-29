@@ -128,7 +128,7 @@ public class ProductService {
 	public ProductResponse update(UUID id, ProductRequest request, UUID warehouseId) {
 		Product product = load(id);
 		ProductResponse before = toResponse(product, stockOf(List.of(product), warehouseId), imagesOf(List.of(product)));
-		ProductIntegrationEvents.Exposed exposedBefore = ProductIntegrationEvents.Exposed.of(product);
+		ProductIntegrationEvents.Payload exposedBefore = ProductIntegrationEvents.Payload.of(product).withoutVersion();
 		String sku = request.sku().trim();
 		String barcode = blankToNull(request.barcode());
 		requireUniqueIdentifiers(sku, barcode, id);
@@ -151,7 +151,7 @@ public class ProductService {
 	public ProductResponse setActive(UUID id, boolean active, UUID warehouseId) {
 		Product product = load(id);
 		boolean wasActive = product.isActive();
-		ProductIntegrationEvents.Exposed exposedBefore = ProductIntegrationEvents.Exposed.of(product);
+		ProductIntegrationEvents.Payload exposedBefore = ProductIntegrationEvents.Payload.of(product).withoutVersion();
 		if (active) {
 			product.activate();
 		}

@@ -30,27 +30,36 @@ class ProductIntegrationEvents {
 	}
 
 	/**
-	 * @param before état exposé avant la modification ({@link Exposed#of}) ; {@code null} pour une création
+	 * @param before charge avant la modification, version neutralisée ({@code Payload.of(…).withoutVersion()}) ;
+	 *               {@code null} pour une création
 	 * @param after  produit enregistré et flushé
 	 */
-	void publishIfChanged(Exposed before, Product after) {
-		Exposed now = Exposed.of(after);
-		if (now.equals(before)) {
+	void publishIfChanged(Payload before, Product after) {
+		Payload now = Payload.of(after);
+		if (now.withoutVersion().equals(before)) {
 			return;
 		}
 		this.events.publish(IntegrationEventType.PRODUCT,
-				after.isActive() ? IntegrationOperation.UPSERT : IntegrationOperation.ARCHIVE, after,
-				new Payload(after.getId(), now.sku(), now.name(), now.description(), now.categoryId(), now.unit(),
-						now.referencePrice(), now.active(), after.getVersion()));
+				after.isActive() ? IntegrationOperation.UPSERT : IntegrationOperation.ARCHIVE, after, now);
 	}
 
-	/** Champs du schéma {@code Product} hors identifiant et version : base de la comparaison. */
-	record Exposed(String sku, String name, String description, UUID categoryId, ProductUnit unit,
-			String referencePrice, boolean active) {
+	/**
+	 * Charge : schéma {@code Product} du contrat, sans {@code currency} ni {@code imageSha256}. Seule source des
+	 * champs exposés : la détection « rien n'a changé » compare cette sortie, version neutralisée.
+	 */
+	record Payload(UUID id, String sku, String name, String description, UUID categoryId, ProductUnit unit,
+			String referencePrice, boolean active, long version) {
 
-		static Exposed of(Product product) {
-			return new Exposed(product.getSku(), product.getName(), product.getDescription(),
-					product.getCategory().getId(), product.getUnit(), decimal(product.getRetailPrice()), product.isActive());
+		static Payload of(Product product) {
+			return new Payload(product.getId(), product.getSku(), product.getName(), product.getDescription(),
+					product.getCategory().getId(), product.getUnit(), decimal(product.getRetailPrice()), product.isActive(),
+					product.getVersion());
+		}
+
+		/** Même charge, version à 0 : base de la comparaison avant/après. */
+		Payload withoutVersion() {
+			return new Payload(this.id, this.sku, this.name, this.description, this.categoryId, this.unit,
+					this.referencePrice, this.active, 0L);
 		}
 
 		/** Décimal en chaîne, deux décimales (contrat : {@code "6000.00"}), comme la colonne numeric(14,2). */
@@ -58,11 +67,6 @@ class ProductIntegrationEvents {
 			return value.setScale(2, RoundingMode.HALF_UP).toPlainString();
 		}
 
-	}
-
-	/** Charge : schéma {@code Product} du contrat, sans {@code currency} ni {@code imageSha256}. */
-	record Payload(UUID id, String sku, String name, String description, UUID categoryId, ProductUnit unit,
-			String referencePrice, boolean active, long version) {
 	}
 
 }

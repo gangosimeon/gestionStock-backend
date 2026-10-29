@@ -79,7 +79,7 @@ public class CategoryService {
 	public CategoryResponse update(UUID id, CategoryRequest request) {
 		Category category = load(id);
 		CategoryResponse before = toResponse(category);
-		CategoryIntegrationEvents.Exposed exposedBefore = CategoryIntegrationEvents.Exposed.of(category);
+		CategoryIntegrationEvents.Payload exposedBefore = CategoryIntegrationEvents.Payload.of(category).withoutVersion();
 		String name = request.name().trim();
 		requireUniqueName(name, id);
 		category.update(name, blankToNull(request.description()));
@@ -98,7 +98,7 @@ public class CategoryService {
 	public CategoryResponse setActive(UUID id, boolean active) {
 		Category category = load(id);
 		boolean wasActive = category.isActive();
-		CategoryIntegrationEvents.Exposed exposedBefore = CategoryIntegrationEvents.Exposed.of(category);
+		CategoryIntegrationEvents.Payload exposedBefore = CategoryIntegrationEvents.Payload.of(category).withoutVersion();
 		if (active) {
 			category.activate();
 		}
