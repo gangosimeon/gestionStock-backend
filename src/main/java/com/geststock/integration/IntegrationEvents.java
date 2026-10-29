@@ -2,7 +2,9 @@ package com.geststock.integration;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -143,7 +145,8 @@ public class IntegrationEvents {
 	/**
 	 * Publie un événement mince {@code AVAILABILITY} pour chaque produit dont le stock vient de changer, <b>au plus
 	 * un par produit et par transaction</b> : un second appel dans la même transaction n'écrit rien pour un produit
-	 * déjà publié. La valeur est calculée au moment de servir la page (P3).
+	 * déjà publié. La valeur est calculée au moment de servir la page (P3). Les nouveaux produits sont écrits en
+	 * une seule instruction, triés par identifiant (ordre des {@code write_id} déterministe).
 	 *
 	 * @param productIds produits touchés (doublons possibles)
 	 */
@@ -154,12 +157,18 @@ public class IntegrationEvents {
 			return;
 		}
 		Set<UUID> published = PublishedAvailability.ofCurrentTransaction();
-		for (UUID productId : productIds) {
-			if (published.add(Objects.requireNonNull(productId, "productId"))) {
-				this.writer.insert(newId(), IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, productId,
-						THIN_EVENT_VERSION, null);
-			}
+		List<UUID> fresh = productIds.stream()
+			.map(productId -> Objects.requireNonNull(productId, "productId"))
+			.distinct()
+			.filter(productId -> !published.contains(productId))
+			.sorted(Comparator.comparing(UUID::toString))
+			.toList();
+		if (fresh.isEmpty()) {
+			return;
 		}
+		this.writer.insertThin(IntegrationEventType.AVAILABILITY, THIN_EVENT_VERSION,
+				fresh.stream().map(productId -> newId()).toList(), fresh);
+		published.addAll(fresh);
 	}
 
 	/**

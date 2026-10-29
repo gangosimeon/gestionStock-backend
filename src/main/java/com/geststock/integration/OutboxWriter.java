@@ -1,5 +1,7 @@
 package com.geststock.integration;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.OptionalLong;
 import java.util.UUID;
 
@@ -38,6 +40,9 @@ class OutboxWriter {
 			where product_id = :productId and sha256 is not null
 			returning generation""";
 
+	/** Lignes par instruction d'insertion groupée (5 paramètres par ligne, bien sous la limite de PostgreSQL). */
+	static final int THIN_BATCH = 1000;
+
 	private final JdbcClient jdbc;
 
 	OutboxWriter(DataSource dataSource) {
@@ -56,6 +61,31 @@ class OutboxWriter {
 			.param("objectVersion", objectVersion)
 			.param("payload", payloadJson)
 			.update();
+	}
+
+	/**
+	 * Événements minces ({@code UPSERT}, sans charge) en <b>un seul INSERT multi-lignes</b> par tranche de
+	 * {@value #THIN_BATCH} : les {@code write_id} suivent l'ordre de la liste.
+	 *
+	 * @param ids       identifiants des événements, un par objet
+	 * @param objectIds objets décrits, dans l'ordre d'écriture voulu
+	 */
+	void insertThin(IntegrationEventType type, long objectVersion, List<UUID> ids, List<UUID> objectIds) {
+		if (ids.size() != objectIds.size()) {
+			throw new IllegalArgumentException("Un identifiant d'événement par objet");
+		}
+		for (int from = 0; from < objectIds.size(); from += THIN_BATCH) {
+			int to = Math.min(objectIds.size(), from + THIN_BATCH);
+			StringBuilder sql = new StringBuilder(
+					"insert into integration_outbox (id, type, operation, object_id, object_version) values ");
+			List<Object> params = new ArrayList<>((to - from) * 4);
+			for (int i = from; i < to; i++) {
+				sql.append(i == from ? "" : ", ").append("(?, ?, ?, ?, ?)");
+				params.addAll(List.of(ids.get(i), type.name(), IntegrationOperation.UPSERT.name(), objectIds.get(i),
+						objectVersion));
+			}
+			this.jdbc.sql(sql.toString()).params(params).update();
+		}
 	}
 
 	/**
