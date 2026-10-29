@@ -277,6 +277,10 @@ public enum ErrorCode {
 	// Intégration JeCréeMaBoutique (contrat integration/v1)
 	CURSOR_EXPIRED(HttpStatus.GONE,
 			"Curseur du flux trop ancien : relancez un instantané complet, puis reprenez le flux depuis son asOfSeq."),
+	INVALID_PAGE_TOKEN(HttpStatus.BAD_REQUEST,
+			"Jeton de page d'instantané invalide : recommencez l'instantané sans pageToken."),
+	SNAPSHOT_EXPIRED(HttpStatus.GONE,
+			"Instantané expiré (plus de 24 heures) : recommencez l'instantané sans pageToken."),
 	CURSOR_AHEAD(HttpStatus.CONFLICT,
 			"Curseur du flux en avance sur ce flux : il ne vient pas de cette entreprise ou le flux a été réinitialisé. "
 					+ "Ne reprenez pas avec ce curseur : vérifiez la liaison."),

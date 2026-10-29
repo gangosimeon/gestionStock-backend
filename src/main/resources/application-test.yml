@@ -38,3 +38,10 @@ geststock:
   integration:
     publish:
       enabled: true
+    # Signature des pageToken d'instantané : clés publiques de test, sans valeur hors des tests automatisés.
+    # test-0 : ancienne clé, encore listée (vérification seulement) ; test-1 : clé courante.
+    page-token:
+      current-kid: test-1
+      keys:
+        test-0: Z2VzdHN0b2NrLXRlc3QtcGFnZS10b2tlbi1rZXktMC1wcmV2aW91cy1ub3QtYS1zZWNyZXQ=
+        test-1: Z2VzdHN0b2NrLXRlc3QtcGFnZS10b2tlbi1rZXktMS1ub3QtYS1zZWNyZXQ=

@@ -31,6 +31,11 @@ geststock:
   integration:
     publish:
       enabled: true
+    # Signature des pageToken d'instantané : clé de développement, sans valeur hors du poste local.
+    page-token:
+      current-kid: dev-1
+      keys:
+        dev-1: Z2VzdHN0b2NrLWRldi1wYWdlLXRva2VuLWtleS0xLW5vdC1hLXNlY3JldA==
 
 logging:
   level:

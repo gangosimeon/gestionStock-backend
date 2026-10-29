@@ -12,6 +12,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
+import com.geststock.integration.IntegrationProperties;
+import com.geststock.integration.PageTokenProperties;
 import com.geststock.security.GestStockSecurityProperties;
 
 /**
@@ -22,7 +24,9 @@ import com.geststock.security.GestStockSecurityProperties;
  * <li>CORS : au moins une origine, jamais {@code *}, uniquement en {@code https://} (sauf
  * {@code geststock.production.allow-http-origins=true}, réservé à une recette locale) ;</li>
  * <li>mot de passe de l'administrateur initial : 12 caractères au moins s'il est fourni ;</li>
- * <li>Flyway : {@code clean} interdit (effacement complet du schéma).</li>
+ * <li>Flyway : {@code clean} interdit (effacement complet du schéma) ;</li>
+ * <li>intégration boutique : publication activée ⇒ clé courante valide de signature des {@code pageToken}
+ * d'instantané (32 octets au moins), sans jamais afficher la clé.</li>
  * </ul>
  * Le secret JWT (32 octets minimum) est déjà vérifié par {@code JwtConfig}.
  */
@@ -40,10 +44,17 @@ class ProductionSafetyCheck implements InitializingBean {
 
 	private final Environment environment;
 
-	ProductionSafetyCheck(CorsProperties cors, GestStockSecurityProperties security, Environment environment) {
+	private final IntegrationProperties integration;
+
+	private final PageTokenProperties pageToken;
+
+	ProductionSafetyCheck(CorsProperties cors, GestStockSecurityProperties security, Environment environment,
+			IntegrationProperties integration, PageTokenProperties pageToken) {
 		this.cors = cors;
 		this.security = security;
 		this.environment = environment;
+		this.integration = integration;
+		this.pageToken = pageToken;
 	}
 
 	@Override
@@ -57,6 +68,7 @@ class ProductionSafetyCheck implements InitializingBean {
 				this.environment.getProperty("geststock.platform.provisioner.url"),
 				this.environment.getProperty("geststock.platform.credentials-key"),
 				this.environment.getProperty("geststock.platform.bootstrap-admin.password")));
+		problems.addAll(integrationProblems(this.integration.publish().enabled(), this.pageToken));
 		if (!problems.isEmpty()) {
 			throw new IllegalStateException("Configuration de production refusée :\n - " + String.join("\n - ", problems));
 		}
@@ -89,6 +101,14 @@ class ProductionSafetyCheck implements InitializingBean {
 			problems.add("GESTSTOCK_PLATFORM_ADMIN_PASSWORD : " + MIN_ADMIN_PASSWORD_LENGTH + " caractères au moins.");
 		}
 		return problems;
+	}
+
+	/**
+	 * Intégration boutique : si la publication est activée, l'instantané doit pouvoir signer ses {@code pageToken}
+	 * (clé courante valide, 32 octets au moins). Les messages nomment le {@code kid}, jamais la clé.
+	 */
+	static List<String> integrationProblems(boolean publishEnabled, PageTokenProperties pageToken) {
+		return publishEnabled ? pageToken.problems() : List.of();
 	}
 
 	/** Problèmes bloquants (liste vide : configuration acceptée). */
