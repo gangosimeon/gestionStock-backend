@@ -1,8 +1,11 @@
 package com.geststock.integration;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 
 import jakarta.persistence.EntityManager;
@@ -11,6 +14,8 @@ import org.hibernate.id.uuid.UuidVersion7Strategy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.geststock.common.jpa.BaseEntity;
 
@@ -133,6 +138,49 @@ public class IntegrationEvents {
 		String json = serialize(IntegrationEventType.PRODUCT_IMAGE, new ProductImageState(productId, sha256, version));
 		this.writer.insert(newId(), IntegrationEventType.PRODUCT_IMAGE, IntegrationOperation.UPSERT, productId, version,
 				json);
+	}
+
+	/**
+	 * Publie un événement mince {@code AVAILABILITY} pour chaque produit dont le stock vient de changer, <b>au plus
+	 * un par produit et par transaction</b> : un second appel dans la même transaction n'écrit rien pour un produit
+	 * déjà publié. La valeur est calculée au moment de servir la page (P3).
+	 *
+	 * @param productIds produits touchés (doublons possibles)
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public void publishAvailability(Collection<UUID> productIds) {
+		Objects.requireNonNull(productIds, "productIds");
+		if (productIds.isEmpty() || !enabled()) {
+			return;
+		}
+		Set<UUID> published = PublishedAvailability.ofCurrentTransaction();
+		for (UUID productId : productIds) {
+			if (published.add(Objects.requireNonNull(productId, "productId"))) {
+				this.writer.insert(newId(), IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, productId,
+						THIN_EVENT_VERSION, null);
+			}
+		}
+	}
+
+	/**
+	 * Produits déjà publiés en {@code AVAILABILITY} dans la transaction courante. Porté par une synchronisation de
+	 * transaction : propre à chaque transaction (suspendu avec elle), oublié à sa fin, validée ou annulée.
+	 */
+	private static final class PublishedAvailability implements TransactionSynchronization {
+
+		private final Set<UUID> products = new HashSet<>();
+
+		static Set<UUID> ofCurrentTransaction() {
+			for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+				if (synchronization instanceof PublishedAvailability published) {
+					return published.products;
+				}
+			}
+			PublishedAvailability published = new PublishedAvailability();
+			TransactionSynchronizationManager.registerSynchronization(published);
+			return published.products;
+		}
+
 	}
 
 	/** Charge : schéma {@code ProductImageState} du contrat ({@code imageSha256} nul après retrait). */

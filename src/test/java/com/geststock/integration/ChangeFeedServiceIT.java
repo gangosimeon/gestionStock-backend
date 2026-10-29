@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.sql.DataSource;
@@ -480,13 +481,15 @@ class ChangeFeedServiceIT {
 		}
 
 		@Override
-		public Object availability(UUID productId) {
-			this.calls.add(productId);
+		public Map<UUID, ?> availability(Set<UUID> productIds) {
+			this.calls.addAll(productIds);
 			this.isolation = this.jdbc.queryForObject("show transaction_isolation", String.class);
 			this.readOnly = this.jdbc.queryForObject("show transaction_read_only", String.class);
 			this.statementTimeout = this.jdbc.queryForObject("show statement_timeout", String.class);
-			return Map.of("productId", productId, "available", this.values.getOrDefault(productId, 0),
-					"computedAt", "2026-01-01T00:00:00Z");
+			Map<UUID, Object> result = new HashMap<>();
+			productIds.forEach(productId -> result.put(productId, Map.of("productId", productId, "available",
+					this.values.getOrDefault(productId, 0), "computedAt", "2026-01-01T00:00:00Z")));
+			return result;
 		}
 
 	}

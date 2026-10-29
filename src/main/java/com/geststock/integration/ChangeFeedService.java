@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.sql.DataSource;
@@ -147,13 +148,14 @@ public class ChangeFeedService {
 		// Fusion des événements minces : seul le plus grand seq de chaque objet est servi.
 		Map<UUID, Long> latestThin = new HashMap<>();
 		accepted.stream().filter(StoredEvent::isThin).forEach(e -> latestThin.put(e.objectId(), e.seq()));
+		Map<UUID, JsonNode> thinValues = thinValues(accepted, latestThin);
 		List<ChangeEvent> items = new ArrayList<>();
 		for (StoredEvent event : accepted) {
 			if (!event.isThin()) {
 				items.add(event.toChange(event.objectVersion(), event.payload()));
 			}
 			else if (latestThin.get(event.objectId()) == event.seq()) {
-				items.add(event.toChange(event.seq(), thinData(event)));
+				items.add(event.toChange(event.seq(), thinValues.get(event.objectId())));
 			}
 		}
 
@@ -161,12 +163,21 @@ public class ChangeFeedService {
 		return new ChangePage(items, hasMore, lastSeq);
 	}
 
-	private JsonNode thinData(StoredEvent event) {
-		if (event.type() != IntegrationEventType.AVAILABILITY) {
-			throw new IllegalStateException("Événement mince sans calcul à la lecture : " + event.type());
+	/** Valeurs des événements minces servis, en <b>un seul appel</b> du fournisseur pour toute la page. */
+	private Map<UUID, JsonNode> thinValues(List<StoredEvent> accepted, Map<UUID, Long> latestThin) {
+		accepted.stream().filter(StoredEvent::isThin).forEach(event -> {
+			if (event.type() != IntegrationEventType.AVAILABILITY) {
+				throw new IllegalStateException("Événement mince sans calcul à la lecture : " + event.type());
+			}
+		});
+		if (latestThin.isEmpty()) {
+			return Map.of();
 		}
-		Object value = Objects.requireNonNull(this.availability.availability(event.objectId()), "availability");
-		return this.jsonMapper.valueToTree(value);
+		Map<UUID, ?> values = this.availability.availability(Set.copyOf(latestThin.keySet()));
+		Map<UUID, JsonNode> nodes = new HashMap<>();
+		latestThin.keySet().forEach(productId -> nodes.put(productId, this.jsonMapper.valueToTree(
+				Objects.requireNonNull(values.get(productId), () -> "disponibilité absente pour " + productId))));
+		return nodes;
 	}
 
 	private StoredEvent storedEvent(ResultSet rs, int row) throws SQLException {

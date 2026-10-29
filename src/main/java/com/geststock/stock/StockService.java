@@ -29,6 +29,7 @@ import com.geststock.exception.ErrorCode;
 import com.geststock.exception.InvalidRequestException;
 import com.geststock.exception.NotFoundException;
 import com.geststock.exception.UnauthorizedException;
+import com.geststock.integration.IntegrationEvents;
 import com.geststock.product.ProductService;
 import com.geststock.product.ProductSnapshot;
 import com.geststock.warehouse.WarehouseService;
@@ -75,14 +76,17 @@ public class StockService {
 
 	private final Clock clock;
 
+	private final IntegrationEvents integration;
+
 	StockService(EntityManager entityManager, StockMovementRepository movements, ProductService products,
-			WarehouseService warehouses, AuditService audit, Clock clock) {
+			WarehouseService warehouses, AuditService audit, Clock clock, IntegrationEvents integration) {
 		this.entityManager = entityManager;
 		this.movements = movements;
 		this.products = products;
 		this.warehouses = warehouses;
 		this.audit = audit;
 		this.clock = clock;
+		this.integration = integration;
 	}
 
 	/**
@@ -323,6 +327,11 @@ public class StockService {
 			this.entityManager.flush();
 			written.add(movement);
 		}
+		// Disponibilité : un événement mince par produit touché et par transaction, après les verrous et les
+		// écritures de stock (ordre des verrous inchangé) ; valeur calculée à la lecture du flux (P3).
+		Set<UUID> touched = new LinkedHashSet<>();
+		written.forEach(movement -> touched.add(movement.getProductId()));
+		this.integration.publishAvailability(touched);
 		return written;
 	}
 
