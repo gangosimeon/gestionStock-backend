@@ -192,10 +192,6 @@ public class IntegrationEvents {
 
 	}
 
-	/** Charge : schéma {@code ProductImageState} du contrat ({@code imageSha256} nul après retrait). */
-	private record ProductImageState(UUID productId, String imageSha256, long version) {
-	}
-
 	private boolean enabled() {
 		return this.properties.publish().enabled();
 	}

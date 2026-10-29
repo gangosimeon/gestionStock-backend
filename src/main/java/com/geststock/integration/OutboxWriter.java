@@ -1,7 +1,10 @@
 package com.geststock.integration;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
 import java.util.UUID;
 
@@ -11,7 +14,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 /**
- * Seule classe qui écrit dans {@code integration_outbox} et dans {@code product_image_generation} (vérifié par
+ * Seule classe qui écrit dans {@code integration_outbox} et qui lit ou écrit {@code product_image_generation} (vérifié par
  * {@code IntegrationArchitectureTest}). Visible du seul package : tout appel passe par {@link IntegrationEvents}. Utilise la {@code DataSource}
  * de l'application, donc la connexion et la transaction en cours (JPA) de l'entreprise courante. Le
  * {@code seq} reste nul : il est attribué à la lecture du flux.
@@ -39,6 +42,9 @@ class OutboxWriter {
 			set generation = generation + 1, sha256 = null, updated_at = now()
 			where product_id = :productId and sha256 is not null
 			returning generation""";
+
+	static final String IMAGE_STATES = """
+			select product_id, generation, sha256 from product_image_generation where product_id in (:productIds)""";
 
 	/** Lignes par instruction d'insertion groupée (5 paramètres par ligne, bien sous la limite de PostgreSQL). */
 	static final int THIN_BATCH = 1000;
@@ -98,6 +104,23 @@ class OutboxWriter {
 				? this.jdbc.sql(ADVANCE_ON_UPLOAD).param("productId", productId).param("sha256", sha256)
 				: this.jdbc.sql(ADVANCE_ON_DELETE).param("productId", productId);
 		return statement.query(Long.class).optional().map(OptionalLong::of).orElseGet(OptionalLong::empty);
+	}
+
+	/**
+	 * État de l'image des produits qui ont une génération (instantané, section {@code productImages}) ; un produit
+	 * absent du résultat n'a jamais eu d'image.
+	 */
+	Map<UUID, ProductImageState> imageStates(Collection<UUID> productIds) {
+		if (productIds.isEmpty()) {
+			return Map.of();
+		}
+		Map<UUID, ProductImageState> states = new HashMap<>();
+		this.jdbc.sql(IMAGE_STATES)
+			.param("productIds", productIds)
+			.query((rs, row) -> states.put(rs.getObject("product_id", UUID.class), new ProductImageState(
+					rs.getObject("product_id", UUID.class), rs.getString("sha256"), rs.getLong("generation"))))
+			.list();
+		return states;
 	}
 
 }
