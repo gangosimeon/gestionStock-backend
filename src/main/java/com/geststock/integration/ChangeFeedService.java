@@ -104,6 +104,8 @@ public class ChangeFeedService {
 	 * @param limit  nombre maximal d'événements examinés ; {@code null} : 100
 	 * @param filter filtre de la liaison
 	 * @throws ChangeFeedRequestException          {@code after < 0} ou {@code limit} hors de 1..500
+	 *                                             ({@code VALIDATION_FAILED} ; un paramètre non numérique ou absent
+	 *                                             est refusé avant, par la couche HTTP : {@code INVALID_PARAMETER})
 	 * @throws CursorExpiredException              {@code after} inférieur au repère de purge
 	 * @throws CursorAheadException                {@code after} supérieur au dernier {@code seq} attribué
 	 * @throws IllegalTransactionStateException    appel depuis une transaction active
