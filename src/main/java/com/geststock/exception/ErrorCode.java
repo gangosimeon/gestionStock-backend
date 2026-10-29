@@ -277,6 +277,9 @@ public enum ErrorCode {
 	// Intégration JeCréeMaBoutique (contrat integration/v1)
 	CURSOR_EXPIRED(HttpStatus.GONE,
 			"Curseur du flux trop ancien : relancez un instantané complet, puis reprenez le flux depuis son asOfSeq."),
+	CURSOR_AHEAD(HttpStatus.CONFLICT,
+			"Curseur du flux en avance sur ce flux : il ne vient pas de cette entreprise ou le flux a été réinitialisé. "
+					+ "Ne reprenez pas avec ce curseur : vérifiez la liaison."),
 
 	// 5xx
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Une erreur interne est survenue."),

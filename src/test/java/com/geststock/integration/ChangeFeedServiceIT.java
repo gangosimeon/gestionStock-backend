@@ -29,6 +29,7 @@ import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.geststock.exception.ApiException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.support.PostgresTestConfiguration;
 import com.geststock.tenancy.DefaultTenant;
@@ -113,11 +114,11 @@ class ChangeFeedServiceIT {
 		for (int limit : new int[] { 0, 501, -1 }) {
 			assertThatThrownBy(() -> this.feed.read(0, limit, ChangeFilter.ALL)).as("limit " + limit)
 				.isInstanceOfSatisfying(ChangeFeedRequestException.class,
-						e -> assertThat(e.getCode()).isEqualTo(ErrorCode.INVALID_PARAMETER));
+						e -> assertThat(e.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
 		}
 		assertThatThrownBy(() -> this.feed.read(-1, 10, ChangeFilter.ALL))
 			.isInstanceOfSatisfying(ChangeFeedRequestException.class,
-					e -> assertThat(e.getCode()).isEqualTo(ErrorCode.INVALID_PARAMETER));
+					e -> assertThat(e.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
 		assertThat(sequencedCount()).as("validation avant toute attribution").isZero();
 		assertThat(this.feed.read(0, 1, ChangeFilter.ALL).items()).hasSize(1);
 	}
@@ -284,6 +285,16 @@ class ChangeFeedServiceIT {
 				assertThat(e.getLastSeq()).isEqualTo(3L);
 			});
 		assertThat(this.feed.read(3, null, ChangeFilter.ALL).items()).isEmpty();
+	}
+
+	@Test
+	void aCursorAheadCarriesTheContractCode() {
+		insertCategories(1);
+		assertThatThrownBy(() -> this.feed.read(2, null, ChangeFilter.ALL))
+			.isInstanceOfSatisfying(ApiException.class, e -> {
+				assertThat(e.getCode()).isEqualTo(ErrorCode.CURSOR_AHEAD);
+				assertThat(e.getStatus().value()).isEqualTo(409);
+			});
 	}
 
 	// --- Rejeu (T-C3-2d) --------------------------------------------------------------------------------
