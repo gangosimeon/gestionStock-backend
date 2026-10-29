@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -32,6 +33,7 @@ import com.geststock.exception.NotFoundException;
 import com.geststock.warehouse.dto.WarehouseFilter;
 import com.geststock.warehouse.dto.WarehouseRequest;
 import com.geststock.warehouse.dto.WarehouseResponse;
+import com.geststock.warehouse.event.WarehouseActivationChangedEvent;
 
 /**
  * Dépôts et magasins (API publique du module {@code warehouse}).
@@ -65,10 +67,14 @@ public class WarehouseService {
 
 	private final AuditService audit;
 
-	WarehouseService(WarehouseRepository repository, WarehouseAccess access, AuditService audit) {
+	private final ApplicationEventPublisher events;
+
+	WarehouseService(WarehouseRepository repository, WarehouseAccess access, AuditService audit,
+			ApplicationEventPublisher events) {
 		this.repository = repository;
 		this.access = access;
 		this.audit = audit;
+		this.events = events;
 	}
 
 	public Page<WarehouseResponse> search(WarehouseFilter filter, PageQuery query) {
@@ -158,6 +164,7 @@ public class WarehouseService {
 					warehouse.getCode() + " · " + warehouse.getName())
 				.before(Map.of("active", wasActive))
 				.after(Map.of("active", active)));
+			this.events.publishEvent(new WarehouseActivationChangedEvent(id, active));
 		}
 		return saved;
 	}
