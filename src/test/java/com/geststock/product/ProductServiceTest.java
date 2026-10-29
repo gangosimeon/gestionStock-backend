@@ -76,7 +76,7 @@ class ProductServiceTest {
 	void setUp() {
 		this.service = new ProductService(this.repository, this.categories, this.brands, this.suppliers,
 				this.stockReaderProvider, this.entityManager, org.mockito.Mockito.mock(AuditService.class),
-				org.mockito.Mockito.mock(ProductImageService.class));
+				org.mockito.Mockito.mock(ProductImageService.class), org.mockito.Mockito.mock(ProductIntegrationEvents.class));
 		this.frames = withId(new Category("Montures", null));
 	}
 

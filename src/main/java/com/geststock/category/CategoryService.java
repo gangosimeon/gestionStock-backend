@@ -35,9 +35,12 @@ public class CategoryService {
 
 	private final AuditService audit;
 
-	CategoryService(CategoryRepository repository, AuditService audit) {
+	private final CategoryIntegrationEvents integration;
+
+	CategoryService(CategoryRepository repository, AuditService audit, CategoryIntegrationEvents integration) {
 		this.repository = repository;
 		this.audit = audit;
+		this.integration = integration;
 	}
 
 	public Page<CategoryResponse> search(String text, ActiveStatus status, PageQuery query) {
@@ -65,7 +68,9 @@ public class CategoryService {
 	public CategoryResponse create(CategoryRequest request) {
 		String name = request.name().trim();
 		requireUniqueName(name, null);
-		CategoryResponse created = toResponse(this.repository.saveAndFlush(new Category(name, blankToNull(request.description()))));
+		Category saved = this.repository.saveAndFlush(new Category(name, blankToNull(request.description())));
+		this.integration.publishIfChanged(null, saved);
+		CategoryResponse created = toResponse(saved);
 		this.audit.record(AuditEvent.of("CREATE", "CATEGORY", created.id(), name).after(created));
 		return created;
 	}
@@ -74,10 +79,13 @@ public class CategoryService {
 	public CategoryResponse update(UUID id, CategoryRequest request) {
 		Category category = load(id);
 		CategoryResponse before = toResponse(category);
+		CategoryIntegrationEvents.Exposed exposedBefore = CategoryIntegrationEvents.Exposed.of(category);
 		String name = request.name().trim();
 		requireUniqueName(name, id);
 		category.update(name, blankToNull(request.description()));
-		CategoryResponse updated = toResponse(this.repository.saveAndFlush(category));
+		Category saved = this.repository.saveAndFlush(category);
+		this.integration.publishIfChanged(exposedBefore, saved);
+		CategoryResponse updated = toResponse(saved);
 		this.audit.record(AuditEvent.of("UPDATE", "CATEGORY", id, name).before(before).after(updated));
 		return updated;
 	}
@@ -90,13 +98,16 @@ public class CategoryService {
 	public CategoryResponse setActive(UUID id, boolean active) {
 		Category category = load(id);
 		boolean wasActive = category.isActive();
+		CategoryIntegrationEvents.Exposed exposedBefore = CategoryIntegrationEvents.Exposed.of(category);
 		if (active) {
 			category.activate();
 		}
 		else {
 			category.deactivate();
 		}
-		CategoryResponse saved = toResponse(this.repository.saveAndFlush(category));
+		Category flushed = this.repository.saveAndFlush(category);
+		this.integration.publishIfChanged(exposedBefore, flushed);
+		CategoryResponse saved = toResponse(flushed);
 		if (wasActive != active) {
 			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "CATEGORY", id, saved.name())
 				.before(java.util.Map.of("active", wasActive))

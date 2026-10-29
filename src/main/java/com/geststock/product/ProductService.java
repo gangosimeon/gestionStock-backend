@@ -78,9 +78,11 @@ public class ProductService {
 
 	private final ProductImageService images;
 
+	private final ProductIntegrationEvents integration;
+
 	ProductService(ProductRepository repository, CategoryService categories, BrandService brands,
 			SupplierService suppliers, ObjectProvider<ProductStockReader> stockReader, EntityManager entityManager,
-			AuditService audit, ProductImageService images) {
+			AuditService audit, ProductImageService images, ProductIntegrationEvents integration) {
 		this.repository = repository;
 		this.categories = categories;
 		this.brands = brands;
@@ -89,6 +91,7 @@ public class ProductService {
 		this.entityManager = entityManager;
 		this.audit = audit;
 		this.images = images;
+		this.integration = integration;
 	}
 
 	public Page<ProductResponse> search(ProductFilter filter, PageQuery query, UUID warehouseId) {
@@ -113,6 +116,7 @@ public class ProductService {
 		Product product = new Product(sku, request.name().trim(), category);
 		apply(product, request, sku, barcode, true);
 		Product saved = this.repository.saveAndFlush(product);
+		this.integration.publishIfChanged(null, saved);
 		ProductResponse created = toResponse(saved, stockOf(List.of(saved), warehouseId), imagesOf(List.of(saved)));
 		this.audit.record(AuditEvent.of("CREATE", "PRODUCT", saved.getId(), label(saved))
 			.details("Création du produit " + label(saved))
@@ -124,11 +128,13 @@ public class ProductService {
 	public ProductResponse update(UUID id, ProductRequest request, UUID warehouseId) {
 		Product product = load(id);
 		ProductResponse before = toResponse(product, stockOf(List.of(product), warehouseId), imagesOf(List.of(product)));
+		ProductIntegrationEvents.Exposed exposedBefore = ProductIntegrationEvents.Exposed.of(product);
 		String sku = request.sku().trim();
 		String barcode = blankToNull(request.barcode());
 		requireUniqueIdentifiers(sku, barcode, id);
 		apply(product, request, sku, barcode, false);
 		Product saved = this.repository.saveAndFlush(product);
+		this.integration.publishIfChanged(exposedBefore, saved);
 		ProductResponse updated = toResponse(saved, stockOf(List.of(saved), warehouseId), imagesOf(List.of(saved)));
 		this.audit.record(AuditEvent.of("UPDATE", "PRODUCT", id, label(saved))
 			.details("Modification du produit " + label(saved))
@@ -145,6 +151,7 @@ public class ProductService {
 	public ProductResponse setActive(UUID id, boolean active, UUID warehouseId) {
 		Product product = load(id);
 		boolean wasActive = product.isActive();
+		ProductIntegrationEvents.Exposed exposedBefore = ProductIntegrationEvents.Exposed.of(product);
 		if (active) {
 			product.activate();
 		}
@@ -152,6 +159,7 @@ public class ProductService {
 			product.deactivate();
 		}
 		Product saved = this.repository.saveAndFlush(product);
+		this.integration.publishIfChanged(exposedBefore, saved);
 		if (wasActive != active) {
 			this.audit.record(AuditEvent.of(active ? "ACTIVATE" : "DEACTIVATE", "PRODUCT", id, label(saved))
 				.details((active ? "Réactivation" : "Désactivation") + " du produit " + label(saved))
