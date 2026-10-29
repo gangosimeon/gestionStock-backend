@@ -92,6 +92,21 @@ class PermissionCatalogIT {
 	}
 
 	@Test
+	void integrationManageExistsAndIsGrantedToTheAdministrator() {
+		// V049 (lot 2, v14-D7) : gestion des liaisons avec les boutiques en ligne.
+		assertThat(this.permissions.allCodes()).contains(Permissions.INTEGRATION_MANAGE);
+		assertThat(this.roles.permissionsOf(Set.of("ADMIN"))).contains(Permissions.INTEGRATION_MANAGE);
+	}
+
+	@Test
+	void integrationManageIsGrantedToNeitherManagerNorCashier() {
+		// Précondition : sans elle, l'absence chez les autres rôles serait vraie sans rien prouver.
+		assertThat(this.permissions.allCodes()).contains(Permissions.INTEGRATION_MANAGE);
+		assertThat(this.roles.permissionsOf(Set.of("GESTIONNAIRE"))).doesNotContain(Permissions.INTEGRATION_MANAGE);
+		assertThat(this.roles.permissionsOf(Set.of("CAISSIER"))).doesNotContain(Permissions.INTEGRATION_MANAGE);
+	}
+
+	@Test
 	void noRoleMeansNoPermission() {
 		assertThat(this.roles.permissionsOf(Set.of())).isEmpty();
 		assertThat(this.roles.permissionsOf(Set.of("ROLE_INEXISTANT"))).isEmpty();

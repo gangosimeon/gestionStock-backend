@@ -34,7 +34,7 @@ class RoleRepositoryIT {
 	void adminRoleHasEveryPermission() {
 		Role admin = this.repository.findWithPermissionsByCode("ADMIN").orElseThrow();
 
-		assertThat(admin.getPermissions()).hasSize(51);
+		assertThat(admin.getPermissions()).hasSize(52);
 	}
 
 }
