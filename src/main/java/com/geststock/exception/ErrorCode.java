@@ -20,6 +20,8 @@ public enum ErrorCode {
 	// 401 / 403
 	UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Authentification requise."),
 	ACCESS_DENIED(HttpStatus.FORBIDDEN, "Accès refusé."),
+	/** Intégration boutique : jeton de liaison valide sans la portée exigée par la route (contrat integration/v1). */
+	INSUFFICIENT_SCOPE(HttpStatus.FORBIDDEN, "Portée insuffisante."),
 
 	// 404 / 405 / 406 / 415
 	RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Ressource introuvable."),
