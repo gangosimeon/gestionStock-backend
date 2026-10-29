@@ -50,6 +50,16 @@ class IntegrationArchitectureTest {
 	}
 
 	@Test
+	void onlyTheOutboxWriterReadsOrWritesTheImageGenerationTable() {
+		List<String> touching = javaSources()
+			.filter(path -> read(path).contains("product_image_generation"))
+			.map(path -> SOURCES.relativize(path).toString().replace('\\', '/'))
+			.toList();
+		assertThat(touching).as("product_image_generation appartient au module integration (P7)")
+			.containsExactly("com/geststock/integration/OutboxWriter.java");
+	}
+
+	@Test
 	void outboxWriterIsNotVisibleOutsideItsPackage() {
 		int modifiers = OutboxWriter.class.getModifiers();
 		assertThat(Modifier.isPublic(modifiers) || Modifier.isProtected(modifiers)).isFalse();

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.NotFoundException;
+import com.geststock.integration.IntegrationEvents;
 import com.geststock.product.dto.ProductImageInfo;
 
 /**
@@ -28,15 +29,19 @@ public class ProductImageService {
 
 	private final ProductRepository products;
 
-	ProductImageService(ProductImageRepository images, ProductRepository products) {
+	private final IntegrationEvents integration;
+
+	ProductImageService(ProductImageRepository images, ProductRepository products, IntegrationEvents integration) {
 		this.images = images;
 		this.products = products;
+		this.integration = integration;
 	}
 
 	@Transactional
 	public ProductImageInfo upload(UUID productId, byte[] file) {
 		requireProduct(productId);
 		ProductImageProcessor.Processed processed = ProductImageProcessor.process(file);
+		this.integration.publishProductImage(productId, processed.sha256());
 		ProductImage image = this.images.findByProductId(productId).orElse(null);
 		if (image == null) {
 			image = new ProductImage(productId, processed);
@@ -52,6 +57,7 @@ public class ProductImageService {
 	@Transactional
 	public void delete(UUID productId) {
 		requireProduct(productId);
+		this.integration.publishProductImage(productId, null);
 		this.images.findByProductId(productId).ifPresent(this.images::delete);
 	}
 

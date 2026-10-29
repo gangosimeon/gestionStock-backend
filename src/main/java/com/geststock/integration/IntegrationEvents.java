@@ -2,6 +2,7 @@ package com.geststock.integration;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 import jakarta.persistence.EntityManager;
@@ -106,6 +107,36 @@ public class IntegrationEvents {
 			return;
 		}
 		this.writer.insert(newId(), type, IntegrationOperation.UPSERT, objectId, THIN_EVENT_VERSION, null);
+	}
+
+	/**
+	 * Publie le changement de l'image d'un produit (P6, P7) : avance la génération durable du produit, puis écrit
+	 * l'événement {@code PRODUCT_IMAGE} (version = génération), dans la transaction de l'appelant.
+	 *
+	 * <p>Doit être la <b>première instruction sur l'image</b> de la transaction : l'{@code INSERT … ON CONFLICT}
+	 * verrouille la ligne de génération, même sans mise à jour, et sérialise ainsi les changements d'image
+	 * concurrents d'un même produit. Empreinte inchangée, ou retrait d'une image absente : ni incrément, ni
+	 * événement. La génération avance même interrupteur coupé : elle reste la version de l'image quand la
+	 * publication est rétablie.
+	 *
+	 * @param productId produit
+	 * @param sha256    empreinte de la nouvelle image ; {@code null} si l'image est retirée
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public void publishProductImage(UUID productId, String sha256) {
+		Objects.requireNonNull(productId, "productId");
+		OptionalLong generation = this.writer.advanceProductImageGeneration(productId, sha256);
+		if (generation.isEmpty() || !enabled()) {
+			return;
+		}
+		long version = generation.getAsLong();
+		String json = serialize(IntegrationEventType.PRODUCT_IMAGE, new ProductImageState(productId, sha256, version));
+		this.writer.insert(newId(), IntegrationEventType.PRODUCT_IMAGE, IntegrationOperation.UPSERT, productId, version,
+				json);
+	}
+
+	/** Charge : schéma {@code ProductImageState} du contrat ({@code imageSha256} nul après retrait). */
+	private record ProductImageState(UUID productId, String imageSha256, long version) {
 	}
 
 	private boolean enabled() {
