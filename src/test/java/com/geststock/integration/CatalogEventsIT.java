@@ -192,6 +192,19 @@ class CatalogEventsIT {
 	}
 
 	@Test
+	void theProductPayloadCarriesNeitherCurrencyNorImageFingerprint() {
+		// Décision de contrat : devise exposée par la liaison et l'en-tête de l'instantané ; état de l'image par
+		// les seuls événements PRODUCT_IMAGE.
+		UUID id = this.products.create(product("P1", category(), "35000", "15000"), null).id();
+		this.products.update(id, product("P1", category(), "36000", "15000"), null);
+		this.products.setActive(id, false, null);
+		assertThat(events("PRODUCT")).hasSize(3).allSatisfy(event -> {
+			assertThat(event.data().has("currency")).as("currency").isFalse();
+			assertThat(event.data().has("imageSha256")).as("imageSha256").isFalse();
+		});
+	}
+
+	@Test
 	void changingAnExposedProductFieldPublishesAGreaterVersion() {
 		UUID category = category();
 		UUID other = category();
