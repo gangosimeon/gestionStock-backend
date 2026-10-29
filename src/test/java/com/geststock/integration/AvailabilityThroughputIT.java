@@ -39,8 +39,9 @@ import com.geststock.support.PostgresTestConfiguration;
 /**
  * T-C3-8 : débit des ventes avec et sans publication des événements (interrupteur), même jeu de données, en
  * tours alternés après un échauffement. Mesure seulement : les chiffres bruts sont écrits sur la sortie standard,
- * aucun seuil n'est imposé (critère du plan : surcoût ≤ 10 %). Lancement explicite :
- * {@code ./mvnw verify -Dit.test=AvailabilityThroughputIT -Dperf=true}.
+ * aucun seuil n'est imposé (critère du plan : surcoût ≤ 10 % sur des ventes de 10 lignes). Lancement explicite :
+ * {@code ./mvnw verify -Dit.test=AvailabilityThroughputIT -Dperf=true}, et {@code -Dperf.lines=10} pour le nombre de
+ * lignes par vente (3 par défaut). Chaque ligne d'une vente porte sur un produit distinct.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -51,7 +52,11 @@ class AvailabilityThroughputIT {
 
 	private static final int SALES_PER_RUN = 200;
 
-	private static final int LINES_PER_SALE = 3;
+	/** Lignes par vente : {@code -Dperf.lines}, 3 par défaut. */
+	private static final int LINES_PER_SALE = Integer.getInteger("perf.lines", 3);
+
+	/** Produits préparés : assez pour que chaque ligne d'une vente porte sur un produit distinct. */
+	private static final int PRODUCTS = Math.max(12, LINES_PER_SALE);
 
 	private static final int ROUNDS = 6;
 
@@ -91,7 +96,8 @@ class AvailabilityThroughputIT {
 		this.scenario = new BusinessScenario(this.jdbc, this.transactions);
 		this.seller = this.fixtures.user("debit");
 		this.store = this.fixtures.warehouse("debit");
-		for (int i = 0; i < 12; i++) {
+		assertThat(LINES_PER_SALE).as("perf.lines").isPositive();
+		for (int i = 0; i < PRODUCTS; i++) {
 			UUID product = this.fixtures.product("debit-" + i, 1000);
 			as(this.seller, () -> this.stock.applyMovement(StockMovementCommand.of(this.store, product,
 					StockMovementType.RECEIPT, 1_000_000, StockSourceType.MANUAL, "Stock de mesure")));
