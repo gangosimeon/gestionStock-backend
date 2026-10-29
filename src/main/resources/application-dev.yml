@@ -36,6 +36,14 @@ geststock:
       current-kid: dev-1
       keys:
         dev-1: Z2VzdHN0b2NrLWRldi1wYWdlLXRva2VuLWtleS0xLW5vdC1hLXNlY3JldA==
+    # Liaisons avec les boutiques en ligne : désactivées par défaut (GESTSTOCK_INTEGRATION_LINKS_ENABLED=true pour les
+    # essayer). Clé de signature des jetons de liaison : clé de développement, sans valeur hors du poste local.
+    links:
+      enabled: ${GESTSTOCK_INTEGRATION_LINKS_ENABLED:false}
+      token:
+        current-kid: dev-1
+        keys:
+          dev-1: Z2VzdHN0b2NrLWRldi1saW5rLXRva2VuLWtleS0xLWxvY2FsLW9ubHktbm90LWEtc2VjcmV0
 
 logging:
   level:

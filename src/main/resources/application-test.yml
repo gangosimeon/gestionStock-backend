@@ -45,3 +45,13 @@ geststock:
       keys:
         test-0: Z2VzdHN0b2NrLXRlc3QtcGFnZS10b2tlbi1rZXktMC1wcmV2aW91cy1ub3QtYS1zZWNyZXQ=
         test-1: Z2VzdHN0b2NrLXRlc3QtcGFnZS10b2tlbi1rZXktMS1ub3QtYS1zZWNyZXQ=
+    # Liaisons avec les boutiques en ligne : activées en test (désactivées par défaut). Clés de signature des jetons
+    # de liaison : clés publiques de test, sans valeur hors des tests automatisés, distinctes du secret JWT.
+    # test-0 : ancienne clé, encore listée (vérification seulement) ; test-1 : clé courante.
+    links:
+      enabled: true
+      token:
+        current-kid: test-1
+        keys:
+          test-0: Z2VzdHN0b2NrLXRlc3QtbGluay10b2tlbi1rZXktMC1wcmV2aW91cy1ub3QtYS1zZWNyZXQ=
+          test-1: Z2VzdHN0b2NrLXRlc3QtbGluay10b2tlbi1rZXktMS1jdXJyZW50LW5vdC1hLXNlY3JldA==

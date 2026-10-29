@@ -8,12 +8,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import com.geststock.integration.IntegrationProperties;
 import com.geststock.integration.PageTokenProperties;
+import com.geststock.integration.link.IntegrationLinkProperties;
 import com.geststock.security.GestStockSecurityProperties;
 
 /**
@@ -26,7 +28,9 @@ import com.geststock.security.GestStockSecurityProperties;
  * <li>mot de passe de l'administrateur initial : 12 caractères au moins s'il est fourni ;</li>
  * <li>Flyway : {@code clean} interdit (effacement complet du schéma) ;</li>
  * <li>intégration boutique : publication activée ⇒ clé courante valide de signature des {@code pageToken}
- * d'instantané (32 octets au moins), sans jamais afficher la clé.</li>
+ * d'instantané (32 octets au moins), sans jamais afficher la clé ;</li>
+ * <li>liaisons boutique : liaisons activées ⇒ clé courante valide de signature des jetons de liaison (32 octets
+ * au moins), aucune clé listée identique au secret JWT des utilisateurs, sans jamais afficher de clé.</li>
  * </ul>
  * Le secret JWT (32 octets minimum) est déjà vérifié par {@code JwtConfig}.
  */
@@ -69,6 +73,10 @@ class ProductionSafetyCheck implements InitializingBean {
 				this.environment.getProperty("geststock.platform.credentials-key"),
 				this.environment.getProperty("geststock.platform.bootstrap-admin.password")));
 		problems.addAll(integrationProblems(this.integration.publish().enabled(), this.pageToken));
+		// Lu depuis l'environnement (et non injecté) : même valeur que le bean, sans dépendance de plus.
+		IntegrationLinkProperties links = Binder.get(this.environment)
+			.bindOrCreate("geststock.integration.links", IntegrationLinkProperties.class);
+		problems.addAll(linkProblems(links, this.security.jwt().secret()));
 		if (!problems.isEmpty()) {
 			throw new IllegalStateException("Configuration de production refusée :\n - " + String.join("\n - ", problems));
 		}
@@ -109,6 +117,25 @@ class ProductionSafetyCheck implements InitializingBean {
 	 */
 	static List<String> integrationProblems(boolean publishEnabled, PageTokenProperties pageToken) {
 		return publishEnabled ? pageToken.problems() : List.of();
+	}
+
+	/**
+	 * Liaisons boutique (lot 2) : si elles sont activées, les jetons de liaison doivent pouvoir être signés (clé
+	 * courante valide, 32 octets au moins) par une clé distincte du secret des jetons utilisateurs. Les messages
+	 * nomment le {@code kid}, jamais une clé.
+	 */
+	static List<String> linkProblems(IntegrationLinkProperties links, String userJwtSecret) {
+		if (!links.enabled()) {
+			return List.of();
+		}
+		List<String> problems = new ArrayList<>(links.token().problems());
+		if (userJwtSecret != null && !userJwtSecret.isBlank()) {
+			for (String kid : links.token().keysEqualTo(userJwtSecret)) {
+				problems.add("geststock.integration.links.token.keys : la clé « " + kid
+						+ " » est identique au secret JWT des utilisateurs (GESTSTOCK_JWT_SECRET) ; une clé distincte est requise.");
+			}
+		}
+		return problems;
 	}
 
 	/** Problèmes bloquants (liste vide : configuration acceptée). */
