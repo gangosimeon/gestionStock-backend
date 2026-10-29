@@ -18,7 +18,28 @@ import java.lang.annotation.Target;
 @Documented
 public @interface RequiresScope {
 
-	/** Portée exigée, par exemple {@code catalog:read}. */
+	/**
+	 * Toute portée accordée suffit (contrat : {@code GET /link}, {@code POST /link/revoke}). Réservé aux routes listées
+	 * dans {@code IntegrationSecurityConfig.SUSPENSION_ALLOWED_ENDPOINTS}.
+	 */
+	String ANY = "*";
+
+	/** Portée exigée, par exemple {@code catalog:read}, ou {@link #ANY}. */
 	String value();
+
+	/**
+	 * Route servie aussi pendant une suspension de la liaison (v14-D10 : {@code GET /link}, {@code POST /link/revoke}) ;
+	 * ailleurs, une liaison suspendue reçoit {@code 403 LINK_SUSPENDED}. Réservé aux routes listées dans
+	 * {@code IntegrationSecurityConfig.SUSPENSION_ALLOWED_ENDPOINTS}.
+	 */
+	boolean allowedWhileSuspended() default false;
+
+	/**
+	 * Route qui ne touche que la base plateforme (C2 : {@code POST /link/revoke}, la boutique peut toujours se
+	 * déconnecter) : ni contrôle du statut de l'entreprise ({@code COMPANY_*}) ni de la migration de sa base
+	 * ({@code SCHEMA_UPGRADE_*}), et aucune entreprise courante posée. Les contrôles du jeton, de la liaison et de la
+	 * portée s'appliquent toujours. Réservé aux routes listées dans {@code IntegrationSecurityConfig.PLATFORM_ONLY_ENDPOINTS}.
+	 */
+	boolean platformOnly() default false;
 
 }

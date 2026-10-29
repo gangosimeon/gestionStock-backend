@@ -97,9 +97,31 @@ class IntegrationSecurityChainIT {
 	@Autowired
 	private JsonMapper json;
 
+	@Autowired
+	private com.geststock.platform.PlatformDb platform;
+
+	@Autowired
+	private LinkRegistry registry;
+
+	/** Depuis G7, un jeton n'est accepté que pour une liaison réelle : liaison active de l'entreprise de test. */
+	private TestLinks links;
+
+	private TestLinks.Client client;
+
+	private Link link;
+
+	@org.junit.jupiter.api.BeforeEach
+	void createActiveLink() {
+		this.links = new TestLinks(this.platform, this.registry);
+		this.client = this.links.client();
+		this.link = this.links.active(this.client, this.links.legacyCompany(), "shop-chain",
+				Set.of("catalog:read", "orders:read", "orders:write"));
+	}
+
 	@AfterEach
 	void deleteTestUsers() {
 		this.jdbc.update("delete from app_user where username like 'intsec\\_%'");
+		this.links.cleanUp();
 	}
 
 	// --- Authentification ---------------------------------------------------------------------------------
@@ -144,8 +166,8 @@ class IntegrationSecurityChainIT {
 	void aLinkTokenWithTheScopeReachesTheEndpointWithItsPrincipal() throws Exception {
 		this.mvc.perform(get(CATALOG).header(HttpHeaders.AUTHORIZATION, "Bearer " + linkToken("catalog:read")))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.linkId").value(LINK.toString()))
-			.andExpect(jsonPath("$.clientId").value("jcmb-test"))
+			.andExpect(jsonPath("$.linkId").value(this.link.id().toString()))
+			.andExpect(jsonPath("$.clientId").value(this.client.clientId()))
 			.andExpect(jsonPath("$.scopes[0]").value("catalog:read"))
 			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")));
 	}
@@ -247,7 +269,7 @@ class IntegrationSecurityChainIT {
 	}
 
 	private String linkToken(String... scopes) {
-		return this.tokens.issue(LINK, "jcmb-test", Set.of(scopes)).value();
+		return this.tokens.issue(this.link.id(), this.client.clientId(), Set.of(scopes)).value();
 	}
 
 	private byte[] testKey(String kid) {

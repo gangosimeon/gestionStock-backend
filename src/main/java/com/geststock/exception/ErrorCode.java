@@ -22,6 +22,10 @@ public enum ErrorCode {
 	ACCESS_DENIED(HttpStatus.FORBIDDEN, "Accès refusé."),
 	/** Intégration boutique : jeton de liaison valide sans la portée exigée par la route (contrat integration/v1). */
 	INSUFFICIENT_SCOPE(HttpStatus.FORBIDDEN, "Portée insuffisante."),
+	/** Intégration boutique : liaison révoquée, définitivement (contrat integration/v1, C2). */
+	LINK_REVOKED(HttpStatus.UNAUTHORIZED, "Liaison révoquée."),
+	/** Intégration boutique : liaison suspendue (contrat integration/v1, v14-D10). */
+	LINK_SUSPENDED(HttpStatus.FORBIDDEN, "Liaison suspendue."),
 
 	// 404 / 405 / 406 / 415
 	RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Ressource introuvable."),
