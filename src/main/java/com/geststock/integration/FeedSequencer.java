@@ -32,20 +32,20 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><b>Réparation si la ligne d'état a disparu</b> ({@link IntegrationFeedStateMissingException}) : le
  * séquencement est arrêté, aucun {@code seq} n'est attribué, les événements restent en attente. Recréer la
- * ligne, avec le compte propriétaire de la base de l'entreprise, en reprenant le plus haut {@code seq}
- * attribué et le dernier repère de purge connu :
+ * ligne, avec le compte propriétaire de la base de l'entreprise (décision v11-D1) : {@code last_seq = MAX(seq)}
+ * et {@code purged_through_seq = MIN(seq) - 1} sur les événements séquencés, (0, 0) s'il n'y en a aucun :
  *
  * <pre>
  * INSERT INTO integration_feed_state (id, last_seq, purged_through_seq)
- * SELECT '00000000-0000-0000-0000-000000000001', COALESCE(MAX(seq), 0), &lt;dernier repère de purge connu&gt;
- * FROM integration_outbox;
+ * SELECT '00000000-0000-0000-0000-000000000001', COALESCE(MAX(seq), 0), COALESCE(MIN(seq) - 1, 0)
+ * FROM integration_outbox
+ * WHERE seq IS NOT NULL;
  * </pre>
  *
- * Ne jamais la recréer avec {@code last_seq = 0} si des événements sont déjà séquencés : l'attribution
- * suivante réutiliserait des {@code seq} existants et échouerait sur la contrainte unique
- * {@code uk_integration_outbox_seq}. Le repère de purge ne doit jamais dépasser {@code last_seq}
- * (contrainte {@code ck_integration_feed_state_seq}) ; à défaut de valeur connue, 0 (aucun curseur ne sera
- * alors refusé à tort, les événements purgés étant simplement absents).
+ * Les {@code seq} sont contigus et la purge supprime les plus petits : le plus petit {@code seq} restant moins 1
+ * est exactement le repère de purge. <b>Invariant de purge</b> : l'événement de plus grand {@code seq} n'est
+ * jamais purgé ; {@code MAX(seq)} reste donc connu et l'attribution reprend sans réutiliser un {@code seq}
+ * (contrainte unique {@code uk_integration_outbox_seq}).
  */
 @Component
 class FeedSequencer {

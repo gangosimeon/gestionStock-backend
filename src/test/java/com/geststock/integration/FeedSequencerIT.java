@@ -131,20 +131,48 @@ class FeedSequencerIT {
 
 	@Test
 	void aMissingFeedStateRowIsReportedExplicitly() {
+		insertCommittedEvents(5);
+		this.sequencer.sequence();
+		// Purge simulée jusqu'au seq 2 ; l'événement de plus grand seq (5) n'est jamais purgé (invariant v11-D1).
+		this.jdbc.update("delete from integration_outbox where seq <= 2");
 		insertCommittedEvents(2);
 		this.jdbc.update("delete from integration_feed_state");
 		try {
 			assertThatThrownBy(this.sequencer::sequence).isInstanceOf(IntegrationFeedStateMissingException.class)
-				.hasMessageContaining("COALESCE(MAX(seq), 0)");
-			assertThat(sequencedCount()).isZero();
+				.hasMessageContaining("last_seq = MAX(seq)")
+				.hasMessageContaining("purged_through_seq = MIN(seq) - 1")
+				.hasMessageContaining("plus grand seq");
+			assertThat(sequencedCount()).as("rien d'attribué tant que la ligne manque").isEqualTo(3);
 		}
 		finally {
-			// Procédure de réparation documentée : last_seq = COALESCE(MAX(seq), 0).
-			this.jdbc.update("""
-					insert into integration_feed_state (id, last_seq, purged_through_seq)
-					select ?::uuid, coalesce(max(seq), 0), 0 from integration_outbox""", FEED_STATE_ID);
+			repairFeedState();
 		}
+		assertThat(this.jdbc.queryForMap("select last_seq, purged_through_seq from integration_feed_state"))
+			.containsEntry("last_seq", 5L)
+			.containsEntry("purged_through_seq", 2L);
 		assertThat(this.sequencer.sequence().assigned()).isEqualTo(2);
+		assertThat(allSeqs()).as("reprise après le plus grand seq, sans réutilisation").containsExactly(3L, 4L, 5L, 6L, 7L);
+	}
+
+	@Test
+	void theRepairOfAFeedWithoutSequencedEventsStartsAtZero() {
+		insertCommittedEvents(2);
+		this.jdbc.update("delete from integration_feed_state");
+		repairFeedState();
+		assertThat(this.jdbc.queryForMap("select last_seq, purged_through_seq from integration_feed_state"))
+			.containsEntry("last_seq", 0L)
+			.containsEntry("purged_through_seq", 0L);
+		assertThat(this.sequencer.sequence().assigned()).isEqualTo(2);
+		assertThat(allSeqs()).containsExactly(1L, 2L);
+	}
+
+	/** Procédure de réparation de la v11-D1 (Javadoc de {@link FeedSequencer}). */
+	private void repairFeedState() {
+		this.jdbc.update("""
+				insert into integration_feed_state (id, last_seq, purged_through_seq)
+				select ?::uuid, coalesce(max(seq), 0), coalesce(min(seq) - 1, 0)
+				from integration_outbox
+				where seq is not null""", FEED_STATE_ID);
 	}
 
 	@Test
