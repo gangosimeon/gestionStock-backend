@@ -108,6 +108,21 @@ class PageTokenCodecTest {
 		assertInvalid(() -> codec.decode(null, this.link));
 	}
 
+	@Test
+	void theCurrencyTravelsInTheTokenAndCannotBeAltered() {
+		PageTokenCodec codec = codec("k1", Map.of("k1", CURRENT_SECRET));
+		String encoded = codec.encode(token(this.link, SnapshotSection.PRODUCTS, UUID.randomUUID()));
+		assertThat(codec.decode(encoded, this.link).currency()).isEqualTo("XOF");
+
+		// Devise réécrite dans le jeton (XOF → EUR), base64url canonique : refusée par la signature.
+		byte[] bytes = Base64.getUrlDecoder().decode(encoded);
+		int currencyAt = 2 + bytes[1] + 16 + 8 + 8;
+		assertThat(new String(bytes, currencyAt, 3, StandardCharsets.US_ASCII)).isEqualTo("XOF");
+		System.arraycopy("EUR".getBytes(StandardCharsets.US_ASCII), 0, bytes, currencyAt, 3);
+		String altered = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+		assertInvalid(() -> codec.decode(altered, this.link));
+	}
+
 	// --- T-C3-6 ------------------------------------------------------------------------------------------
 
 	@Test
@@ -164,7 +179,7 @@ class PageTokenCodecTest {
 	void theLongestTokenIsAtMost512Characters() {
 		String longestKid = "k".repeat(PageTokenCodec.MAX_KID_LENGTH);
 		PageTokenCodec codec = codec(longestKid, Map.of(longestKid, CURRENT_SECRET));
-		PageToken longest = new PageToken(this.link, Long.MAX_VALUE, FIRST_PAGE, SnapshotSection.AVAILABILITY,
+		PageToken longest = new PageToken(this.link, Long.MAX_VALUE, FIRST_PAGE, "XOF", SnapshotSection.AVAILABILITY,
 				new UUID(-1L, -1L));
 
 		String encoded = codec.encode(longest);
@@ -237,7 +252,7 @@ class PageTokenCodecTest {
 	}
 
 	private PageToken token(LinkRef owner, SnapshotSection section, UUID lastId) {
-		return new PageToken(owner, 42L, this.clock.instant(), section, lastId);
+		return new PageToken(owner, 42L, this.clock.instant(), "XOF", section, lastId);
 	}
 
 	private static UUID nil() {

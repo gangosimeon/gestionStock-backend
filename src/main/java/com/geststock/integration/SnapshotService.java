@@ -28,8 +28,9 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Première page (sans {@code pageToken}) : la devise est lue dans la base plateforme, puis le séquenceur passe
  * (hors transaction), puis une transaction {@code REPEATABLE READ} en lecture seule lit d'abord {@code asOfSeq}
- * ({@code last_seq} validé) et ensuite les objets. Pages suivantes : {@code asOfSeq}, heure de la première page et
- * position sont repris du jeton vérifié ({@link PageTokenCodec}) ; chaque page a sa propre transaction
+ * ({@code last_seq} validé) et ensuite les objets. Pages suivantes : {@code asOfSeq}, heure et devise de la première
+ * page et position sont repris du jeton vérifié ({@link PageTokenCodec}), sans relire la base plateforme ; chaque
+ * page a sa propre transaction
  * {@code REPEATABLE READ} en lecture seule. Un objet modifié entre deux pages peut apparaître dans une version
  * postérieure à {@code asOfSeq} : le consommateur applique la règle des versions puis reprend le flux après
  * {@code asOfSeq}, ce qui reconstruit l'état source.
@@ -125,8 +126,9 @@ public class SnapshotService {
 			throw new SnapshotRequestException("Taille de page invalide : limit doit être compris entre 1 et 500.");
 		}
 		PageToken position = pageToken != null ? this.tokens.decode(pageToken, link) : null;
-		// Base plateforme : autre base, autre pool, lue avant d'ouvrir la transaction de page de l'entreprise.
-		String isoCurrency = this.currency.isoCode();
+		// Devise fixée à la première page et portée par le jeton : la base plateforme (autre base, autre pool) n'est
+		// lue qu'une fois, avant d'ouvrir la transaction de page de l'entreprise.
+		String isoCurrency = position != null ? position.currency() : this.currency.isoCode();
 		if (position == null) {
 			this.sequencer.sequence();
 		}
@@ -172,7 +174,7 @@ public class SnapshotService {
 			remaining -= items.size();
 		}
 		String nextPageToken = section == null ? null
-				: this.tokens.encode(new PageToken(link, asOfSeq, issuedAt, section, lastId));
+				: this.tokens.encode(new PageToken(link, asOfSeq, issuedAt, isoCurrency, section, lastId));
 		return new SnapshotPage(asOfSeq, isoCurrency, content.get(SnapshotSection.CATEGORIES),
 				content.get(SnapshotSection.PRODUCTS), content.get(SnapshotSection.PRODUCT_IMAGES),
 				content.get(SnapshotSection.AVAILABILITY), nextPageToken);

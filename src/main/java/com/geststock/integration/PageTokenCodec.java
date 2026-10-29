@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -25,8 +26,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>Format 1 (octets) : numéro de format (1) · longueur du {@code kid} (1) · {@code kid} ASCII (1 à
  * {@value #MAX_KID_LENGTH}) · identifiant de liaison (16) · {@code asOfSeq} (8) · heure de la première page,
- * secondes depuis l'époque (8) · section (1) · dernier identifiant servi dans la section (16) · HMAC-SHA256 de
- * tout ce qui précède (32). Soit 83 octets plus le {@code kid} : 154 caractères au plus.
+ * secondes depuis l'époque (8) · devise de la première page, code ISO 4217 en ASCII (3) · section (1) · dernier
+ * identifiant servi dans la section (16) · HMAC-SHA256 de tout ce qui précède (32). Soit 86 octets plus le
+ * {@code kid} : 158 caractères au plus. La devise, comme {@code asOfSeq}, est fixée à la première page : les pages
+ * suivantes ne relisent pas la base plateforme.
  *
  * <p>Contrôles, dans cet ordre : format → {@code kid} connu → signature (comparaison en temps constant,
  * {@link MessageDigest#isEqual}) → liaison identique à l'appelant → expiration. Tout échec avant l'expiration :
@@ -62,8 +65,10 @@ class PageTokenCodec {
 
 	private static final int MAC_BYTES = 32;
 
-	/** Liaison, asOfSeq, heure, section, dernier identifiant. */
-	private static final int BODY_BYTES = 16 + 8 + 8 + 1 + 16;
+	/** Liaison, asOfSeq, heure, devise, section, dernier identifiant. */
+	private static final int BODY_BYTES = 16 + 8 + 8 + 3 + 1 + 16;
+
+	private static final Pattern ISO_4217 = Pattern.compile("[A-Z]{3}");
 
 	private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
 
@@ -94,11 +99,16 @@ class PageTokenCodec {
 			throw new IllegalStateException("Aucune clé courante de signature des jetons d'instantané : définir "
 					+ "geststock.integration.page-token.current-kid et sa clé.");
 		}
+		if (token.currency() == null || !ISO_4217.matcher(token.currency()).matches()) {
+			throw new IllegalArgumentException("Devise ISO 4217 attendue dans le jeton : " + token.currency());
+		}
 		byte[] kid = this.currentKid.getBytes(StandardCharsets.US_ASCII);
 		ByteBuffer buffer = ByteBuffer.allocate(2 + kid.length + BODY_BYTES + MAC_BYTES);
 		buffer.put(FORMAT).put((byte) kid.length).put(kid);
 		putUuid(buffer, token.link().id());
-		buffer.putLong(token.asOfSeq()).putLong(token.issuedAt().getEpochSecond()).put((byte) token.section().ordinal());
+		buffer.putLong(token.asOfSeq()).putLong(token.issuedAt().getEpochSecond())
+			.put(token.currency().getBytes(StandardCharsets.US_ASCII))
+			.put((byte) token.section().ordinal());
 		putUuid(buffer, token.lastId());
 		buffer.put(mac(this.secrets.get(this.currentKid), buffer.array(), buffer.position()));
 		return ENCODER.encodeToString(buffer.array());
@@ -126,9 +136,12 @@ class PageTokenCodec {
 		UUID linkId = new UUID(body.getLong(), body.getLong());
 		long asOfSeq = body.getLong();
 		Instant issuedAt = Instant.ofEpochSecond(body.getLong());
+		byte[] currencyBytes = new byte[3];
+		body.get(currencyBytes);
+		String currency = new String(currencyBytes, StandardCharsets.US_ASCII);
 		int section = body.get();
 		UUID lastId = new UUID(body.getLong(), body.getLong());
-		if (section < 0 || section >= SECTIONS.length || asOfSeq < 0) {
+		if (section < 0 || section >= SECTIONS.length || asOfSeq < 0 || !ISO_4217.matcher(currency).matches()) {
 			throw refused("contenu invalide");
 		}
 		if (!linkId.equals(link.id())) {
@@ -138,7 +151,7 @@ class PageTokenCodec {
 			log.debug("pageToken refusé : instantané expiré");
 			throw new SnapshotExpiredException();
 		}
-		return new PageToken(link, asOfSeq, issuedAt, SECTIONS[section], lastId);
+		return new PageToken(link, asOfSeq, issuedAt, currency, SECTIONS[section], lastId);
 	}
 
 	/** Contrôle de format : base64url canonique, numéro de format, longueur du kid, longueur totale. */

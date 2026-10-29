@@ -3,6 +3,9 @@ package com.geststock.integration;
 import static com.geststock.support.BusinessScenario.as;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -32,6 +35,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.geststock.cash.CashService;
@@ -101,6 +105,10 @@ class SnapshotServiceIT {
 
 	@Autowired
 	private PlatformDb platform;
+
+	/** Espion : compte les lectures de la devise dans la base plateforme. */
+	@MockitoSpyBean
+	private CompanyCurrency companyCurrency;
 
 	@Autowired
 	private CurrentTenant tenant;
@@ -317,6 +325,20 @@ class SnapshotServiceIT {
 		assertThatThrownBy(() -> this.snapshots.read(this.link, null, 1))
 			.isInstanceOf(UnsupportedCurrencyException.class)
 			.hasMessageContaining("DOLLAR");
+	}
+
+	@Test
+	void theCurrencyIsReadOnceAtTheFirstPageAndKeptOnEveryPage() {
+		stockedProducts(4);
+		setCompanyCurrency("FCFA");
+		clearInvocations(this.companyCurrency);
+
+		// Devise inconnue après la première page : relue, elle ferait échouer les pages suivantes.
+		List<SnapshotPage> pages = snapshot(2, page -> setCompanyCurrency("DOLLAR"));
+
+		assertThat(pages).hasSizeGreaterThanOrEqualTo(3);
+		assertThat(pages).extracting(SnapshotPage::currency).containsOnly("XOF");
+		verify(this.companyCurrency, times(1)).isoCode();
 	}
 
 	@Test
