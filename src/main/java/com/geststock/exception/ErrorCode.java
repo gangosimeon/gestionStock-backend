@@ -274,6 +274,10 @@ public enum ErrorCode {
 	UNKNOWN_ROLE(HttpStatus.BAD_REQUEST, "Rôle inconnu."),
 	UNKNOWN_WAREHOUSE(HttpStatus.BAD_REQUEST, "Dépôt inconnu ou inactif."),
 
+	// Intégration JeCréeMaBoutique (contrat integration/v1)
+	CURSOR_EXPIRED(HttpStatus.GONE,
+			"Curseur du flux trop ancien : relancez un instantané complet, puis reprenez le flux depuis son asOfSeq."),
+
 	// 5xx
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Une erreur interne est survenue."),
 	SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Service momentanément indisponible.");
