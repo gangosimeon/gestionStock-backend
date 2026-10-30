@@ -123,7 +123,8 @@ public class IntegrationSecurityConfig {
 	@Order(Ordered.HIGHEST_PRECEDENCE)
 	SecurityFilterChain integrationSecurityFilterChain(HttpSecurity http, IntegrationLinkProperties links,
 			IntegrationTokenService tokens, LinkAccess access, IntegrationClients clients, TenantSchemaRegistry schemas,
-			IntegrationRateLimitProperties rateLimits, RateLimiter limiter, ApiErrorFactory errors, ApiErrorWriter writer,
+			IntegrationRateLimitProperties rateLimits, RateLimiter limiter, LinkAudit audit, ApiErrorFactory errors,
+			ApiErrorWriter writer,
 			@Qualifier("requestMappingHandlerMapping") ObjectProvider<RequestMappingHandlerMapping> handlerMapping)
 			throws Exception {
 		ScopedEndpoints endpoints = new ScopedEndpoints(handlerMapping, schemas);
@@ -153,7 +154,8 @@ public class IntegrationSecurityConfig {
 				.requestMatchers(endpoints::isScoped).access(endpoints::authorize)
 				.anyRequest().denyAll())
 			.addFilterAfter(new DisabledLinksFilter(links.enabled(), errors, writer), HeaderWriterFilter.class)
-			.addFilterBefore(new ClientAuthenticationFilter(clientPaths(), clients), BearerTokenAuthenticationFilter.class)
+			.addFilterBefore(new ClientAuthenticationFilter(clientPaths(), clients, audit, rateLimits.clientIpHeader()),
+					BearerTokenAuthenticationFilter.class)
 			// Limitation de débit (G9) : par IP avant l'authentification du client (essais de secrets compris), par client
 			// après une authentification réussie seulement (l'identifiant annoncé n'épuise jamais le quota du client).
 			.addFilterBefore(new RateLimitFilter.ByIp(rateLimits, limiter, errors, writer), ClientAuthenticationFilter.class)

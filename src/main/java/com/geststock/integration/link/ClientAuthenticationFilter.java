@@ -30,6 +30,10 @@ final class ClientAuthenticationFilter extends OncePerRequestFilter {
 
 	private static final Logger log = LoggerFactory.getLogger(ClientAuthenticationFilter.class);
 
+	/** Format des identifiants de client ({@code ck_integration_client_client_id}) ; hors format : {@code ?}. */
+	private static final java.util.regex.Pattern ANNOUNCED_CLIENT = java.util.regex.Pattern
+		.compile("[a-z0-9][a-z0-9-]{2,62}[a-z0-9]");
+
 	static final String CHALLENGE = "Basic realm=\"geststock-integration\", charset=\"UTF-8\"";
 
 	private static final String BODY = "{\"error\":\"invalid_client\",\"error_description\":\"Authentification du client refusée.\"}";
@@ -38,9 +42,35 @@ final class ClientAuthenticationFilter extends OncePerRequestFilter {
 
 	private final IntegrationClients clients;
 
-	ClientAuthenticationFilter(RequestMatcher clientPaths, IntegrationClients clients) {
+	private final LinkAudit audit;
+
+	private final String clientIpHeader;
+
+	ClientAuthenticationFilter(RequestMatcher clientPaths, IntegrationClients clients, LinkAudit audit,
+			String clientIpHeader) {
 		this.clientPaths = clientPaths;
 		this.clients = clients;
+		this.audit = audit;
+		this.clientIpHeader = clientIpHeader;
+	}
+
+	/**
+	 * Trace d'audit de l'échec (G12) : identifiant annoncé (normalisé, jamais le secret) et IP. Base plateforme
+	 * indisponible : WARN, la réponse reste 401.
+	 */
+	private void trace(HttpServletRequest request, String announced) {
+		String normalized = announced == null ? null : announced.trim().toLowerCase(java.util.Locale.ROOT);
+		if (normalized != null && !ANNOUNCED_CLIENT.matcher(normalized).matches()) {
+			normalized = "?";
+		}
+		try {
+			this.audit.recordAlone(new LinkAudit.Entry(LinkAudit.CLIENT_AUTHENTICATION_FAILED, LinkAudit.Severity.WARNING, null,
+					null, null, normalized, null, null, new LinkAudit.Actor(LinkAudit.ActorType.CLIENT, null, normalized),
+					RateLimitFilter.clientIp(request, this.clientIpHeader), null, new java.util.LinkedHashMap<>()));
+		}
+		catch (RuntimeException ex) {
+			log.warn("Échec d'authentification du client non tracé ({}).", ex.getClass().getSimpleName());
+		}
 	}
 
 	@Override
@@ -51,10 +81,12 @@ final class ClientAuthenticationFilter extends OncePerRequestFilter {
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 			throws ServletException, IOException {
-		Optional<IntegrationClients.AuthenticatedClient> client = credentials(request.getHeader(HttpHeaders.AUTHORIZATION))
+		Optional<String[]> credentials = credentials(request.getHeader(HttpHeaders.AUTHORIZATION));
+		Optional<IntegrationClients.AuthenticatedClient> client = credentials
 			.flatMap(pair -> this.clients.authenticate(pair[0], pair[1]));
 		if (client.isEmpty()) {
 			log.info("Authentification du client refusée ({} {}).", request.getMethod(), request.getRequestURI());
+			trace(request, credentials.map(pair -> pair[0]).orElse(null));
 			response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 			response.setHeader(HttpHeaders.WWW_AUTHENTICATE, CHALLENGE);
 			response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");

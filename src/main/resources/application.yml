@@ -220,3 +220,7 @@ logging:
   pattern:
     # traceId : identifiant de corrélation (en-tête X-Trace-Id, corps des erreurs).
     level: "%5p [%X{traceId:-}]"
+  level:
+    # Trace protocolaire du pilote PostgreSQL : en TRACE, elle affiche la valeur de chaque paramètre lié (données
+    # métier, motif libre d'une boutique…). Jamais activée par un niveau général TRACE.
+    org.postgresql: INFO

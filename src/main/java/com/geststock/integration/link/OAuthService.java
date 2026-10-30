@@ -70,13 +70,16 @@ class OAuthService {
 
 	private final LinkViews views;
 
+	private final LinkAudit audit;
+
 	private final SecureRandom random = new SecureRandom();
 
-	OAuthService(PlatformDb platform, LinkRegistry links, IntegrationTokenService tokens, LinkViews views) {
+	OAuthService(PlatformDb platform, LinkRegistry links, IntegrationTokenService tokens, LinkViews views, LinkAudit audit) {
 		this.platform = platform;
 		this.links = links;
 		this.tokens = tokens;
 		this.views = views;
+		this.audit = audit;
 	}
 
 	// --- PAR ------------------------------------------------------------------------------------------------
@@ -114,7 +117,7 @@ class OAuthService {
 			throw OAuthException.invalidRequest("shop_id ou shop_name invalide.");
 		}
 		String requestUri = REQUEST_URI_PREFIX + randomToken();
-		this.platform.inTransaction(status -> {
+		this.audit.unit(() -> {
 			if (this.links.shopAlreadyLinked(client.id(), shopId)) {
 				throw OAuthException.invalidRequest("Boutique déjà liée.");
 			}
@@ -145,29 +148,46 @@ class OAuthService {
 			throw OAuthException.invalidRequest("code_verifier invalide.");
 		}
 		String codeHash = LinkRegistry.sha256Hex(code);
-		Exchange exchange = this.platform.inTransaction(status -> {
-			Optional<ConsumedCode> consumed = this.platform.jdbc().sql(CONSUME_CODE).param("hash", codeHash).param("client", client.id())
-				.query((rs, n) -> new ConsumedCode((UUID) rs.getObject("link_id"), rs.getString("redirect_uri"),
-						rs.getString("code_challenge")))
-				.optional();
-			if (consumed.isEmpty()) {
-				Optional<UUID> replayed = this.platform.jdbc().sql(USED_CODE).param("hash", codeHash).param("client", client.id())
-					.query(UUID.class).optional();
-				replayed.ifPresent(this::revokeReplayed);
-				return new Exchange(null, replayed.isPresent());
-			}
-			ConsumedCode found = consumed.get();
-			if (!found.redirectUri().equals(redirectUri) || !pkceMatches(verifier, found.codeChallenge())) {
-				// Annule la consommation : le code reste utilisable avec les bons paramètres.
-				throw OAuthException.invalidGrant();
-			}
-			try {
-				return new Exchange(this.links.activate(found.linkId()), false);
-			}
-			catch (LinkException ex) {
-				throw OAuthException.invalidGrant();
-			}
-		});
+		Exchange exchange;
+		try {
+			exchange = this.audit.unit(() -> {
+				Optional<ConsumedCode> consumed = this.platform.jdbc().sql(CONSUME_CODE).param("hash", codeHash)
+					.param("client", client.id())
+					.query((rs, n) -> new ConsumedCode((UUID) rs.getObject("link_id"), rs.getString("redirect_uri"),
+							rs.getString("code_challenge")))
+					.optional();
+				if (consumed.isEmpty()) {
+					Optional<UUID> replayed = this.platform.jdbc().sql(USED_CODE).param("hash", codeHash).param("client", client.id())
+						.query(UUID.class).optional();
+					replayed.ifPresent(linkId -> replayDetected(client, linkId));
+					return new Exchange(null, replayed.isPresent());
+				}
+				ConsumedCode found = consumed.get();
+				String failure = !found.redirectUri().equals(redirectUri) ? "REDIRECT_URI"
+						: !pkceMatches(verifier, found.codeChallenge()) ? "PKCE" : null;
+				if (failure != null) {
+					// Annule la consommation : le code reste utilisable avec les bons paramètres.
+					throw new ExchangeRejected(found.linkId(), failure);
+				}
+				ActivatedLink activated;
+				try {
+					activated = this.links.activate(found.linkId());
+				}
+				catch (LinkException ex) {
+					throw OAuthException.invalidGrant();
+				}
+				this.audit.record(LinkAudit.Entry.of(LinkAudit.ACTIVATED, activated.link(), LinkAudit.Actor.shop(activated.link())));
+				return new Exchange(activated, false);
+			});
+		}
+		catch (ExchangeRejected rejected) {
+			// Transaction annulée (code non consommé) : le refus est tracé dans sa propre transaction.
+			this.links.find(rejected.linkId()).ifPresent(link -> this.audit.recordAlone(LinkAudit.Entry
+				.of(LinkAudit.CODE_EXCHANGE_REJECTED, link, LinkAudit.Actor.client(client.id(), client.clientId()))
+				.severity(LinkAudit.Severity.WARNING)
+				.detail("failure", rejected.failure())));
+			throw OAuthException.invalidGrant();
+		}
 		if (exchange.activated() == null) {
 			if (exchange.replay()) {
 				log.info("Code d'autorisation rejoué par le client {} : liaison révoquée (CODE_REPLAYED).", client.clientId());
@@ -182,13 +202,47 @@ class OAuthService {
 		return body;
 	}
 
-	private void revokeReplayed(UUID linkId) {
-		try {
-			this.links.revoke(linkId, RevocationReason.CODE_REPLAYED);
+	/**
+	 * Code rejoué (v14-D14) : la liaison qu'il a créée est révoquée ({@code CODE_REPLAYED}), si elle ne l'est pas
+	 * déjà, et le rejeu est tracé comme événement critique ; dans la transaction qui le constate.
+	 */
+	private void replayDetected(IntegrationClients.AuthenticatedClient client, UUID linkId) {
+		Optional<Link> found = this.links.find(linkId);
+		if (found.isEmpty()) {
+			return;
 		}
-		catch (LinkException ex) {
-			// Déjà révoquée : rien à faire, le refus suit.
+		Link link = found.get();
+		LinkAudit.Actor actor = LinkAudit.Actor.client(client.id(), client.clientId());
+		if (link.status() != LinkStatus.REVOKED) {
+			// Statut lu avant : une révocation refusée marquerait toute la transaction pour annulation.
+			link = this.links.revoke(linkId, RevocationReason.CODE_REPLAYED);
+			this.audit.record(LinkAudit.Entry.of(LinkAudit.REVOKED, link, actor)
+				.detail("revocationReason", RevocationReason.CODE_REPLAYED.name()));
 		}
+		this.audit.record(LinkAudit.Entry.of(LinkAudit.CODE_REPLAY_DETECTED, link, actor).severity(LinkAudit.Severity.CRITICAL));
+	}
+
+	/** Échange refusé ({@code redirect_uri} différente ou PKCE faux) : annule la consommation du code. */
+	private static final class ExchangeRejected extends RuntimeException {
+
+		private final UUID linkId;
+
+		private final String failure;
+
+		ExchangeRejected(UUID linkId, String failure) {
+			super("Échange du code refusé : " + failure, null, false, false);
+			this.linkId = linkId;
+			this.failure = failure;
+		}
+
+		UUID linkId() {
+			return this.linkId;
+		}
+
+		String failure() {
+			return this.failure;
+		}
+
 	}
 
 	// --- client_credentials --------------------------------------------------------------------------------

@@ -136,7 +136,9 @@ class IntegrationLinkRoutesIT {
 		this.outside = warehouse("G11-X-" + suffix, "STORE");
 		LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
 		for (Logger logger : context.getLoggerList()) {
-			if (logger.getLevel() != null) {
+			// Sauf le pilote PostgreSQL, que la configuration fixe à INFO : sa trace protocolaire afficherait chaque
+			// valeur liée (G12) ; le test vérifie justement que ce niveau protège le motif libre.
+			if (logger.getLevel() != null && !logger.getName().equals("org.postgresql")) {
 				this.levels.put(logger, logger.getLevel());
 				logger.setLevel(Level.TRACE);
 			}

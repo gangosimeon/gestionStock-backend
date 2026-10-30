@@ -83,7 +83,7 @@ public class LinkRegistry {
 			  and (exists (select 1 from platform.integration_authorization_code c
 			               where c.link_id = l.id and c.expires_at <= now())
 			       or (not exists (select 1 from platform.integration_authorization_code c where c.link_id = l.id)
-			           and l.created_at <= now() - interval '""" + CODE_LIFETIME + "'))";
+			           and l.created_at <= now() - interval '""" + CODE_LIFETIME + "')) returning " + LINK_COLUMNS;
 
 	private static final String INSERT_PENDING = """
 			insert into platform.integration_link (id, client_id, company_id, external_shop_id, shop_name, status, currency,
@@ -132,8 +132,22 @@ public class LinkRegistry {
 
 	private final SecureRandom random = new SecureRandom();
 
-	LinkRegistry(PlatformDb platform) {
+	private final LinkAudit audit;
+
+	LinkRegistry(PlatformDb platform, LinkAudit audit) {
 		this.platform = platform;
+		this.audit = audit;
+	}
+
+	/** Révocation EXPIRED des liaisons en attente expirées de la boutique, chacune tracée (auteur : le système, G12). */
+	private int expireStalePending(UUID clientId, String externalShopId) {
+		List<Link> expired = this.platform.jdbc().sql(EXPIRE_STALE_PENDING).param("client", clientId)
+			.param("shop", externalShopId).query(LinkRegistry::link).list();
+		for (Link link : expired) {
+			this.audit.record(LinkAudit.Entry.of(LinkAudit.REVOKED, link, LinkAudit.Actor.system("expiration"))
+				.detail("revocationReason", RevocationReason.EXPIRED.name()));
+		}
+		return expired.size();
 	}
 
 	/**
@@ -181,8 +195,7 @@ public class LinkRegistry {
 					throw new LinkException(LinkException.Reason.SCOPE_NOT_REQUESTED);
 				}
 				String currency = companyCurrency(companyId);
-				int expired = this.platform.jdbc().sql(EXPIRE_STALE_PENDING).param("client", request.clientId())
-					.param("shop", request.externalShopId()).update();
+				int expired = expireStalePending(request.clientId(), request.externalShopId());
 				if (expired > 0) {
 					log.info("Liaison(s) en attente expirée(s) révoquée(s) (EXPIRED) avant une nouvelle demande : {}.", expired);
 				}
@@ -211,7 +224,7 @@ public class LinkRegistry {
 	 */
 	public boolean shopAlreadyLinked(UUID clientId, String externalShopId) {
 		return this.platform.inTransaction(status -> {
-			this.platform.jdbc().sql(EXPIRE_STALE_PENDING).param("client", clientId).param("shop", externalShopId).update();
+			expireStalePending(clientId, externalShopId);
 			return this.platform.jdbc().sql("""
 					select exists (select 1 from platform.integration_link
 					               where client_id = :client and external_shop_id = :shop

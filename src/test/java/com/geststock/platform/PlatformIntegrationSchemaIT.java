@@ -50,6 +50,11 @@ class PlatformIntegrationSchemaIT {
 			"integration_authorization_request", "integration_client", "integration_client_redirect_uri",
 			"integration_link", "integration_rate_limit");
 
+	/** Tables de V002 et de V003 (audit de référence des liaisons, lot 2 G12). */
+	private static final List<String> ALL_TABLES = List.of("integration_audit_log", "integration_authorization_code",
+			"integration_authorization_request", "integration_client", "integration_client_redirect_uri",
+			"integration_link", "integration_rate_limit");
+
 	private static final String SHA_A = "a".repeat(64);
 
 	private static final String SHA_B = "b".repeat(64);
@@ -88,6 +93,11 @@ class PlatformIntegrationSchemaIT {
 				"link_id uuid", "expires_at timestamptz", "used_at timestamptz null", "created_at timestamptz");
 		column(expected, "integration_rate_limit", "counter_key varchar(200)", "window_start timestamptz",
 				"hits integer");
+		column(expected, "integration_audit_log", "id uuid", "occurred_at timestamptz", "action varchar(40)",
+				"severity varchar(10)", "company_id uuid null", "link_id uuid null", "client_id uuid null",
+				"announced_client varchar(64) null", "external_shop_id varchar(64) null", "actor_type varchar(10)",
+				"actor_id uuid null", "actor_name varchar(100) null", "ip_address varchar(45) null",
+				"reason varchar(500) null", "details jsonb null", "trace_id varchar(64) null");
 
 		Map<String, String> actual = new LinkedHashMap<>();
 		this.platform.jdbc().sql("""
@@ -163,7 +173,7 @@ class PlatformIntegrationSchemaIT {
 		assertThat(this.platform.jdbc().sql("""
 				select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
 				where n.nspname = 'platform' and c.relkind = 'r' and c.relname like 'integration\\_%'
-				order by 1""").query(String.class).list()).containsExactlyElementsOf(TABLES);
+				order by 1""").query(String.class).list()).containsExactlyElementsOf(ALL_TABLES);
 		assertThat(this.platform.jdbc().sql("""
 				select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
 				where n.nspname = 'platform' and c.relkind = 'r' and c.relname like 'integration\\_%'
@@ -371,7 +381,7 @@ class PlatformIntegrationSchemaIT {
 
 			assertThat(platformFlyway(scratch).target("1").load().migrate().migrationsExecuted).isEqualTo(1);
 			assertThat(integrationTables(jdbc)).isEmpty();
-			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).isEqualTo(1);
+			assertThat(platformFlyway(scratch).target("2").load().migrate().migrationsExecuted).isEqualTo(1);
 			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(TABLES);
 
 			try (Connection connection = scratch.getConnection()) {
@@ -382,11 +392,43 @@ class PlatformIntegrationSchemaIT {
 					String.class)).as("historique de la plateforme").containsExactly("001");
 			assertThat(jdbc.queryForObject("select count(*) from platform.company", Integer.class)).as("V001 intacte").isZero();
 
-			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).as("ré-application de V002").isEqualTo(1);
+			assertThat(platformFlyway(scratch).target("2").load().migrate().migrationsExecuted).as("ré-application de V002")
+				.isEqualTo(1);
 			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(TABLES);
 			if (besideALegacyDatabase) {
 				assertThat(publicTables(jdbc)).as("base historique inchangée").isEqualTo(legacyTables);
 			}
+		}
+		finally {
+			try (Connection c = this.provisioner.server().getConnection(); Statement s = c.createStatement()) {
+				s.execute("DROP DATABASE IF EXISTS " + database + " WITH (FORCE)");
+			}
+		}
+	}
+
+	// --- Retour arrière V003 → U003 → V003 (lot 2, G12) --------------------------------------------------------
+
+	@Test
+	void v003IsRolledBackThenReapplied() throws Exception {
+		String database = "gs_platform_rb_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+		try (Connection c = this.provisioner.server().getConnection(); Statement s = c.createStatement()) {
+			s.execute("CREATE DATABASE " + database);
+		}
+		try {
+			DataSource scratch = this.provisioner.database(database);
+			JdbcTemplate jdbc = new JdbcTemplate(scratch);
+			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).isEqualTo(3);
+			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(ALL_TABLES);
+
+			try (Connection connection = scratch.getConnection()) {
+				ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/platform-rollback/U003__integration_audit.sql"));
+			}
+			assertThat(integrationTables(jdbc)).as("table supprimée par U003").containsExactlyElementsOf(TABLES);
+			assertThat(jdbc.queryForList("select version from platform.flyway_schema_history where version is not null order by installed_rank",
+					String.class)).as("historique de la plateforme").containsExactly("001", "002");
+
+			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).as("ré-application de V003").isEqualTo(1);
+			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(ALL_TABLES);
 		}
 		finally {
 			try (Connection c = this.provisioner.server().getConnection(); Statement s = c.createStatement()) {

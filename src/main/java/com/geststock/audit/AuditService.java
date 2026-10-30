@@ -47,6 +47,10 @@ import com.geststock.security.CurrentUser;
 @Service
 public class AuditService {
 
+	/** Auteurs machine admis : une liaison boutique ou le système. */
+	private static final java.util.regex.Pattern MACHINE_ACTOR = java.util.regex.Pattern
+		.compile("liaison:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|système");
+
 	private final AuditLogRepository repository;
 
 	private final AuditDiff diff;
@@ -92,6 +96,22 @@ public class AuditService {
 	public void failure(AuditEvent event, String errorCode, int httpStatus) {
 		event.meta("errorCode", errorCode).meta("httpStatus", httpStatus > 0 ? httpStatus : null);
 		save(build(event, AuditStatus.FAILURE, currentActor()));
+	}
+
+	/**
+	 * Opération réussie dont l'auteur n'est pas un utilisateur de l'entreprise (lot 2, G12 : liaisons boutique) :
+	 * une boutique via sa liaison ({@code liaison:<identifiant>}) ou le système ({@code système}). Aucun utilisateur
+	 * n'est inscrit ; l'étiquette, que n'admet pas le format des noms d'utilisateur, ne peut être confondue avec l'un
+	 * d'eux.
+	 *
+	 * @param machineActor {@code liaison:<UUID>} ou {@code système}
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public void machine(AuditEvent event, String machineActor) {
+		if (machineActor == null || !MACHINE_ACTOR.matcher(machineActor).matches()) {
+			throw new IllegalArgumentException("Auteur machine inconnu : " + machineActor);
+		}
+		save(build(event, AuditStatus.SUCCESS, new Actor(null, machineActor, null)));
 	}
 
 	/**

@@ -104,6 +104,17 @@ abstract sealed class RateLimitFilter extends OncePerRequestFilter {
 		chain.doFilter(request, response);
 	}
 
+	/**
+	 * IP du client : en-tête configuré (v14-D8, jamais {@code X-Forwarded-For}), sinon la connexion (hors production) ;
+	 * absente ou hors format : {@code unknown}. Aussi tracée par l'audit des échecs d'authentification (G12).
+	 */
+	static String clientIp(HttpServletRequest request, String header) {
+		String value = header != null ? request.getHeader(header) : request.getRemoteAddr();
+		String ip = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+		boolean valid = IP.matcher(ip).matches() && (ip.indexOf('.') >= 0 || ip.indexOf(':') >= 0);
+		return valid ? ip : UNKNOWN_IP;
+	}
+
 	/** Sujet du compteur ({@code ip:…} ou {@code client:…}), ou {@code null} : rien à compter à ce stade. */
 	abstract String subject(HttpServletRequest request);
 
@@ -122,14 +133,9 @@ abstract sealed class RateLimitFilter extends OncePerRequestFilter {
 			super(properties, limiter, errors, writer);
 		}
 
-		/** IP de l'en-tête configuré (jamais {@code X-Forwarded-For}), sinon de la connexion (hors production). */
 		@Override
 		String subject(HttpServletRequest request) {
-			String header = this.properties.clientIpHeader();
-			String value = header != null ? request.getHeader(header) : request.getRemoteAddr();
-			String ip = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-			boolean valid = IP.matcher(ip).matches() && (ip.indexOf('.') >= 0 || ip.indexOf(':') >= 0);
-			return "ip:" + (valid ? ip : UNKNOWN_IP);
+			return "ip:" + clientIp(request, this.properties.clientIpHeader());
 		}
 
 		@Override

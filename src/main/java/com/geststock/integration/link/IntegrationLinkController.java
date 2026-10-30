@@ -78,8 +78,9 @@ class IntegrationLinkController {
 	@RequiresPermission(Permissions.INTEGRATION_MANAGE)
 	@Operation(operationId = "denyIntegrationAuthorizationRequest", summary = "Refuser une demande de liaison",
 			description = "Aucune liaison ; URL de retour vers la boutique avec error=access_denied, state et iss.")
-	AuthorizationRedirect deny(@Valid @RequestBody AuthorizationRequestReference request) {
-		return new AuthorizationRedirect(this.consent.deny(request.requestUri()));
+	AuthorizationRedirect deny(@AuthenticationPrincipal CurrentUser user,
+			@Valid @RequestBody AuthorizationRequestReference request) {
+		return new AuthorizationRedirect(this.consent.deny(request.requestUri(), currentCompany(), authorizer(user)));
 	}
 
 	@GetMapping
@@ -93,8 +94,8 @@ class IntegrationLinkController {
 	@RequiresPermission(Permissions.INTEGRATION_MANAGE)
 	@Operation(operationId = "suspendIntegrationLink", summary = "Suspendre une liaison",
 			description = "Liaison active seulement (motif MANUAL) ; la boutique reçoit 403 LINK_SUSPENDED.")
-	IntegrationLinkView suspend(@PathVariable UUID id) {
-		return IntegrationLinkView.of(this.consent.suspend(id, currentCompany()));
+	IntegrationLinkView suspend(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID id) {
+		return IntegrationLinkView.of(this.consent.suspend(id, currentCompany(), authorizer(user)));
 	}
 
 	@PostMapping("/{id}/reactivate")
@@ -112,8 +113,8 @@ class IntegrationLinkController {
 	@RequiresPermission(Permissions.INTEGRATION_MANAGE)
 	@Operation(operationId = "revokeIntegrationLink", summary = "Révoquer une liaison",
 			description = "Définitif (motif GESTSTOCK_ADMIN) ; la boutique reçoit 401 LINK_REVOKED.")
-	IntegrationLinkView revoke(@PathVariable UUID id) {
-		return IntegrationLinkView.of(this.consent.revoke(id, currentCompany()));
+	IntegrationLinkView revoke(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID id) {
+		return IntegrationLinkView.of(this.consent.revoke(id, currentCompany(), authorizer(user)));
 	}
 
 	private static UUID currentCompany() {

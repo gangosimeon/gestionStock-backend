@@ -78,7 +78,7 @@ class LinkConsentService {
 	private static final String DECIDE = """
 			update platform.integration_authorization_request set decision = :decision, used_at = now()
 			where request_uri_hash = :hash and decision is null and expires_at > now()
-			returning id, redirect_uri, state, scopes""";
+			returning id, client_id, external_shop_id, shop_name, redirect_uri, state, scopes""";
 
 	private static final String REQUEST_STATE = """
 			select decision, expires_at > now() as live from platform.integration_authorization_request
@@ -96,10 +96,13 @@ class LinkConsentService {
 
 	private final LinkWarehouses warehouses;
 
+	private final LinkAudit audit;
+
 	private final SecureRandom random = new SecureRandom();
 
-	LinkConsentService(PlatformDb platform, LinkRegistry links, LinkWarehouses warehouses) {
+	LinkConsentService(PlatformDb platform, LinkRegistry links, LinkWarehouses warehouses, LinkAudit audit) {
 		this.platform = platform;
+		this.audit = audit;
 		this.links = links;
 		this.warehouses = warehouses;
 	}
@@ -136,7 +139,7 @@ class LinkConsentService {
 		// (1) Base de l'entreprise : dépôts de la future liaison.
 		this.warehouses.replace(linkId, warehouseIds, authorizer.userId());
 		try {
-			return decideAndCreate(requestUri, grantedScopes, companyId, authorizer, linkId);
+			return decideAndCreate(requestUri, grantedScopes, warehouseIds, companyId, authorizer, linkId);
 		}
 		catch (RuntimeException ex) {
 			// (3) Compensation : la liaison n'existe pas, ses dépôts sont retirés (inoffensifs s'ils restaient).
@@ -152,10 +155,10 @@ class LinkConsentService {
 	}
 
 	/** (2) Base plateforme : décision, liaison en attente sous l'identifiant choisi, code ; tout ou rien. */
-	private String decideAndCreate(String requestUri, Set<String> grantedScopes, UUID companyId, Authorizer authorizer,
-			UUID linkId) {
+	private String decideAndCreate(String requestUri, Set<String> grantedScopes, Set<UUID> warehouseIds, UUID companyId,
+			Authorizer authorizer, UUID linkId) {
 		try {
-			return this.platform.inTransaction(status -> {
+			return this.audit.unit(() -> {
 				Decided request = decide(requestUri, "APPROVED");
 				if (!request.scopes().containsAll(grantedScopes)) {
 					throw new LinkConsentException(ErrorCode.LINK_SCOPE_NOT_REQUESTED);
@@ -167,6 +170,8 @@ class LinkConsentService {
 				Arrays.fill(raw, (byte) 0);
 				this.platform.jdbc().sql(INSERT_CODE).param("hash", LinkRegistry.sha256Hex(code)).param("request", request.id())
 					.param("link", link.id()).update();
+				this.audit.record(LinkAudit.Entry.of(LinkAudit.APPROVED, link, LinkAudit.Actor.user(authorizer))
+					.detail("scopes", grantedScopes).detail("warehouses", warehouseIds));
 				log.info("Demande d'autorisation {} approuvée : liaison {} en attente (entreprise {}).", request.id(), link.id(),
 						companyId);
 				return redirect(request, "code", code);
@@ -178,9 +183,12 @@ class LinkConsentService {
 	}
 
 	/** Refus : décision seulement ; aucune liaison, aucun code. */
-	String deny(String requestUri) {
-		return this.platform.inTransaction(status -> {
+	String deny(String requestUri, UUID companyId, Authorizer authorizer) {
+		return this.audit.unit(() -> {
 			Decided request = decide(requestUri, "DENIED");
+			this.audit.record(new LinkAudit.Entry(LinkAudit.DENIED, LinkAudit.Severity.INFO, companyId, null, request.clientId(),
+					null, request.shopId(), request.shopName(), LinkAudit.Actor.user(authorizer), null, null,
+					new java.util.LinkedHashMap<>()));
 			log.info("Demande d'autorisation {} refusée.", request.id());
 			return redirect(request, "error", "access_denied");
 		});
@@ -190,7 +198,8 @@ class LinkConsentService {
 	private Decided decide(String requestUri, String decision) {
 		String hash = LinkRegistry.sha256Hex(requestUri);
 		return this.platform.jdbc().sql(DECIDE).param("decision", decision).param("hash", hash)
-			.query((rs, n) -> new Decided((UUID) rs.getObject("id"), rs.getString("redirect_uri"), rs.getString("state"),
+			.query((rs, n) -> new Decided((UUID) rs.getObject("id"), (UUID) rs.getObject("client_id"),
+					rs.getString("external_shop_id"), rs.getString("shop_name"), rs.getString("redirect_uri"), rs.getString("state"),
 					new HashSet<>(Arrays.asList((String[]) rs.getArray("scopes").getArray()))))
 			.optional()
 			.orElseThrow(() -> this.platform.jdbc().sql(REQUEST_STATE).param("hash", hash)
@@ -231,8 +240,10 @@ class LinkConsentService {
 		return all.stream().map(link -> new ManagedLink(link, byLink.getOrDefault(link.id(), List.of()))).toList();
 	}
 
-	ManagedLink suspend(UUID linkId, UUID companyId) {
-		return manage(linkId, companyId, () -> this.links.suspend(linkId, SuspensionReason.MANUAL));
+	ManagedLink suspend(UUID linkId, UUID companyId, Authorizer authorizer) {
+		return manage(linkId, companyId, () -> this.links.suspend(linkId, SuspensionReason.MANUAL),
+				link -> LinkAudit.Entry.of(LinkAudit.SUSPENDED, link, LinkAudit.Actor.user(authorizer))
+					.detail("suspensionReason", SuspensionReason.MANUAL.name()));
 	}
 
 	/**
@@ -249,11 +260,15 @@ class LinkConsentService {
 		// (1) Base de l'entreprise, liaison encore suspendue : liste remplacée et disponibilité republiée si elle change,
 		// dans une transaction ; (2) base plateforme.
 		this.warehouses.reconfirm(linkId, warehouseIds, authorizer.userId());
-		return manage(linkId, companyId, () -> this.links.reactivate(linkId, authorizer));
+		return manage(linkId, companyId, () -> this.links.reactivate(linkId, authorizer),
+				reactivated -> LinkAudit.Entry.of(LinkAudit.REACTIVATED, reactivated, LinkAudit.Actor.user(authorizer))
+					.detail("authorizedBy", authorizer.userId().toString()).detail("warehouses", warehouseIds));
 	}
 
-	ManagedLink revoke(UUID linkId, UUID companyId) {
-		return manage(linkId, companyId, () -> this.links.revoke(linkId, RevocationReason.GESTSTOCK_ADMIN));
+	ManagedLink revoke(UUID linkId, UUID companyId, Authorizer authorizer) {
+		return manage(linkId, companyId, () -> this.links.revoke(linkId, RevocationReason.GESTSTOCK_ADMIN),
+				link -> LinkAudit.Entry.of(LinkAudit.REVOKED, link, LinkAudit.Actor.user(authorizer))
+					.detail("revocationReason", RevocationReason.GESTSTOCK_ADMIN.name()));
 	}
 
 	/** Liaison de l'entreprise courante seulement ; une autre entreprise reçoit la réponse d'une liaison inconnue. */
@@ -262,11 +277,17 @@ class LinkConsentService {
 			.orElseThrow(() -> new LinkConsentException(ErrorCode.LINK_NOT_FOUND));
 	}
 
-	private ManagedLink manage(UUID linkId, UUID companyId, java.util.function.Supplier<Link> action) {
+	/** Changement et trace de référence dans une seule transaction plateforme (G12). */
+	private ManagedLink manage(UUID linkId, UUID companyId, java.util.function.Supplier<Link> action,
+			java.util.function.Function<Link, LinkAudit.Entry> trace) {
 		own(linkId, companyId);
 		Link link;
 		try {
-			link = action.get();
+			link = this.audit.unit(() -> {
+				Link changed = action.get();
+				this.audit.record(trace.apply(changed));
+				return changed;
+			});
 		}
 		catch (LinkException ex) {
 			throw LinkConsentException.of(ex);
@@ -285,7 +306,8 @@ class LinkConsentService {
 	record ManagedLink(Link link, List<WarehouseChoice> warehouses) {
 	}
 
-	private record Decided(UUID id, String redirectUri, String state, Set<String> scopes) {
+	private record Decided(UUID id, UUID clientId, String shopId, String shopName, String redirectUri, String state,
+			Set<String> scopes) {
 	}
 
 	/**

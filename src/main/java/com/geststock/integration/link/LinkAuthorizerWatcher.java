@@ -57,6 +57,8 @@ class LinkAuthorizerWatcher {
 
 	private final LinkRegistry links;
 
+	private final LinkAudit audit;
+
 	private final LinkWarehouses warehouses;
 
 	private final UserAccountService accounts;
@@ -69,9 +71,10 @@ class LinkAuthorizerWatcher {
 
 	private final TransactionTemplate tenantRead;
 
-	LinkAuthorizerWatcher(LinkRegistry links, LinkWarehouses warehouses, UserAccountService accounts, RoleService roles,
-			WarehouseAccess access, CurrentTenant tenant, PlatformTransactionManager transactionManager) {
+	LinkAuthorizerWatcher(LinkRegistry links, LinkAudit audit, LinkWarehouses warehouses, UserAccountService accounts,
+			RoleService roles, WarehouseAccess access, CurrentTenant tenant, PlatformTransactionManager transactionManager) {
 		this.links = links;
+		this.audit = audit;
 		this.warehouses = warehouses;
 		this.accounts = accounts;
 		this.roles = roles;
@@ -125,7 +128,13 @@ class LinkAuthorizerWatcher {
 				continue;
 			}
 			try {
-				this.links.suspend(link.id(), SuspensionReason.AUTHORIZER_LOST_ACCESS);
+				this.audit.unit(() -> {
+					Link changed = this.links.suspend(link.id(), SuspensionReason.AUTHORIZER_LOST_ACCESS);
+					this.audit.record(LinkAudit.Entry.of(LinkAudit.SUSPENDED, changed, LinkAudit.Actor.system("réévaluation des droits"))
+						.detail("suspensionReason", SuspensionReason.AUTHORIZER_LOST_ACCESS.name())
+						.detail("responsible", link.authorizedBy().toString()));
+					return changed;
+				});
 				suspended++;
 				log.info("Liaison {} suspendue (AUTHORIZER_LOST_ACCESS) : sa personne responsable {} n'a plus les droits "
 						+ "requis.", link.id(), link.authorizedBy());
