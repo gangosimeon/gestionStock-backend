@@ -157,17 +157,46 @@ class FeedMetricsIT {
 		assertThat(this.context.getBeansOfType(IntegrationScheduling.class)).isEmpty();
 	}
 
+	/**
+	 * Propriété vérifiée : la requête des métriques ne parcourt jamais toute la table, un index lui donne directement
+	 * les seuls événements sans {@code seq}. Deux index le peuvent, et le choix entre eux dépend des statistiques de la
+	 * table, donc du moment où l'autoanalyse passe pendant la suite complète : table jamais analysée ⇒ index partiel
+	 * {@code ix_integration_outbox_unsequenced} ; table analysée avec beaucoup d'événements séquencés ⇒ partie NULL de
+	 * l'index unique {@code uk_integration_outbox_seq} (condition d'index {@code seq IS NULL}, coût estimé un peu
+	 * moindre). Les deux états sont vérifiés, le second rendu déterministe par {@code ANALYZE}.
+	 */
 	@Test
-	void theQueryUsesThePartialIndexOfUnsequencedEvents() {
+	void theQueryReadsOnlyUnsequencedEventsThroughAnIndex() {
+		assertReadsOnlyUnsequencedEvents(plan());
+
+		// État de la suite complète : beaucoup d'événements séquencés, quelques-uns en attente, statistiques à jour.
+		this.jdbc.update("""
+				insert into integration_outbox (type, operation, object_id, object_version, seq, created_at)
+				select 'CATEGORY', 'UPSERT', gen_random_uuid(), 1, g, now() - interval '1 day' from generate_series(1, 2000) g""");
+		insertUnsequenced(35, Duration.ofMinutes(1));
+		this.jdbc.execute("analyze integration_outbox");
+		assertReadsOnlyUnsequencedEvents(plan());
+	}
+
+	// --- Outils ------------------------------------------------------------------------------------------
+
+	/** Plan de la requête des métriques, parcours séquentiel découragé (sur une petite table, il serait légitime). */
+	private String plan() {
 		List<String> plan = this.transactions.execute(status -> {
 			this.jdbc.execute("set local enable_seqscan = off");
 			return this.jdbc.queryForList("explain " + FeedMetrics.UNSEQUENCED, String.class);
 		});
 		System.out.println("Plan de la requête des métriques :\n" + String.join("\n", plan));
-		assertThat(String.join("\n", plan)).contains("ix_integration_outbox_unsequenced");
+		return String.join("\n", plan);
 	}
 
-	// --- Outils ------------------------------------------------------------------------------------------
+	private static void assertReadsOnlyUnsequencedEvents(String plan) {
+		assertThat(plan).as("aucun parcours séquentiel de la table").doesNotContain("Seq Scan");
+		assertThat(plan).as("aucun filtrage après lecture").doesNotContain("Filter:");
+		assertThat(plan).as("seuls les événements sans seq sont lus, par un index").satisfiesAnyOf(
+				p -> assertThat(p).contains("ix_integration_outbox_unsequenced"),
+				p -> assertThat(p).contains("uk_integration_outbox_seq").contains("Index Cond: (seq IS NULL)"));
+	}
 
 	private FeedMetrics metrics(Duration warnAfter, List<TenantRef> tenants, Function<TenantRef, DataSource> dataSources) {
 		TenantDirectory directory = mock(TenantDirectory.class);
