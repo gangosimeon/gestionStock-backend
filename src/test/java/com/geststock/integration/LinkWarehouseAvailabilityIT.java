@@ -71,6 +71,9 @@ class LinkWarehouseAvailabilityIT {
 
 	@BeforeEach
 	void setUp() {
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		this.fixtures = new StockFixtures(this.jdbc, this.transactions);
 		this.scenario = new BusinessScenario(this.jdbc, this.transactions);
 		this.actor = this.fixtures.user("lien-dispo");
@@ -82,6 +85,7 @@ class LinkWarehouseAvailabilityIT {
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		for (UUID link : this.links) {
 			this.jdbc.update("delete from integration_link_warehouse where link_id = ?", link);
 		}

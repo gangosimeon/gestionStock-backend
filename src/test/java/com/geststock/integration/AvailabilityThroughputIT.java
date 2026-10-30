@@ -92,6 +92,9 @@ class AvailabilityThroughputIT {
 
 	@BeforeEach
 	void setUp() {
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		this.fixtures = new StockFixtures(this.jdbc, this.transactions);
 		this.scenario = new BusinessScenario(this.jdbc, this.transactions);
 		this.seller = this.fixtures.user("debit");
@@ -109,6 +112,7 @@ class AvailabilityThroughputIT {
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		ReflectionTestUtils.setField(target(), "properties", this.original);
 		this.scenario.purge(List.of(this.store), List.of(), List.of());
 		this.fixtures.purge();

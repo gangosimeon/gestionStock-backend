@@ -87,8 +87,12 @@ class LinkAudit {
 
 	private final TransactionTemplate companyTransaction;
 
-	LinkAudit(PlatformDb platform, AuditService companyAudit, JsonMapper json, PlatformTransactionManager transactionManager) {
+	private final LinkPublication publication;
+
+	LinkAudit(PlatformDb platform, AuditService companyAudit, JsonMapper json, PlatformTransactionManager transactionManager,
+			LinkPublication publication) {
 		this.platform = platform;
+		this.publication = publication;
 		this.companyAudit = companyAudit;
 		this.json = json;
 		this.companyTransaction = new TransactionTemplate(transactionManager);
@@ -114,7 +118,21 @@ class LinkAudit {
 		}
 		entries.stream().filter(entry -> COMPANY_ACTIONS.contains(entry.action()) && entry.companyId() != null)
 			.forEach(this::copyToCompany);
+		// G13 : après une révocation, drapeau de publication resynchronisé (dernière liaison révoquée : arrêt).
+		entries.stream().filter(entry -> REVOKED.equals(entry.action()) && entry.companyId() != null)
+			.map(Entry::companyId).distinct().forEach(this::synchronizePublication);
 		return result;
+	}
+
+	/** Au mieux : en cas d'échec, les événements continuent (sans danger), rattrapage par la tâche du lot 3. */
+	private void synchronizePublication(UUID companyId) {
+		try {
+			this.publication.synchronize(companyId);
+		}
+		catch (RuntimeException ex) {
+			log.warn("Drapeau de publication de l'entreprise {} non resynchronisé après une révocation ({}) : publication "
+					+ "maintenue ; rattrapage par la tâche planifiée du lot 3.", companyId, ex.getClass().getSimpleName());
+		}
 	}
 
 	/** Trace de référence dans la transaction plateforme courante (celle du changement). */

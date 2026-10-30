@@ -42,6 +42,10 @@ import tools.jackson.databind.json.JsonMapper;
 @Import(PostgresTestConfiguration.class)
 class AvailabilityBatchInsertIT {
 
+	/** Drapeau de publication (G13), dépendance d'{@code IntegrationEvents} construit par ce test. */
+	@Autowired
+	private PublicationFlag publicationFlag;
+
 	@Autowired
 	private IntegrationProperties properties;
 
@@ -62,11 +66,15 @@ class AvailabilityBatchInsertIT {
 	@BeforeEach
 	void setUp() {
 		this.jdbc = new JdbcTemplate(this.dataSource);
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		this.jdbc.update("delete from integration_outbox");
 	}
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		this.jdbc.update("delete from integration_outbox");
 	}
 
@@ -74,7 +82,7 @@ class AvailabilityBatchInsertIT {
 	void threeProductsAreWrittenWithASingleStatementInIdentifierOrder() {
 		CountingDataSource counting = new CountingDataSource(this.dataSource);
 		IntegrationEvents events = new IntegrationEvents(this.properties, new OutboxWriter(counting), this.jsonMapper,
-				this.entityManager);
+				this.entityManager, this.publicationFlag);
 		List<UUID> products = Stream.generate(UUID::randomUUID).limit(3).toList();
 		UUID fourth = UUID.randomUUID();
 

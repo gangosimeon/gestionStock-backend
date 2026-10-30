@@ -57,9 +57,12 @@ public class IntegrationEvents {
 
 	private final EntityManager entityManager;
 
+	private final PublicationFlag publication;
+
 	IntegrationEvents(IntegrationProperties properties, OutboxWriter writer, JsonMapper jsonMapper,
-			EntityManager entityManager) {
+			EntityManager entityManager, PublicationFlag publication) {
 		this.properties = properties;
+		this.publication = publication;
 		this.writer = writer;
 		this.jsonMapper = jsonMapper;
 		this.entityManager = entityManager;
@@ -192,8 +195,12 @@ public class IntegrationEvents {
 
 	}
 
+	/**
+	 * Interrupteur global ({@code geststock.integration.publish.enabled}) ET drapeau de l'entreprise (au moins une
+	 * liaison active ou suspendue, G13) ; le drapeau n'est lu que si l'interrupteur est ouvert.
+	 */
 	private boolean enabled() {
-		return this.properties.publish().enabled();
+		return this.properties.publish().enabled() && this.publication.isOpen();
 	}
 
 	private String serialize(IntegrationEventType type, Object payload) {

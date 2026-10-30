@@ -68,6 +68,10 @@ import tools.jackson.databind.json.JsonMapper;
 @WithPermissions(all = true)
 class ProductImageEventsIT {
 
+	/** Drapeau de publication (G13), dépendance d'{@code IntegrationEvents} construit par ce test. */
+	@Autowired
+	private PublicationFlag publicationFlag;
+
 	/** Liaison qui lit le flux (G4a : la disponibilité servie est celle de ses dépôts). */
 	private static final LinkRef LINK = new LinkRef(UUID.randomUUID());
 
@@ -107,12 +111,16 @@ class ProductImageEventsIT {
 	@BeforeEach
 	void setUp() {
 		this.jdbc = new JdbcTemplate(this.dataSource);
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		this.threads = Executors.newFixedThreadPool(2);
 		cleanUp();
 	}
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		this.threads.shutdownNow();
 		cleanUp();
 		this.jdbc.execute("drop schema if exists " + ProductImageGenerationSchemaIT.SCRATCH + " cascade");
@@ -314,7 +322,7 @@ class ProductImageEventsIT {
 		UUID product = product();
 		IntegrationEvents disabled = new IntegrationEvents(
 				new IntegrationProperties(new IntegrationProperties.Publish(false, DataSize.ofKilobytes(16))), this.writer,
-				this.jsonMapper, this.entityManager);
+				this.jsonMapper, this.entityManager, this.publicationFlag);
 		new TransactionTemplate(this.transactionManager)
 			.executeWithoutResult(status -> disabled.publishProductImage(product, "c".repeat(64)));
 		assertThat(generation(product)).containsEntry("generation", 1L).containsEntry("sha256", "c".repeat(64));

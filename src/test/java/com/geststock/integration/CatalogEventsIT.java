@@ -86,11 +86,15 @@ class CatalogEventsIT {
 	@BeforeEach
 	void clean() {
 		this.jdbc = new JdbcTemplate(this.dataSource);
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		cleanUp();
 	}
 
 	@AfterEach
 	void cleanAfter() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		cleanUp();
 	}
 

@@ -41,6 +41,10 @@ import tools.jackson.databind.json.JsonMapper;
 @Import(PostgresTestConfiguration.class)
 class IntegrationEventsIT {
 
+	/** Drapeau de publication (G13), dépendance d'{@code IntegrationEvents} construit par ce test. */
+	@Autowired
+	private PublicationFlag publicationFlag;
+
 	@Autowired
 	private IntegrationEvents events;
 
@@ -68,11 +72,15 @@ class IntegrationEventsIT {
 	@BeforeEach
 	void setUp() {
 		this.jdbc = new JdbcTemplate(this.dataSource);
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		this.tx = new TransactionTemplate(this.transactionManager);
 	}
 
 	@AfterEach
 	void cleanUp() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		this.tx.executeWithoutResult(status -> {
 			for (UUID id : this.touched) {
 				this.jdbc.update("delete from integration_outbox where object_id = ?", id);
@@ -144,7 +152,7 @@ class IntegrationEventsIT {
 	void aDisabledSwitchWritesNothing() {
 		IntegrationEvents disabled = new IntegrationEvents(
 				new IntegrationProperties(new IntegrationProperties.Publish(false, DataSize.ofKilobytes(16))), this.writer,
-				this.jsonMapper, this.entityManager);
+				this.jsonMapper, this.entityManager, this.publicationFlag);
 		UUID id = this.tx.execute(status -> {
 			Category category = newCategory();
 			disabled.publish(IntegrationEventType.CATEGORY, IntegrationOperation.UPSERT, category, null);

@@ -37,6 +37,12 @@ class OAuthException extends RuntimeException {
 		return new OAuthException(HttpStatus.BAD_REQUEST, "invalid_grant", "Autorisation invalide, expirée ou déjà utilisée.", null);
 	}
 
+	/** Service momentanément indisponible (base de l'entreprise) : rien n'est consommé, l'appel peut être refait. */
+	static OAuthException temporarilyUnavailable() {
+		return new OAuthException(HttpStatus.SERVICE_UNAVAILABLE, "temporarily_unavailable",
+				"Service momentanément indisponible : réessayez.", null);
+	}
+
 	static OAuthException unsupportedGrantType() {
 		return new OAuthException(HttpStatus.BAD_REQUEST, "unsupported_grant_type", "Type d'autorisation non pris en charge.", null);
 	}

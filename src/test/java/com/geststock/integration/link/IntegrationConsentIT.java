@@ -230,6 +230,9 @@ class IntegrationConsentIT {
 
 	@BeforeEach
 	void setUp() {
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		this.clientSecret = remember(randomToken());
 		this.client = this.links.client(this.clientSecret, null, ALLOWED);
 		this.stockFixtures = new StockFixtures(this.jdbc, this.transactions);
@@ -247,6 +250,7 @@ class IntegrationConsentIT {
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		((LoggerContext) LoggerFactory.getILoggerFactory()).getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).detachAppender(this.logs);
 		this.levels.forEach(Logger::setLevel);
 		this.levels.clear();

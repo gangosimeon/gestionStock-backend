@@ -57,6 +57,14 @@ class OAuthService {
 			  and c.used_at is null and c.expires_at > now()
 			returning c.link_id, r.redirect_uri, r.code_challenge""";
 
+	/** Entreprise de la liaison en attente d'un code encore utilisable (lecture seule, avant l'échange). */
+	private static final String PENDING_COMPANY = """
+			select l.company_id from platform.integration_authorization_code c
+			join platform.integration_authorization_request r on r.id = c.request_id
+			join platform.integration_link l on l.id = c.link_id
+			where c.code_hash = :hash and r.client_id = :client and c.used_at is null and c.expires_at > now()
+			  and l.status = 'PENDING'""";
+
 	private static final String USED_CODE = """
 			select c.link_id from platform.integration_authorization_code c
 			join platform.integration_authorization_request r on r.id = c.request_id
@@ -72,14 +80,18 @@ class OAuthService {
 
 	private final LinkAudit audit;
 
+	private final LinkPublication publication;
+
 	private final SecureRandom random = new SecureRandom();
 
-	OAuthService(PlatformDb platform, LinkRegistry links, IntegrationTokenService tokens, LinkViews views, LinkAudit audit) {
+	OAuthService(PlatformDb platform, LinkRegistry links, IntegrationTokenService tokens, LinkViews views, LinkAudit audit,
+			LinkPublication publication) {
 		this.platform = platform;
 		this.links = links;
 		this.tokens = tokens;
 		this.views = views;
 		this.audit = audit;
+		this.publication = publication;
 	}
 
 	// --- PAR ------------------------------------------------------------------------------------------------
@@ -148,58 +160,91 @@ class OAuthService {
 			throw OAuthException.invalidRequest("code_verifier invalide.");
 		}
 		String codeHash = LinkRegistry.sha256Hex(code);
-		Exchange exchange;
-		try {
-			exchange = this.audit.unit(() -> {
-				Optional<ConsumedCode> consumed = this.platform.jdbc().sql(CONSUME_CODE).param("hash", codeHash)
-					.param("client", client.id())
-					.query((rs, n) -> new ConsumedCode((UUID) rs.getObject("link_id"), rs.getString("redirect_uri"),
-							rs.getString("code_challenge")))
-					.optional();
-				if (consumed.isEmpty()) {
-					Optional<UUID> replayed = this.platform.jdbc().sql(USED_CODE).param("hash", codeHash).param("client", client.id())
-						.query(UUID.class).optional();
-					replayed.ifPresent(linkId -> replayDetected(client, linkId));
-					return new Exchange(null, replayed.isPresent());
-				}
-				ConsumedCode found = consumed.get();
-				String failure = !found.redirectUri().equals(redirectUri) ? "REDIRECT_URI"
-						: !pkceMatches(verifier, found.codeChallenge()) ? "PKCE" : null;
-				if (failure != null) {
-					// Annule la consommation : le code reste utilisable avec les bons paramètres.
-					throw new ExchangeRejected(found.linkId(), failure);
-				}
-				ActivatedLink activated;
-				try {
-					activated = this.links.activate(found.linkId());
-				}
-				catch (LinkException ex) {
-					throw OAuthException.invalidGrant();
-				}
-				this.audit.record(LinkAudit.Entry.of(LinkAudit.ACTIVATED, activated.link(), LinkAudit.Actor.shop(activated.link())));
-				return new Exchange(activated, false);
-			});
-		}
-		catch (ExchangeRejected rejected) {
-			// Transaction annulée (code non consommé) : le refus est tracé dans sa propre transaction.
-			this.links.find(rejected.linkId()).ifPresent(link -> this.audit.recordAlone(LinkAudit.Entry
-				.of(LinkAudit.CODE_EXCHANGE_REJECTED, link, LinkAudit.Actor.client(client.id(), client.clientId()))
-				.severity(LinkAudit.Severity.WARNING)
-				.detail("failure", rejected.failure())));
-			throw OAuthException.invalidGrant();
-		}
-		if (exchange.activated() == null) {
-			if (exchange.replay()) {
-				log.info("Code d'autorisation rejoué par le client {} : liaison révoquée (CODE_REPLAYED).", client.clientId());
+		// G13 : drapeau de publication levé AVANT l'activation (aucune fenêtre avant le premier instantané).
+		Optional<UUID> company = this.platform.jdbc().sql(PENDING_COMPANY).param("hash", codeHash).param("client", client.id())
+			.query(UUID.class).optional();
+		if (company.isPresent()) {
+			try {
+				this.publication.open(company.get());
 			}
-			throw OAuthException.invalidGrant();
+			catch (RuntimeException ex) {
+				log.warn("Drapeau de publication de l'entreprise {} non levé ({}) : échange refusé, code non consommé.",
+						company.get(), ex.getClass().getSimpleName());
+				throw OAuthException.temporarilyUnavailable();
+			}
 		}
-		Link link = exchange.activated().link();
-		log.info("Liaison {} activée par l'échange du code (client {}).", link.id(), client.clientId());
-		Map<String, Object> body = tokenBody(link.id(), client.clientId(), link.scopes());
-		body.put("link", this.views.afterExchange(link));
-		body.put("link_secret", exchange.activated().secret());
-		return body;
+		boolean exchanged = false;
+		try {
+			Exchange exchange;
+			try {
+				exchange = this.audit.unit(() -> {
+					Optional<ConsumedCode> consumed = this.platform.jdbc().sql(CONSUME_CODE).param("hash", codeHash)
+						.param("client", client.id())
+						.query((rs, n) -> new ConsumedCode((UUID) rs.getObject("link_id"), rs.getString("redirect_uri"),
+								rs.getString("code_challenge")))
+						.optional();
+					if (consumed.isEmpty()) {
+						Optional<UUID> replayed = this.platform.jdbc().sql(USED_CODE).param("hash", codeHash).param("client", client.id())
+							.query(UUID.class).optional();
+						replayed.ifPresent(linkId -> replayDetected(client, linkId));
+						return new Exchange(null, replayed.isPresent());
+					}
+					ConsumedCode found = consumed.get();
+					String failure = !found.redirectUri().equals(redirectUri) ? "REDIRECT_URI"
+							: !pkceMatches(verifier, found.codeChallenge()) ? "PKCE" : null;
+					if (failure != null) {
+						// Annule la consommation : le code reste utilisable avec les bons paramètres.
+						throw new ExchangeRejected(found.linkId(), failure);
+					}
+					ActivatedLink activated;
+					try {
+						activated = this.links.activate(found.linkId());
+					}
+					catch (LinkException ex) {
+						throw OAuthException.invalidGrant();
+					}
+					this.audit.record(LinkAudit.Entry.of(LinkAudit.ACTIVATED, activated.link(), LinkAudit.Actor.shop(activated.link())));
+					return new Exchange(activated, false);
+				});
+			}
+			catch (ExchangeRejected rejected) {
+				// Transaction annulée (code non consommé) : le refus est tracé dans sa propre transaction.
+				this.links.find(rejected.linkId()).ifPresent(link -> this.audit.recordAlone(LinkAudit.Entry
+					.of(LinkAudit.CODE_EXCHANGE_REJECTED, link, LinkAudit.Actor.client(client.id(), client.clientId()))
+					.severity(LinkAudit.Severity.WARNING)
+					.detail("failure", rejected.failure())));
+				throw OAuthException.invalidGrant();
+			}
+			if (exchange.activated() == null) {
+				if (exchange.replay()) {
+					log.info("Code d'autorisation rejoué par le client {} : liaison révoquée (CODE_REPLAYED).", client.clientId());
+				}
+				throw OAuthException.invalidGrant();
+			}
+			exchanged = true;
+			Link link = exchange.activated().link();
+			log.info("Liaison {} activée par l'échange du code (client {}).", link.id(), client.clientId());
+			Map<String, Object> body = tokenBody(link.id(), client.clientId(), link.scopes());
+			body.put("link", this.views.afterExchange(link));
+			body.put("link_secret", exchange.activated().secret());
+			return body;
+		}
+		finally {
+			if (company.isPresent() && !exchanged) {
+				// Activation non aboutie : le drapeau levé sans liaison active est remis à sa valeur.
+				resynchronize(company.get());
+			}
+		}
+	}
+
+	private void resynchronize(UUID companyId) {
+		try {
+			this.publication.synchronize(companyId);
+		}
+		catch (RuntimeException ex) {
+			log.warn("Drapeau de publication de l'entreprise {} non resynchronisé ({}) : rattrapage par la tâche planifiée "
+					+ "du lot 3.", companyId, ex.getClass().getSimpleName());
+		}
 	}
 
 	/**

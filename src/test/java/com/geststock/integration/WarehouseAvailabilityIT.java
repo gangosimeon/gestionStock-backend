@@ -81,6 +81,9 @@ class WarehouseAvailabilityIT {
 
 	@BeforeEach
 	void setUp() {
+		// G13 : la publication exige une liaison active (drapeau de l'entreprise) ; ce test publie sans liaison,
+		// comme au lot 1 : le drapeau est levé pour la durée du test.
+		this.jdbc.update("update integration_publication set enabled = true");
 		this.fixtures = new StockFixtures(this.jdbc, this.transactions);
 		this.scenario = new BusinessScenario(this.jdbc, this.transactions);
 		this.actor = this.fixtures.user("depot-etat");
@@ -102,6 +105,7 @@ class WarehouseAvailabilityIT {
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("update integration_publication set enabled = false");
 		this.jdbc.update("delete from integration_link_warehouse where link_id = ?", LINK.id());
 		this.jdbc.update("update warehouse set active = true where id = any(?)", (Object) new UUID[] { this.store, this.depot });
 		this.scenario.purge(List.of(this.store, this.depot), List.of(), List.of());
