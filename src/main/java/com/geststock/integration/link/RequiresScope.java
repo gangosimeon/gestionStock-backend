@@ -19,8 +19,8 @@ import java.lang.annotation.Target;
 public @interface RequiresScope {
 
 	/**
-	 * Toute portée accordée suffit (contrat : {@code GET /link}, {@code POST /link/revoke}). Réservé aux routes listées
-	 * dans {@code IntegrationSecurityConfig.SUSPENSION_ALLOWED_ENDPOINTS}.
+	 * Toute portée accordée suffit (contrat : {@code GET /link}, {@code POST /link/revoke}, {@code POST /link/secret}).
+	 * Réservé aux routes listées dans {@code IntegrationSecurityConfig.ANY_SCOPE_ENDPOINTS}.
 	 */
 	String ANY = "*";
 

@@ -35,7 +35,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Intégration (lot 2, étape G6) : sous {@code /api/integration/v1/**}, chaque endpoint porte
  * {@link RequiresScope} ou figure dans la liste explicite des routes authentifiées par le client
  * ({@code oauth/token}, {@code oauth/par}) ; {@code @PreAuthorize} de la chaîne principale y est interdit
- * (aucun mélange entre jetons utilisateurs et jetons de liaison).
+ * (aucun mélange entre jetons utilisateurs et jetons de liaison). G14 : la portée {@code ANY} (routes de la liaison
+ * elle-même) et l'accès pendant une suspension sont deux règles distinctes ({@code POST /link/secret} : toute portée,
+ * mais refusée pendant une suspension).
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -104,6 +106,12 @@ class EndpointSecurityCoverageIT {
 		// Route réellement limitée à la base plateforme (C2) : acceptée.
 		handlers.put(RequestMappingInfo.paths(INTEGRATION_PREFIX + "link/revoke").methods(RequestMethod.POST).build(),
 				new HandlerMethod(controller, MisconfiguredIntegrationController.class.getDeclaredMethod("linkRevoke")));
+		// Rotation du secret (G14) : toute portée, refusée pendant une suspension : acceptée.
+		handlers.put(RequestMappingInfo.paths(INTEGRATION_PREFIX + "link/secret").methods(RequestMethod.POST).build(),
+				new HandlerMethod(controller, MisconfiguredIntegrationController.class.getDeclaredMethod("linkSecret")));
+		// La même, servie pendant une suspension : refusé.
+		handlers.put(RequestMappingInfo.paths(INTEGRATION_PREFIX + "link/secret").methods(RequestMethod.PUT).build(),
+				new HandlerMethod(controller, MisconfiguredIntegrationController.class.getDeclaredMethod("linkStatus")));
 		// platformOnly sur GET /link : refusé (GET /link garde les contrôles d'entreprise).
 		handlers.put(RequestMappingInfo.paths(INTEGRATION_PREFIX + "link").methods(RequestMethod.HEAD).build(),
 				new HandlerMethod(controller, MisconfiguredIntegrationController.class.getDeclaredMethod("linkRevoke")));
@@ -111,11 +119,14 @@ class EndpointSecurityCoverageIT {
 		assertThat(violations(handlers)).containsExactlyInAnyOrder(
 				"GET /api/integration/v1/test-coverage/unscoped : route d'intégration sans @RequiresScope",
 				"GET /api/integration/v1/test-coverage/mixed : @PreAuthorize interdit sur une route d'intégration",
-				"GET /api/integration/v1/test-coverage/servedWhileSuspended : allowedWhileSuspended ou portée ANY hors des routes autorisées pendant une suspension",
-				"GET /api/integration/v1/test-coverage/anyScope : allowedWhileSuspended ou portée ANY hors des routes autorisées pendant une suspension",
+				"GET /api/integration/v1/test-coverage/servedWhileSuspended : allowedWhileSuspended hors des routes autorisées pendant une suspension",
+				"GET /api/integration/v1/test-coverage/anyScope : portée ANY hors des routes de la liaison elle-même",
 				"GET /api/integration/v1/test-coverage/platformOnlyElsewhere : platformOnly réservé à POST /link/revoke",
-				"HEAD /api/integration/v1/link : allowedWhileSuspended ou portée ANY hors des routes autorisées pendant une suspension",
-				"HEAD /api/integration/v1/link : platformOnly réservé à POST /link/revoke");
+				"HEAD /api/integration/v1/link : allowedWhileSuspended hors des routes autorisées pendant une suspension",
+				"HEAD /api/integration/v1/link : portée ANY hors des routes de la liaison elle-même",
+				"HEAD /api/integration/v1/link : platformOnly réservé à POST /link/revoke",
+				"PUT /api/integration/v1/link/secret : allowedWhileSuspended hors des routes autorisées pendant une suspension",
+				"PUT /api/integration/v1/link/secret : portée ANY hors des routes de la liaison elle-même");
 	}
 
 	@Test
@@ -129,6 +140,12 @@ class EndpointSecurityCoverageIT {
 			.containsExactlyInAnyOrder("GET /api/integration/v1/link", "POST /api/integration/v1/link/revoke");
 	}
 
+	@Test
+	void theRoutesWithoutAParticularScopeAreExactlyThoseOfTheLinkItself() {
+		assertThat(IntegrationSecurityConfig.ANY_SCOPE_ENDPOINTS).containsExactlyInAnyOrder("GET /api/integration/v1/link",
+				"POST /api/integration/v1/link/revoke", "POST /api/integration/v1/link/secret");
+	}
+
 	/** Endpoints {@code /api/**} non protégés selon les règles ci-dessus (liste vide : configuration acceptée). */
 	static List<String> violations(Map<RequestMappingInfo, HandlerMethod> handlers) {
 		List<String> violations = new ArrayList<>();
@@ -138,7 +155,8 @@ class EndpointSecurityCoverageIT {
 					|| AnnotatedElementUtils.hasAnnotation(handler.getBeanType(), PreAuthorize.class);
 			RequiresScope requiresScope = AnnotatedElementUtils.findMergedAnnotation(handler.getMethod(), RequiresScope.class);
 			boolean scoped = requiresScope != null;
-			boolean suspensionRule = scoped && (requiresScope.allowedWhileSuspended() || RequiresScope.ANY.equals(requiresScope.value()));
+			boolean servedWhileSuspended = scoped && requiresScope.allowedWhileSuspended();
+			boolean anyScope = scoped && RequiresScope.ANY.equals(requiresScope.value());
 			boolean platformOnly = scoped && requiresScope.platformOnly();
 			for (String path : entry.getKey().getPatternValues()) {
 				if (!path.startsWith("/api/")) {
@@ -154,9 +172,11 @@ class EndpointSecurityCoverageIT {
 							violations.add(endpoint + " : route d'intégration sans @RequiresScope");
 						}
 						else {
-							if (suspensionRule && !IntegrationSecurityConfig.SUSPENSION_ALLOWED_ENDPOINTS.contains(endpoint)) {
-								violations.add(endpoint
-										+ " : allowedWhileSuspended ou portée ANY hors des routes autorisées pendant une suspension");
+							if (servedWhileSuspended && !IntegrationSecurityConfig.SUSPENSION_ALLOWED_ENDPOINTS.contains(endpoint)) {
+								violations.add(endpoint + " : allowedWhileSuspended hors des routes autorisées pendant une suspension");
+							}
+							if (anyScope && !IntegrationSecurityConfig.ANY_SCOPE_ENDPOINTS.contains(endpoint)) {
+								violations.add(endpoint + " : portée ANY hors des routes de la liaison elle-même");
 							}
 							if (platformOnly && !IntegrationSecurityConfig.PLATFORM_ONLY_ENDPOINTS.contains(endpoint)) {
 								violations.add(endpoint + " : platformOnly réservé à POST /link/revoke");
@@ -205,6 +225,10 @@ class EndpointSecurityCoverageIT {
 
 		@RequiresScope(value = "catalog:read", platformOnly = true)
 		void platformOnlyElsewhere() {
+		}
+
+		@RequiresScope(RequiresScope.ANY)
+		void linkSecret() {
 		}
 
 	}

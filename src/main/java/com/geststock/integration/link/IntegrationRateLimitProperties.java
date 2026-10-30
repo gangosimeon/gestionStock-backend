@@ -37,7 +37,7 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 		if (!problems.isEmpty()) {
 			throw new IllegalArgumentException(String.join(" ; ", problems));
 		}
-		rateLimit = rateLimit != null ? rateLimit : new RateLimit(null, 10, 10, 30, 30);
+		rateLimit = rateLimit != null ? rateLimit : new RateLimit(null, 10, 10, 30, 30, 5, null);
 	}
 
 	/**
@@ -70,17 +70,25 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 	 * @param oauthTokenPerIp     {@code /oauth/token} : requêtes par fenêtre et par IP, tentatives échouées comprises
 	 * @param oauthParPerClient   {@code /oauth/par} : requêtes par fenêtre et par client authentifié
 	 * @param oauthParPerIp       {@code /oauth/par} : requêtes par fenêtre et par IP, tentatives échouées comprises
+	 * @param linkSecretPerLink   {@code /link/secret} (G14) : rotations par fenêtre et par liaison authentifiée
+	 * @param linkSecretWindow    fenêtre fixe de {@code /link/secret} (1 seconde à 1 heure ; 1 heure par défaut)
 	 */
 	public record RateLimit(@DefaultValue("1m") Duration window, @DefaultValue("10") int oauthTokenPerClient,
 			@DefaultValue("10") int oauthTokenPerIp, @DefaultValue("30") int oauthParPerClient,
-			@DefaultValue("30") int oauthParPerIp) {
+			@DefaultValue("30") int oauthParPerIp, @DefaultValue("5") int linkSecretPerLink,
+			@DefaultValue("1h") Duration linkSecretWindow) {
 
 		public RateLimit {
 			window = window != null ? window : Duration.ofMinutes(1);
-			if (window.compareTo(Duration.ofSeconds(1)) < 0 || window.compareTo(RateLimiter.MAX_WINDOW) > 0) {
-				throw new IllegalArgumentException("geststock.integration.rate-limit.window : de 1 seconde à 1 heure.");
+			linkSecretWindow = linkSecretWindow != null ? linkSecretWindow : RateLimiter.MAX_WINDOW;
+			if (window.compareTo(Duration.ofSeconds(1)) < 0 || window.compareTo(RateLimiter.MAX_WINDOW) > 0
+					|| linkSecretWindow.compareTo(Duration.ofSeconds(1)) < 0
+					|| linkSecretWindow.compareTo(RateLimiter.MAX_WINDOW) > 0) {
+				throw new IllegalArgumentException(
+						"geststock.integration.rate-limit.window et link-secret-window : de 1 seconde à 1 heure.");
 			}
-			if (oauthTokenPerClient < 1 || oauthTokenPerIp < 1 || oauthParPerClient < 1 || oauthParPerIp < 1) {
+			if (oauthTokenPerClient < 1 || oauthTokenPerIp < 1 || oauthParPerClient < 1 || oauthParPerIp < 1
+					|| linkSecretPerLink < 1) {
 				throw new IllegalArgumentException("geststock.integration.rate-limit : chaque limite vaut au moins 1.");
 			}
 		}

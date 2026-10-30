@@ -294,8 +294,9 @@ class OAuthService {
 
 	/**
 	 * Jeton d'une liaison du client : liaison d'un autre client ou inconnue ⇒ {@code invalid_grant} ; révoquée ⇒
-	 * {@code 400 invalid_grant} avec {@code code LINK_REVOKED} ; secret vérifié en temps constant ; liaison active ou
-	 * suspendue ⇒ jeton de 15 min.
+	 * {@code 400 invalid_grant} avec {@code code LINK_REVOKED} ; secret vérifié en temps constant (courant ou en attente
+	 * de rotation, G14) ; liaison active ou suspendue ⇒ jeton de 15 min. Premier usage réussi du secret en attente : il
+	 * est promu (l'ancien est alors refusé).
 	 */
 	Map<String, Object> clientCredentials(IntegrationClients.AuthenticatedClient client, Map<String, String> params) {
 		UUID linkId;
@@ -311,7 +312,8 @@ class OAuthService {
 		if (link.status() == LinkStatus.REVOKED) {
 			throw OAuthException.linkRevoked();
 		}
-		if (!this.links.verifySecret(linkId, secret)) {
+		LinkRegistry.SecretMatch match = this.links.checkSecret(linkId, secret);
+		if (match == LinkRegistry.SecretMatch.NONE) {
 			log.info("Liaison {} : secret de liaison refusé (client {}).", linkId, client.clientId());
 			throw OAuthException.invalidGrant();
 		}
@@ -322,6 +324,10 @@ class OAuthService {
 				throw OAuthException.invalidScope("Portées demandées hors de celles de la liaison.");
 			}
 			scopes = requested;
+		}
+		if (match == LinkRegistry.SecretMatch.PENDING) {
+			// Requête réussie : promotion ; une requête simultanée l'a peut-être déjà faite, le jeton est émis quand même.
+			this.links.promote(linkId, secret, LinkAudit.Actor.client(client.id(), client.clientId()));
 		}
 		return tokenBody(linkId, client.clientId(), scopes);
 	}

@@ -98,11 +98,19 @@ public class IntegrationSecurityConfig {
 	public static final String[] CLIENT_AUTHENTICATED_PATHS = { BASE_PATH + "/oauth/token", BASE_PATH + "/oauth/par" };
 
 	/**
-	 * Seules routes qui peuvent porter {@code allowedWhileSuspended} et {@link RequiresScope#ANY} (v14-D10 : statut et
-	 * révocation de la liaison restent possibles pendant une suspension). Vérifié par {@code EndpointSecurityCoverageIT}.
+	 * Seules routes qui peuvent porter {@code allowedWhileSuspended} (v14-D10 : statut et révocation de la liaison
+	 * restent possibles pendant une suspension). Vérifié par {@code EndpointSecurityCoverageIT}.
 	 */
 	public static final Set<String> SUSPENSION_ALLOWED_ENDPOINTS = Set.of("GET " + BASE_PATH + "/link",
 			"POST " + BASE_PATH + "/link/revoke");
+
+	/**
+	 * Seules routes qui peuvent porter {@link RequiresScope#ANY} : celles de la liaison elle-même (contrat : aucune
+	 * portée particulière ; {@code POST /link/secret}, G14, reste refusée pendant une suspension). Vérifié par
+	 * {@code EndpointSecurityCoverageIT}.
+	 */
+	public static final Set<String> ANY_SCOPE_ENDPOINTS = Set.of("GET " + BASE_PATH + "/link",
+			"POST " + BASE_PATH + "/link/revoke", "POST " + BASE_PATH + "/link/secret");
 
 	/**
 	 * Seules routes qui peuvent porter {@code platformOnly} (C2 : la boutique peut toujours se déconnecter, même si

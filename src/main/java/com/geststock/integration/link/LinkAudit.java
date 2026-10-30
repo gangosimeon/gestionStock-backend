@@ -1,7 +1,5 @@
 package com.geststock.integration.link;
 
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
-import org.springframework.jdbc.core.SqlTypeValue;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -66,6 +63,12 @@ class LinkAudit {
 	static final String CODE_EXCHANGE_REJECTED = "CODE_EXCHANGE_REJECTED";
 
 	static final String CLIENT_AUTHENTICATION_FAILED = "CLIENT_AUTHENTICATION_FAILED";
+
+	/** Rotation du secret demandée par la boutique (G14). */
+	static final String SECRET_ROTATED = "LINK_SECRET_ROTATED";
+
+	/** Secret en attente devenu le secret courant (G14), avec sa cause. */
+	static final String SECRET_PROMOTED = "LINK_SECRET_PROMOTED";
 
 	/** Événements copiés dans le journal de l'entreprise concernée. */
 	private static final Set<String> COMPANY_ACTIONS = Set.of(APPROVED, DENIED, SUSPENDED, REACTIVATED, REVOKED);
@@ -215,24 +218,6 @@ class LinkAudit {
 			case REVOKED -> "Liaison avec " + shop + " révoquée (" + entry.details().get("revocationReason") + ")";
 			default -> entry.action();
 		};
-	}
-
-	/**
-	 * Texte lié à la requête sans apparaître dans les journaux : Spring JDBC journalise en TRACE la valeur de chaque
-	 * paramètre (motif libre de la boutique).
-	 */
-	private record MaskedText(String value) implements SqlTypeValue {
-
-		@Override
-		public void setTypeValue(PreparedStatement statement, int index, int sqlType, String typeName) throws SQLException {
-			statement.setString(index, this.value);
-		}
-
-		@Override
-		public String toString() {
-			return "***";
-		}
-
 	}
 
 	// --- Traces -----------------------------------------------------------------------------------------------

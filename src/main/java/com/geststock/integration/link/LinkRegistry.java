@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -47,7 +48,12 @@ import com.geststock.platform.PlatformDb;
  * transition silencieuse.
  *
  * <p><b>Secret de liaison</b> : 256 bits ({@link SecureRandom}), base64url sans remplissage, renvoyé une seule fois par
- * {@link #activate} ; seule son empreinte SHA-256 (hexadécimal minuscule) est conservée et comparée en temps constant.
+ * {@link #activate} ou {@link #rotate} ; seule son empreinte SHA-256 (hexadécimal minuscule) est conservée et comparée
+ * en temps constant. Les empreintes liées aux requêtes sont masquées dans les journaux ({@link MaskedText}).
+ *
+ * <p><b>Rotation</b> (G14, v14-D6) : le nouveau secret attend ({@code pending_secret_hash}) ; l'ancien et le nouveau sont
+ * acceptés jusqu'au premier usage du nouveau ({@link #promote}), 24 h au plus : au-delà, le secret en attente est promu
+ * à la première vérification et l'ancien refusé.
  */
 @Component
 public class LinkRegistry {
@@ -123,8 +129,38 @@ public class LinkRegistry {
 	/** {@code EXPIRED} : réservé à une liaison jamais activée (cohérent avec {@code ck_integration_link_activated}). */
 	private static final String REVOKE_PENDING = REVOKE.formatted("'PENDING'");
 
-	private static final String SECRET_HASH = """
-			select secret_hash from platform.integration_link where id = :id and status in ('ACTIVE', 'SUSPENDED')""";
+	/** Validité de l'ancien secret après une rotation, au plus (v14-D6). */
+	static final String PREVIOUS_SECRET_GRACE = "24 hours";
+
+	private static final String SECRETS = """
+			select secret_hash, pending_secret_hash from platform.integration_link
+			where id = :id and status in ('ACTIVE', 'SUSPENDED')""";
+
+	/** Rotation : liaison ACTIVE seulement ; un secret déjà en attente est remplacé (l'ancien courant reste valide). */
+	private static final String ROTATE = """
+			update platform.integration_link
+			set pending_secret_hash = :hash, pending_secret_created_at = now(), updated_at = now()
+			where id = :id and status = 'ACTIVE'
+			returning\s""" + LINK_COLUMNS + """
+			, pending_secret_created_at, pending_secret_created_at + interval '""" + PREVIOUS_SECRET_GRACE
+			+ "' as previous_secret_valid_until";
+
+	private static final String PROMOTION = """
+			update platform.integration_link
+			set secret_hash = pending_secret_hash, pending_secret_hash = null, pending_secret_created_at = null,
+			    updated_at = now()
+			where id = :id and status in ('ACTIVE', 'SUSPENDED') and\s""";
+
+	/** Premier usage du secret en attente : une seule mise à jour conditionnelle (une seule promotion). */
+	private static final String PROMOTE_ON_FIRST_USE = PROMOTION + "pending_secret_hash = :hash returning " + LINK_COLUMNS;
+
+	/** Secret en attente émis il y a plus de 24 h : promu, l'ancien cesse d'être accepté. */
+	private static final String PROMOTE_EXPIRED = PROMOTION + "pending_secret_created_at <= now() - interval '"
+			+ PREVIOUS_SECRET_GRACE + "' returning " + LINK_COLUMNS;
+
+	private static final String FIRST_USE = "FIRST_USE";
+
+	private static final String PREVIOUS_SECRET_EXPIRED = "PREVIOUS_SECRET_EXPIRED";
 
 	private static final byte[] NO_HASH = new byte[64];
 
@@ -237,12 +273,9 @@ public class LinkRegistry {
 	 * PENDING → ACTIVE : génère le secret de liaison, en conserve l'empreinte et le renvoie, cette seule fois.
 	 */
 	public ActivatedLink activate(UUID linkId) {
-		byte[] raw = new byte[SECRET_BYTES];
-		this.random.nextBytes(raw);
-		String secret = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
-		Arrays.fill(raw, (byte) 0);
+		String secret = newSecret();
 		Link link = transition(linkId, () -> this.platform.jdbc().sql(ACTIVATE).param("id", linkId)
-			.param("hash", sha256Hex(secret)).query(LinkRegistry::link).optional());
+			.param("hash", maskedHash(secret)).query(LinkRegistry::link).optional());
 		log.info("Liaison {} activée.", link.id());
 		return new ActivatedLink(link, secret);
 	}
@@ -288,17 +321,123 @@ public class LinkRegistry {
 	}
 
 	/**
-	 * Le secret correspond-il à l'empreinte courante de la liaison ? Faux pour une liaison inconnue, en attente ou
-	 * révoquée. Comparaison en temps constant ; l'empreinte en attente de rotation relève de l'étape G14.
+	 * Le secret est-il accepté (secret courant ou secret en attente de rotation) ? Faux pour une liaison inconnue, en
+	 * attente ou révoquée. Voir {@link #checkSecret}.
 	 */
 	public boolean verifySecret(UUID linkId, String secret) {
+		return checkSecret(linkId, secret) != SecretMatch.NONE;
+	}
+
+	/** Secret présenté : celui qu'il a reconnu (G14). */
+	public enum SecretMatch {
+		/** Aucun : refusé. */
+		NONE,
+		/** Le secret courant. */
+		CURRENT,
+		/** Le secret en attente de rotation : à promouvoir au premier usage réussi. */
+		PENDING
+	}
+
+	/**
+	 * Vérifie le secret présenté contre le secret courant et le secret en attente (G14). Au-delà de 24 h après
+	 * l'émission du secret en attente, celui-ci est d'abord promu (l'ancien est alors refusé).
+	 */
+	public SecretMatch checkSecret(UUID linkId, String secret) {
 		if (linkId == null || secret == null) {
-			return false;
+			return SecretMatch.NONE;
 		}
-		Optional<String> stored = this.platform.jdbc().sql(SECRET_HASH).param("id", linkId).query(String.class).optional();
-		byte[] expected = stored.map(hash -> hash.getBytes(StandardCharsets.US_ASCII)).orElse(NO_HASH);
-		boolean equal = MessageDigest.isEqual(sha256Hex(secret).getBytes(StandardCharsets.US_ASCII), expected);
-		return stored.isPresent() && equal;
+		// Indépendant du secret présenté : la promotion après 24 h ne révèle rien.
+		this.platform.inTransaction(status -> promoteExpired(linkId));
+		Optional<String[]> stored = this.platform.jdbc().sql(SECRETS).param("id", linkId)
+			.query((rs, n) -> new String[] { rs.getString("secret_hash"), rs.getString("pending_secret_hash") })
+			.optional();
+		String[] hashes = stored.orElse(new String[2]);
+		SecretMatch match = match(sha256Hex(secret).getBytes(StandardCharsets.US_ASCII), ascii(hashes[0]), ascii(hashes[1]),
+				MessageDigest::isEqual);
+		return stored.isPresent() ? match : SecretMatch.NONE;
+	}
+
+	/**
+	 * Rotation (G14) demandée par la boutique : nouveau secret en attente, renvoyé une seule fois ; liaison ACTIVE
+	 * seulement.
+	 * @throws LinkException liaison inconnue ou non active
+	 */
+	public RotatedSecret rotate(UUID linkId) {
+		String secret = newSecret();
+		RotatedSecret rotated = this.platform.inTransaction(status -> {
+			// Un secret en attente de plus de 24 h est d'abord promu : le remplacer rendrait vie à l'ancien secret.
+			promoteExpired(linkId);
+			boolean replaced = this.platform.jdbc().sql("""
+					select pending_secret_hash is not null from platform.integration_link
+					where id = :id and status = 'ACTIVE' for update""").param("id", linkId).query(Boolean.class).optional()
+				.orElse(false);
+			RotatedSecret result = transition(linkId, () -> this.platform.jdbc().sql(ROTATE).param("id", linkId)
+				.param("hash", maskedHash(secret))
+				.query((rs, n) -> new RotatedSecret(link(rs, n), secret, instant(rs, "pending_secret_created_at"),
+						instant(rs, "previous_secret_valid_until")))
+				.optional());
+			this.audit.record(LinkAudit.Entry.of(LinkAudit.SECRET_ROTATED, result.link(), LinkAudit.Actor.shop(result.link()))
+				.detail("pendingSecretReplaced", replaced)
+				.detail("previousSecretValidUntil", result.previousSecretValidUntil().toString()));
+			return result;
+		});
+		log.info("Liaison {} : rotation du secret, nouveau secret en attente.", linkId);
+		return rotated;
+	}
+
+	/**
+	 * Promotion au premier usage réussi du secret en attente (G14) : une seule mise à jour conditionnelle, sur
+	 * l'empreinte présentée ; faux si une autre requête l'a déjà promu, ou si une rotation l'a remplacé entre-temps.
+	 */
+	boolean promote(UUID linkId, String secret, LinkAudit.Actor actor) {
+		return this.platform.inTransaction(status -> {
+			Optional<Link> promoted = this.platform.jdbc().sql(PROMOTE_ON_FIRST_USE).param("id", linkId)
+				.param("hash", maskedHash(secret)).query(LinkRegistry::link).optional();
+			promoted.ifPresent(link -> {
+				this.audit.record(LinkAudit.Entry.of(LinkAudit.SECRET_PROMOTED, link, actor).detail("cause", FIRST_USE));
+				log.info("Liaison {} : nouveau secret promu à son premier usage.", link.id());
+			});
+			return promoted.isPresent();
+		});
+	}
+
+	/** Secret en attente de plus de 24 h promu, dans la transaction plateforme courante ; tracé (auteur : le système). */
+	private Void promoteExpired(UUID linkId) {
+		this.platform.jdbc().sql(PROMOTE_EXPIRED).param("id", linkId).query(LinkRegistry::link).optional().ifPresent(link -> {
+			this.audit.record(LinkAudit.Entry.of(LinkAudit.SECRET_PROMOTED, link, LinkAudit.Actor.system("délai de 24 h"))
+				.detail("cause", PREVIOUS_SECRET_EXPIRED));
+			log.info("Liaison {} : secret en attente promu, l'ancien secret a dépassé 24 h.", link.id());
+		});
+		return null;
+	}
+
+	/**
+	 * Comparaison du secret présenté (empreinte) avec les deux empreintes, courante et en attente : les deux comparaisons
+	 * ont toujours lieu, sans court-circuit, sur 64 octets (empreinte absente : tableau neutre de même longueur), en
+	 * temps constant ({@link MessageDigest#isEqual}) : le travail fait ne révèle pas lequel a servi.
+	 */
+	static SecretMatch match(byte[] presented, byte[] current, byte[] pending, BiPredicate<byte[], byte[]> equal) {
+		boolean isCurrent = equal.test(presented, current != null ? current : NO_HASH);
+		boolean isPending = equal.test(presented, pending != null ? pending : NO_HASH);
+		return isCurrent ? SecretMatch.CURRENT : isPending ? SecretMatch.PENDING : SecretMatch.NONE;
+	}
+
+	private static byte[] ascii(String hash) {
+		return hash != null ? hash.getBytes(StandardCharsets.US_ASCII) : null;
+	}
+
+	/** Nouveau secret : 256 bits aléatoires, base64url sans remplissage. */
+	private String newSecret() {
+		byte[] raw = new byte[SECRET_BYTES];
+		this.random.nextBytes(raw);
+		String secret = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+		Arrays.fill(raw, (byte) 0);
+		return secret;
+	}
+
+	/** Empreinte d'un secret, liée à une requête sans apparaître dans les journaux (TRACE). */
+	private static MaskedText maskedHash(String secret) {
+		return new MaskedText(sha256Hex(secret));
 	}
 
 	public Optional<Link> find(UUID linkId) {
@@ -324,7 +463,7 @@ public class LinkRegistry {
 	}
 
 	/** Mise à jour conditionnelle ; aucune ligne ⇒ liaison inconnue ou transition refusée. */
-	private Link transition(UUID linkId, Supplier<Optional<Link>> update) {
+	private <T> T transition(UUID linkId, Supplier<Optional<T>> update) {
 		if (linkId == null) {
 			throw new LinkException(LinkException.Reason.INVALID_ARGUMENT);
 		}
