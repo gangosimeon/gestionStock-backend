@@ -12,6 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -19,6 +20,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import com.geststock.audit.AuditEvent;
 import com.geststock.audit.AuditService;
+import com.geststock.common.security.AccessRightsChangedEvent;
 import com.geststock.common.security.ActorPermissions;
 import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
@@ -59,10 +61,14 @@ public class RoleService {
 	/** Cache rôle → permissions, lu à chaque requête authentifiée ; vidé après chaque modification. */
 	private final Map<String, Set<String>> permissionsByRole = new ConcurrentHashMap<>();
 
-	RoleService(RoleRepository repository, PermissionService permissionService, AuditService audit) {
+	private final ApplicationEventPublisher events;
+
+	RoleService(RoleRepository repository, PermissionService permissionService, AuditService audit,
+			ApplicationEventPublisher events) {
 		this.repository = repository;
 		this.permissionService = permissionService;
 		this.audit = audit;
+		this.events = events;
 	}
 
 	// --- Lecture --------------------------------------------------------------------------
@@ -163,6 +169,8 @@ public class RoleService {
 			.after(updated)
 			.meta("addedPermissions", added)
 			.meta("removedPermissions", removed));
+		// Publié après evictCacheAfterCommit : après le commit, le cache est vidé avant la réévaluation des droits.
+		this.events.publishEvent(new AccessRightsChangedEvent("permissions d'un rôle"));
 		return updated;
 	}
 

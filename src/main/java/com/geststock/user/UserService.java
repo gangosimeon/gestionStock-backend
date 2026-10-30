@@ -22,6 +22,7 @@ import com.geststock.audit.AuditEvent;
 import com.geststock.audit.AuditService;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
+import com.geststock.common.security.AccessRightsChangedEvent;
 import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.NotFoundException;
@@ -168,6 +169,7 @@ public class UserService {
 			.details("Modification de l'utilisateur " + updated.username())
 			.before(before)
 			.after(updated));
+		this.events.publishEvent(new AccessRightsChangedEvent("rôles ou dépôts d'un utilisateur"));
 		return updated;
 	}
 
@@ -187,6 +189,7 @@ public class UserService {
 			.details("Rôles de " + updated.username() + " : " + String.join(", ", new java.util.TreeSet<>(roleCodes)))
 			.before(before)
 			.after(updated));
+		this.events.publishEvent(new AccessRightsChangedEvent("rôles d'un utilisateur"));
 		return updated;
 	}
 

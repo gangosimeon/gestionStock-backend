@@ -21,6 +21,7 @@ import com.geststock.audit.AuditService;
 import com.geststock.common.api.ActiveStatus;
 import com.geststock.common.api.PageQuery;
 import com.geststock.common.api.SortWhitelist;
+import com.geststock.common.security.AccessRightsChangedEvent;
 import com.geststock.common.security.ActorPermissions;
 import com.geststock.common.security.ActorWarehouseScope;
 import com.geststock.common.security.Permissions;
@@ -198,6 +199,8 @@ public class WarehouseService {
 		this.audit.record(AuditEvent.of("SET_MAIN", "WAREHOUSE", id, target.getCode() + " · " + target.getName())
 			.details("Nouveau dépôt principal : " + target.getName())
 			.meta("previousMainWarehouseId", previous));
+		// Les utilisateurs sans affectation n'ont accès qu'au dépôt principal : il vient de changer.
+		this.events.publishEvent(new AccessRightsChangedEvent("dépôt principal"));
 		return saved;
 	}
 

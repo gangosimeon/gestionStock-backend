@@ -138,9 +138,10 @@ public class WarehouseAccess {
 
 	/**
 	 * Identifiants des dépôts accessibles, ou {@code null} si l'utilisateur les voit tous
-	 * ({@code warehouse:all}).
+	 * ({@code warehouse:all}). Public pour juger les droits d'un autre utilisateur que celui de
+	 * la requête (responsable d'une liaison boutique, lot 2 G4b) avec la même règle.
 	 */
-	Set<UUID> accessibleIds(ActorWarehouseScope scope) {
+	public Set<UUID> accessibleIds(ActorWarehouseScope scope) {
 		if (scope.allWarehouses()) {
 			return null;
 		}

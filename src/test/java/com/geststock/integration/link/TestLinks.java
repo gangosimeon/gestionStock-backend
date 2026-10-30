@@ -68,6 +68,11 @@ final class TestLinks {
 
 	/** Liaison en attente de l'entreprise, pour la boutique donnée. */
 	Link pending(Client client, UUID company, String shop, Set<String> scopes) {
+		return pending(client, company, shop, scopes, ADMIN);
+	}
+
+	/** Liaison en attente de l'entreprise, au nom de la personne responsable donnée. */
+	Link pending(Client client, UUID company, String shop, Set<String> scopes, Authorizer authorizer) {
 		UUID request = this.platform.jdbc().sql("""
 				insert into platform.integration_authorization_request (request_uri_hash, client_id, external_shop_id, shop_name,
 				  redirect_uri, code_challenge, scopes, state, expires_at, decision, used_at)
@@ -77,7 +82,7 @@ final class TestLinks {
 			.param("hash", sha256Hex(UUID.randomUUID().toString())).param("client", client.id()).param("shop", shop)
 			.param("name", "Boutique " + shop).param("redirect", REDIRECT_URI).param("scopes", String.join(" ", new TreeSet<>(scopes)))
 			.query(UUID.class).single();
-		return this.registry.createPending(request, company, ADMIN, scopes);
+		return this.registry.createPending(request, company, authorizer, scopes);
 	}
 
 	/** Liaison active de l'entreprise, pour la boutique donnée. */
