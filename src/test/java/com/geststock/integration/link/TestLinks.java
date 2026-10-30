@@ -47,6 +47,25 @@ final class TestLinks {
 		return new Client(id, clientId);
 	}
 
+	/**
+	 * Client actif au secret connu (empreinte SHA-256 stockée), avec un second secret facultatif (rotation du secret
+	 * client) et des portées autorisées choisies.
+	 */
+	Client client(String secret, String secondarySecret, Set<String> allowedScopes) {
+		String clientId = "jcmb-it-" + UUID.randomUUID().toString().substring(0, 8);
+		UUID id = this.platform.jdbc().sql("""
+				insert into platform.integration_client (client_id, name, secret_hash, secondary_secret_hash, allowed_scopes, status)
+				values (:clientId, 'JeCréeMaBoutique (essai)', :hash, :secondary, string_to_array(:scopes, ' ')::varchar[], 'ACTIVE')
+				returning id""")
+			.param("clientId", clientId).param("hash", sha256Hex(secret))
+			.param("secondary", secondarySecret != null ? sha256Hex(secondarySecret) : null)
+			.param("scopes", String.join(" ", new TreeSet<>(allowedScopes))).query(UUID.class).single();
+		this.platform.jdbc().sql("insert into platform.integration_client_redirect_uri (client_id, redirect_uri) values (:c, :u)")
+			.param("c", id).param("u", REDIRECT_URI).update();
+		this.clients.add(id);
+		return new Client(id, clientId);
+	}
+
 	/** Liaison en attente de l'entreprise, pour la boutique donnée. */
 	Link pending(Client client, UUID company, String shop, Set<String> scopes) {
 		UUID request = this.platform.jdbc().sql("""

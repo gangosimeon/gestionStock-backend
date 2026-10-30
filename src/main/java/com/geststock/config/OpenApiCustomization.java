@@ -331,20 +331,24 @@ class OpenApiCustomization {
 	private static void addErrorResponses(String path, PathItem.HttpMethod method, Operation operation) {
 		ApiResponses responses = operation.getResponses() != null ? operation.getResponses() : new ApiResponses();
 		boolean secured = operation.getSecurity() == null || !operation.getSecurity().isEmpty();
+		// Routes du client d'intégration : erreurs au format OAuth déclarées sur la route, ni permission ni 403.
+		boolean client = operation.getSecurity() != null && !operation.getSecurity().isEmpty() && operation.getSecurity()
+			.stream()
+			.allMatch(requirement -> requirement.containsKey(OpenApiConfig.INTEGRATION_CLIENT_SCHEME));
 		boolean hasInput = operation.getRequestBody() != null
 				|| (operation.getParameters() != null && !operation.getParameters().isEmpty());
 		boolean write = method != PathItem.HttpMethod.GET;
 		if (hasInput) {
 			responses.putIfAbsent("400", ref("BadRequest"));
 		}
-		if (secured) {
+		if (secured && !client) {
 			responses.putIfAbsent("401", ref("Unauthorized"));
 			responses.putIfAbsent("403", ref("Forbidden"));
 		}
 		if (path.contains("{")) {
 			responses.putIfAbsent("404", ref("NotFound"));
 		}
-		if (write && secured) {
+		if (write && secured && !client) {
 			responses.putIfAbsent("409", ref("Conflict"));
 			responses.putIfAbsent("422", ref("UnprocessableContent"));
 		}

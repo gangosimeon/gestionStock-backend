@@ -41,6 +41,8 @@ class IntegrationSecurityChainDisabledIT {
 		assertNotFound(this.mvc.perform(get("/api/integration/v1/test-chain/catalog")
 			.header(HttpHeaders.AUTHORIZATION, "Bearer eyJhbGciOiJIUzI1NiJ9.e30.x")));
 		assertNotFound(this.mvc.perform(post("/api/integration/v1/oauth/token")));
+		assertNotFound(this.mvc.perform(post("/api/integration/v1/oauth/par")
+			.header(HttpHeaders.AUTHORIZATION, "Basic amNtYjpzZWNyZXQ=")));
 		assertNotFound(this.mvc.perform(get("/api/integration/v1/n-importe-quoi")));
 	}
 

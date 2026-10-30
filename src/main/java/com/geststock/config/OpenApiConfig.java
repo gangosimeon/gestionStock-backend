@@ -3,6 +3,8 @@ package com.geststock.config;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.media.ObjectSchema;
+import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
@@ -20,6 +22,12 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiConfig {
 
 	static final String BEARER_SCHEME = "bearerAuth";
+
+	/** Client JeCréeMaBoutique (HTTP Basic) : seules les routes {@code /api/integration/v1/oauth/**} l'exigent. */
+	public static final String INTEGRATION_CLIENT_SCHEME = "integrationClient";
+
+	/** Erreur au format OAuth (RFC 6749 § 5.2) des routes du client, distincte d'{@code ApiError}. */
+	public static final String OAUTH_ERROR_SCHEMA = "OAuthError";
 
 	static final String GUIDE = """
 			API REST de GestStock (gestion de stock et gestion commerciale d'un magasin d'optique).
@@ -69,7 +77,18 @@ public class OpenApiConfig {
 				.type(SecurityScheme.Type.HTTP)
 				.scheme("bearer")
 				.bearerFormat("JWT")
-				.description("Jeton d'accès obtenu par POST /api/auth/login ou /api/auth/refresh.")))
+				.description("Jeton d'accès obtenu par POST /api/auth/login ou /api/auth/refresh."))
+				.addSecuritySchemes(INTEGRATION_CLIENT_SCHEME, new SecurityScheme()
+					.type(SecurityScheme.Type.HTTP)
+					.scheme("basic")
+					.description("Identifiant et secret du client d'intégration (RFC 6749 § 2.3.1)."))
+				.addSchemas(OAUTH_ERROR_SCHEMA, new ObjectSchema()
+					.addProperty("error", new StringSchema()._enum(java.util.List.of("invalid_request", "invalid_client",
+							"invalid_grant", "invalid_scope", "unsupported_grant_type")))
+					.addProperty("error_description", new StringSchema())
+					.addProperty("code", new StringSchema()._enum(java.util.List.of("LINK_REVOKED"))
+						.description("Présent seulement quand la liaison est révoquée (400 invalid_grant)."))
+					.required(java.util.List.of("error", "error_description"))))
 			.addSecurityItem(new SecurityRequirement().addList(BEARER_SCHEME));
 	}
 

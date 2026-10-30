@@ -71,6 +71,10 @@ class OpenApiDocumentationIT {
 			"POST /api/platform/auth/login", "POST /api/platform/auth/refresh", "POST /api/platform/auth/logout",
 			"GET /api/public/companies/{code}/branding", "GET /api/public/companies/{code}/logo", "GET /api/health");
 
+	/** Routes du client d'intégration (HTTP Basic, erreurs OAuth) : ni utilisateur, ni permission, ni 403. */
+	private static final Set<String> INTEGRATION_CLIENT = Set.of("POST /api/integration/v1/oauth/par",
+			"POST /api/integration/v1/oauth/token");
+
 	@Autowired
 	private MockMvc mvc;
 
@@ -131,7 +135,14 @@ class OpenApiDocumentationIT {
 			assertThat(responses.propertyNames()).as(key + " : erreur serveur").contains("500");
 			boolean isPublic = PUBLIC.contains(key);
 			assertThat(op.has("security") && op.get("security").isEmpty()).as(key + " : route publique").isEqualTo(isPublic);
-			if (!isPublic) {
+			if (INTEGRATION_CLIENT.contains(key)) {
+				assertThat(op.get("security").toString()).as(key + " : client d'intégration")
+					.isEqualTo("[{\"integrationClient\":[]}]");
+				assertThat(responses.propertyNames()).as(key + " : erreurs OAuth").contains("400", "401")
+					.doesNotContain("403");
+				assertThat(op.has(OpenApiCustomization.PERMISSIONS_EXTENSION)).as(key + " : x-permissions").isFalse();
+			}
+			else if (!isPublic) {
 				assertThat(responses.propertyNames()).as(key + " : 401 et 403").contains("401", "403");
 				assertThat(op.has(OpenApiCustomization.PERMISSIONS_EXTENSION)).as(key + " : x-permissions").isTrue();
 			}

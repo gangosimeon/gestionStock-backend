@@ -195,6 +195,22 @@ public class LinkRegistry {
 	}
 
 	/**
+	 * Demande déposée ({@code POST /oauth/par}, v14-D2) : révoque d'abord ({@code EXPIRED}) les liaisons en attente
+	 * expirées de la boutique pour ce client, puis indique s'il lui reste une liaison non révoquée. L'index unique
+	 * partiel reste la garantie finale, à la création de la liaison.
+	 */
+	public boolean shopAlreadyLinked(UUID clientId, String externalShopId) {
+		return this.platform.inTransaction(status -> {
+			this.platform.jdbc().sql(EXPIRE_STALE_PENDING).param("client", clientId).param("shop", externalShopId).update();
+			return this.platform.jdbc().sql("""
+					select exists (select 1 from platform.integration_link
+					               where client_id = :client and external_shop_id = :shop
+					                 and status in ('PENDING', 'ACTIVE', 'SUSPENDED'))""")
+				.param("client", clientId).param("shop", externalShopId).query(Boolean.class).single();
+		});
+	}
+
+	/**
 	 * PENDING → ACTIVE : génère le secret de liaison, en conserve l'empreinte et le renvoie, cette seule fois.
 	 */
 	public ActivatedLink activate(UUID linkId) {

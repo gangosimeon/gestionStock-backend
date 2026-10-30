@@ -206,12 +206,17 @@ class IntegrationSecurityChainIT {
 	}
 
 	@Test
-	void theClientAuthenticatedRoutesAreDeclaredButRefusedUntilTheyExist() throws Exception {
+	void theClientAuthenticatedRoutesRequireTheClientAndIgnoreLinkTokens() throws Exception {
 		assertThat(IntegrationSecurityConfig.CLIENT_AUTHENTICATED_PATHS)
 			.containsExactly("/api/integration/v1/oauth/token", "/api/integration/v1/oauth/par");
+		// Étape G8 : authentification HTTP Basic du client ; un jeton de liaison n'y vaut rien.
 		for (String path : IntegrationSecurityConfig.CLIENT_AUTHENTICATED_PATHS) {
-			assertUnauthorized(this.mvc.perform(post(path)));
-			assertUnauthorized(this.mvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + linkToken("catalog:read"))));
+			for (var request : List.of(post(path), post(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + linkToken("catalog:read")))) {
+				this.mvc.perform(request).andExpect(status().isUnauthorized())
+					.andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, org.hamcrest.Matchers.startsWith("Basic")))
+					.andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
+					.andExpect(jsonPath("$.error").value("invalid_client"));
+			}
 		}
 	}
 

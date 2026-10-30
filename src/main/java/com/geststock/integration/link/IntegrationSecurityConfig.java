@@ -34,6 +34,7 @@ import org.springframework.security.oauth2.server.resource.InvalidBearerTokenExc
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -71,8 +72,9 @@ import com.geststock.tenancy.TenantSchemaRegistry;
  * {@code 403 LINK_SUSPENDED} ; entreprise non active ⇒ {@code 403 COMPANY_SUSPENDED} ou {@code COMPANY_UNAVAILABLE} ;
  * base de l'entreprise en migration ⇒ {@code 503 SCHEMA_UPGRADE_IN_PROGRESS} ou {@code SCHEMA_UPGRADE_FAILED} ;
  * portée absente ⇒ {@code 403 INSUFFICIENT_SCOPE}. Seules les méthodes de contrôleur portant {@link RequiresScope}
- * sont servies ; les routes du client ({@code oauth/token}, {@code oauth/par}) sont refusées jusqu'à l'étape G8 ; tout
- * le reste est refusé.</li>
+ * sont servies ; les routes du client ({@code oauth/token}, {@code oauth/par}, étape G8) exigent l'authentification
+ * HTTP Basic du client ({@link ClientAuthenticationFilter}, {@code 401 invalid_client} sinon) et ignorent tout jeton
+ * Bearer ; tout le reste est refusé.</li>
  * <li>Entreprise courante : établie après l'autorisation, uniquement depuis {@code company_id} de la liaison (jamais
  * depuis la requête), et vidée en fin de requête, exception comprise ({@code TenantContextFilter} la vide aussi avant et
  * après toute la chaîne). Exception : {@code POST /link/revoke} ({@code platformOnly}, C2) ne touche que la base
@@ -118,8 +120,8 @@ public class IntegrationSecurityConfig {
 	@Bean
 	@Order(Ordered.HIGHEST_PRECEDENCE)
 	SecurityFilterChain integrationSecurityFilterChain(HttpSecurity http, IntegrationLinkProperties links,
-			IntegrationTokenService tokens, LinkAccess access, TenantSchemaRegistry schemas, ApiErrorFactory errors,
-			ApiErrorWriter writer,
+			IntegrationTokenService tokens, LinkAccess access, IntegrationClients clients, TenantSchemaRegistry schemas,
+			ApiErrorFactory errors, ApiErrorWriter writer,
 			@Qualifier("requestMappingHandlerMapping") ObjectProvider<RequestMappingHandlerMapping> handlerMapping)
 			throws Exception {
 		ScopedEndpoints endpoints = new ScopedEndpoints(handlerMapping, schemas);
@@ -143,11 +145,13 @@ public class IntegrationSecurityConfig {
 				.authenticationEntryPoint(entryPoint)
 				.accessDeniedHandler(accessDenied))
 			.authorizeHttpRequests(authorize -> authorize
-				// Étape G8 : authentification Basic du client ; refusées tant qu'elles ne sont pas servies.
-				.requestMatchers(CLIENT_AUTHENTICATED_PATHS).denyAll()
+				// Routes du client (étape G8) : client authentifié en HTTP Basic par ClientAuthenticationFilter.
+				.requestMatchers(CLIENT_AUTHENTICATED_PATHS)
+				.access((authentication, context) -> new AuthorizationDecision(authentication.get() instanceof ClientAuthentication))
 				.requestMatchers(endpoints::isScoped).access(endpoints::authorize)
 				.anyRequest().denyAll())
 			.addFilterAfter(new DisabledLinksFilter(links.enabled(), errors, writer), HeaderWriterFilter.class)
+			.addFilterBefore(new ClientAuthenticationFilter(clientPaths(), clients), BearerTokenAuthenticationFilter.class)
 			.addFilterAfter(new LinkCompanyFilter(), AuthorizationFilter.class);
 		return http.build();
 	}
@@ -157,10 +161,15 @@ public class IntegrationSecurityConfig {
 		DefaultBearerTokenResolver delegate = new DefaultBearerTokenResolver();
 		delegate.setAllowUriQueryParameter(false);
 		delegate.setAllowFormEncodedBodyParameter(false);
-		RequestMatcher clientPaths = new OrRequestMatcher(Arrays.stream(CLIENT_AUTHENTICATED_PATHS)
+		RequestMatcher clientPaths = clientPaths();
+		return request -> clientPaths.matches(request) ? null : delegate.resolve(request);
+	}
+
+	/** Routes du client ({@code oauth/token}, {@code oauth/par}), toutes méthodes HTTP. */
+	static RequestMatcher clientPaths() {
+		return new OrRequestMatcher(Arrays.stream(CLIENT_AUTHENTICATED_PATHS)
 			.map(path -> (RequestMatcher) PathPatternRequestMatcher.pathPattern(path))
 			.toList());
-		return request -> clientPaths.matches(request) ? null : delegate.resolve(request);
 	}
 
 	/**

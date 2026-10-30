@@ -53,6 +53,9 @@ class DirectApiAccessIT {
 	private static final Set<String> SELF = Set.of("GET /api/auth/me", "POST /api/auth/change-password",
 			"GET /api/company/branding");
 
+	/** Chaîne d'intégration : un jeton d'utilisateur n'y authentifie rien (401, jamais 403). */
+	private static final String INTEGRATION = "/api/integration/v1/";
+
 	@Autowired
 	private MockMvc mvc;
 
@@ -130,12 +133,13 @@ class DirectApiAccessIT {
 			if (SELF.contains(route)) {
 				return;
 			}
-			if (status != 403) {
+			int expected = route.substring(route.indexOf(' ') + 1).startsWith(INTEGRATION) ? 401 : 403;
+			if (status != expected) {
 				served.add(route + " → " + status);
 			}
 		});
 		assertThat(statuses).as("routes appelées").hasSizeGreaterThan(120);
-		assertThat(served).as("routes qui n'opposent pas 403 à un utilisateur sans permission").isEmpty();
+		assertThat(served).as("routes qui n'opposent pas 403 (401 sur l'intégration) à un utilisateur sans permission").isEmpty();
 	}
 
 }
