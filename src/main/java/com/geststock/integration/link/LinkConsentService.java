@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -23,6 +24,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import com.geststock.exception.ErrorCode;
 import com.geststock.integration.CurrencyCodes;
+import com.geststock.integration.LinkWarehouses;
+import com.geststock.integration.LinkWarehouses.WarehouseChoice;
 import com.geststock.integration.UnsupportedCurrencyException;
 import com.geststock.platform.PlatformDb;
 
@@ -35,6 +38,24 @@ import com.geststock.platform.PlatformDb;
  * {@code PENDING} de l'entreprise de la personne connectée, à son nom, et code d'autorisation (256 bits, empreinte
  * seule, 5 minutes) dans une seule transaction de la base plateforme. La redirection est construite ici, depuis la
  * {@code redirect_uri} enregistrée dans la demande, avec {@code state} tel que reçu et {@code iss} (RFC 9207).
+ *
+ * <p><b>Dépôts vendables (G4a, v11-D8)</b> : choisis à l'approbation, reconfirmés à la réactivation, dans la base de
+ * l'entreprise ({@link LinkWarehouses}) ; la liaison vit dans la base plateforme. Deux bases, aucune transaction
+ * commune : l'ordre d'écriture garantit qu'un échec à mi-chemin ne donne jamais à une liaison plus de dépôts que ceux
+ * approuvés.
+ * <ul>
+ * <li>Approbation : (1) dépôts écrits dans la base de l'entreprise sous l'identifiant de la future liaison, choisi
+ * ici ; (2) décision, liaison et code dans la base plateforme ; échec en (2) : (3) les dépôts écrits en (1) sont
+ * retirés. Si (3) échoue aussi, restent des lignes pour un identifiant de liaison qui n'existe pas : aucun jeton ne
+ * peut le porter, elles n'exposent rien. À l'inverse, une liaison créée avant ses dépôts existerait, même un instant,
+ * sans le périmètre approuvé.</li>
+ * <li>Réactivation (liaison suspendue seulement) : (1) liste remplacée dans la base de l'entreprise pendant que la
+ * liaison est suspendue ({@code 403 LINK_SUSPENDED}, rien n'est servi), avec, dans la même transaction, un événement
+ * {@code AVAILABILITY} par produit stocké dans l'ancienne ou la nouvelle liste si elle change (v11-D9) ;
+ * (2) réactivation dans la base plateforme. Échec en (2) : la liaison reste suspendue avec la liste reconfirmée par la
+ * personne connectée, jamais plus large ; une nouvelle réactivation la remplace ; les événements publiés font
+ * seulement recalculer la même valeur.</li>
+ * </ul>
  *
  * <p><b>Liaisons</b> : celles de l'entreprise courante seulement ; une liaison d'une autre entreprise reçoit la même
  * réponse qu'une liaison inexistante. Journaux : identifiants seulement, jamais de {@code request_uri} ni de code.
@@ -73,11 +94,14 @@ class LinkConsentService {
 
 	private final LinkRegistry links;
 
+	private final LinkWarehouses warehouses;
+
 	private final SecureRandom random = new SecureRandom();
 
-	LinkConsentService(PlatformDb platform, LinkRegistry links) {
+	LinkConsentService(PlatformDb platform, LinkRegistry links, LinkWarehouses warehouses) {
 		this.platform = platform;
 		this.links = links;
+		this.warehouses = warehouses;
 	}
 
 	// --- Demandes d'autorisation ----------------------------------------------------------------------------
@@ -87,7 +111,8 @@ class LinkConsentService {
 		Pending request = this.platform.jdbc().sql(REQUEST).param("hash", LinkRegistry.sha256Hex(requestUri))
 			.query((rs, n) -> new Pending(new RequestView(rs.getString("client_id"), rs.getString("client_name"),
 					rs.getString("external_shop_id"), rs.getString("shop_name"), sorted(rs.getArray("scopes")),
-					rs.getObject("expires_at", OffsetDateTime.class).toInstant(), null), rs.getString("decision") != null,
+					rs.getObject("expires_at", OffsetDateTime.class).toInstant(), null, List.of()),
+					rs.getString("decision") != null,
 					rs.getBoolean("live")))
 			.optional()
 			.orElseThrow(() -> new LinkConsentException(ErrorCode.AUTHORIZATION_REQUEST_NOT_FOUND));
@@ -97,21 +122,45 @@ class LinkConsentService {
 		if (!request.live()) {
 			throw new LinkConsentException(ErrorCode.AUTHORIZATION_REQUEST_EXPIRED);
 		}
-		return request.view().withCurrency(currency(companyId));
+		return request.view().with(currency(companyId), this.warehouses.accessible());
 	}
 
 	/**
 	 * Approbation : décision, liaison en attente et code, dans une seule transaction (tout ou rien).
 	 * @return URL de redirection vers la boutique, avec le code (montrée au navigateur, jamais journalisée)
 	 */
-	String approve(String requestUri, Set<String> grantedScopes, UUID companyId, Authorizer authorizer) {
+	String approve(String requestUri, Set<String> grantedScopes, Set<UUID> warehouseIds, UUID companyId,
+			Authorizer authorizer) {
+		this.warehouses.requireAccessible(warehouseIds);
+		UUID linkId = UUID.randomUUID();
+		// (1) Base de l'entreprise : dépôts de la future liaison.
+		this.warehouses.replace(linkId, warehouseIds, authorizer.userId());
+		try {
+			return decideAndCreate(requestUri, grantedScopes, companyId, authorizer, linkId);
+		}
+		catch (RuntimeException ex) {
+			// (3) Compensation : la liaison n'existe pas, ses dépôts sont retirés (inoffensifs s'ils restaient).
+			try {
+				this.warehouses.remove(linkId);
+			}
+			catch (RuntimeException cleanup) {
+				log.warn("Dépôts de la liaison {} non retirés après un refus d'approbation ({}) : liaison inexistante, sans effet.",
+						linkId, cleanup.getClass().getSimpleName());
+			}
+			throw ex;
+		}
+	}
+
+	/** (2) Base plateforme : décision, liaison en attente sous l'identifiant choisi, code ; tout ou rien. */
+	private String decideAndCreate(String requestUri, Set<String> grantedScopes, UUID companyId, Authorizer authorizer,
+			UUID linkId) {
 		try {
 			return this.platform.inTransaction(status -> {
 				Decided request = decide(requestUri, "APPROVED");
 				if (!request.scopes().containsAll(grantedScopes)) {
 					throw new LinkConsentException(ErrorCode.LINK_SCOPE_NOT_REQUESTED);
 				}
-				Link link = this.links.createPending(request.id(), companyId, authorizer, grantedScopes);
+				Link link = this.links.createPending(linkId, request.id(), companyId, authorizer, grantedScopes);
 				byte[] raw = new byte[CODE_BYTES];
 				this.random.nextBytes(raw);
 				String code = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
@@ -176,33 +225,53 @@ class LinkConsentService {
 
 	// --- Liaisons de l'entreprise ---------------------------------------------------------------------------
 
-	List<Link> list(UUID companyId) {
-		return this.links.listForCompany(companyId);
+	List<ManagedLink> list(UUID companyId) {
+		List<Link> all = this.links.listForCompany(companyId);
+		Map<UUID, List<WarehouseChoice>> byLink = this.warehouses.ofLinks(all.stream().map(Link::id).toList());
+		return all.stream().map(link -> new ManagedLink(link, byLink.getOrDefault(link.id(), List.of()))).toList();
 	}
 
-	Link suspend(UUID linkId, UUID companyId) {
+	ManagedLink suspend(UUID linkId, UUID companyId) {
 		return manage(linkId, companyId, () -> this.links.suspend(linkId, SuspensionReason.MANUAL));
 	}
 
-	/** La personne qui réactive devient responsable de la liaison (v14-D10, G3). */
-	Link reactivate(UUID linkId, UUID companyId, Authorizer authorizer) {
+	/**
+	 * Liaison suspendue seulement ; la personne qui réactive reconfirme les dépôts (la liste remplace l'ancienne) et
+	 * devient responsable de la liaison (v14-D10, G3).
+	 */
+	ManagedLink reactivate(UUID linkId, UUID companyId, Set<UUID> warehouseIds, Authorizer authorizer) {
+		Link link = own(linkId, companyId);
+		if (link.status() != LinkStatus.SUSPENDED) {
+			// Contrôle avant toute écriture : les dépôts d'une liaison active ne sont jamais modifiés ici.
+			throw new LinkConsentException(ErrorCode.LINK_TRANSITION_INVALID);
+		}
+		this.warehouses.requireAccessible(warehouseIds);
+		// (1) Base de l'entreprise, liaison encore suspendue : liste remplacée et disponibilité republiée si elle change,
+		// dans une transaction ; (2) base plateforme.
+		this.warehouses.reconfirm(linkId, warehouseIds, authorizer.userId());
 		return manage(linkId, companyId, () -> this.links.reactivate(linkId, authorizer));
 	}
 
-	Link revoke(UUID linkId, UUID companyId) {
+	ManagedLink revoke(UUID linkId, UUID companyId) {
 		return manage(linkId, companyId, () -> this.links.revoke(linkId, RevocationReason.GESTSTOCK_ADMIN));
 	}
 
 	/** Liaison de l'entreprise courante seulement ; une autre entreprise reçoit la réponse d'une liaison inconnue. */
-	private Link manage(UUID linkId, UUID companyId, java.util.function.Supplier<Link> action) {
-		this.links.find(linkId).filter(link -> link.companyId().equals(companyId))
+	private Link own(UUID linkId, UUID companyId) {
+		return this.links.find(linkId).filter(link -> link.companyId().equals(companyId))
 			.orElseThrow(() -> new LinkConsentException(ErrorCode.LINK_NOT_FOUND));
+	}
+
+	private ManagedLink manage(UUID linkId, UUID companyId, java.util.function.Supplier<Link> action) {
+		own(linkId, companyId);
+		Link link;
 		try {
-			return action.get();
+			link = action.get();
 		}
 		catch (LinkException ex) {
 			throw LinkConsentException.of(ex);
 		}
+		return new ManagedLink(link, this.warehouses.ofLinks(List.of(link.id())).getOrDefault(link.id(), List.of()));
 	}
 
 	private static List<String> sorted(Array array) throws SQLException {
@@ -210,6 +279,10 @@ class LinkConsentService {
 	}
 
 	private record Pending(RequestView view, boolean decided, boolean live) {
+	}
+
+	/** Liaison et ses dépôts vendables (G4a). */
+	record ManagedLink(Link link, List<WarehouseChoice> warehouses) {
 	}
 
 	private record Decided(UUID id, String redirectUri, String state, Set<String> scopes) {
@@ -225,13 +298,16 @@ class LinkConsentService {
 	 * @param scopes     portées demandées
 	 * @param expiresAt  fin de validité de la demande
 	 * @param currency   devise ISO 4217 de l'entreprise courante (v11-D6)
+	 * @param warehouses dépôts actifs accessibles à la personne connectée, avec leur type : choix des dépôts vendables
+	 *                   (G4a ; l'écran coche les magasins, STORE, par défaut)
 	 */
 	@Schema(name = "IntegrationAuthorizationRequest")
 	record RequestView(String clientId, String clientName, String shopId, String shopName, List<String> scopes,
-			Instant expiresAt, String currency) {
+			Instant expiresAt, String currency, List<WarehouseChoice> warehouses) {
 
-		RequestView withCurrency(String code) {
-			return new RequestView(this.clientId, this.clientName, this.shopId, this.shopName, this.scopes, this.expiresAt, code);
+		RequestView with(String code, List<WarehouseChoice> choices) {
+			return new RequestView(this.clientId, this.clientName, this.shopId, this.shopName, this.scopes, this.expiresAt, code,
+					choices);
 		}
 
 	}

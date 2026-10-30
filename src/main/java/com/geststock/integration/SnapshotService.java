@@ -161,7 +161,7 @@ public class SnapshotService {
 		}
 		int remaining = limit;
 		while (section != null && remaining > 0) {
-			List<SnapshotItem> items = items(section, lastId, remaining);
+			List<SnapshotItem> items = items(link, section, lastId, remaining);
 			List<JsonNode> served = content.get(section);
 			items.forEach(item -> served.add(this.jsonMapper.valueToTree(item.data())));
 			if (items.size() < remaining) {
@@ -181,7 +181,7 @@ public class SnapshotService {
 	}
 
 	/** Au plus {@code limit} objets de la section après {@code lastId}, par identifiant croissant. */
-	private List<SnapshotItem> items(SnapshotSection section, UUID lastId, int limit) {
+	private List<SnapshotItem> items(LinkRef link, SnapshotSection section, UUID lastId, int limit) {
 		return switch (section) {
 			case CATEGORIES, PRODUCTS -> this.sources.get(section).after(lastId, limit);
 			case PRODUCT_IMAGES -> {
@@ -193,7 +193,7 @@ public class SnapshotService {
 			}
 			case AVAILABILITY -> {
 				List<UUID> ids = this.productIds.idsAfter(lastId, limit);
-				Map<UUID, ?> values = ids.isEmpty() ? Map.of() : this.availability.availability(new LinkedHashSet<>(ids));
+				Map<UUID, ?> values = ids.isEmpty() ? Map.of() : this.availability.availability(link, new LinkedHashSet<>(ids));
 				yield ids.stream()
 					.map(id -> new SnapshotItem(id, Objects.requireNonNull(values.get(id), () -> "disponibilité absente pour " + id)))
 					.toList();

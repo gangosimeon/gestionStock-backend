@@ -68,6 +68,9 @@ import tools.jackson.databind.json.JsonMapper;
 @WithPermissions(all = true)
 class ProductImageEventsIT {
 
+	/** Liaison qui lit le flux (G4a : la disponibilité servie est celle de ses dépôts). */
+	private static final LinkRef LINK = new LinkRef(UUID.randomUUID());
+
 	private static final String FEED_STATE_ID = "00000000-0000-0000-0000-000000000001";
 
 	@Autowired
@@ -325,7 +328,7 @@ class ProductImageEventsIT {
 		UUID product = product();
 		String sha = this.images.upload(product, photo(Color.WHITE)).version();
 
-		ChangePage page = this.feed.read(0, null, ChangeFilter.ALL);
+		ChangePage page = this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		assertThat(page.items()).hasSize(1);
 		ChangeEvent event = page.items().get(0);
 		assertThat(event.type()).isEqualTo(IntegrationEventType.PRODUCT_IMAGE);

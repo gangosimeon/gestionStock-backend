@@ -1,6 +1,10 @@
 package com.geststock.integration.link;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -44,16 +48,25 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.geststock.integration.ChangeFeedService;
+import com.geststock.integration.LinkWarehouses;
 import com.geststock.platform.PlatformDb;
 import com.geststock.platform.provisioning.ProvisionerAccess;
 import com.geststock.security.JwtTokenService;
+import com.geststock.stock.StockFixtures;
+import com.geststock.stock.StockMovementCommand;
+import com.geststock.stock.StockMovementType;
+import com.geststock.stock.StockService;
+import com.geststock.stock.StockSourceType;
 import com.geststock.support.PostgresTestConfiguration;
 import com.geststock.tenancy.TenantContext;
 import com.geststock.tenancy.TenantDataSourceRegistry;
@@ -104,8 +117,24 @@ class IntegrationConsentIT {
 	@Autowired
 	private PlatformDb platform;
 
-	@Autowired
+	/** Espion : échec forcé de l'écriture sur la base plateforme (G4a). */
+	@MockitoSpyBean
 	private LinkRegistry registry;
+
+	/** Espion : échec forcé de l'écriture sur la base de l'entreprise (G4a). */
+	@MockitoSpyBean
+	private LinkWarehouses linkWarehouses;
+
+	@Autowired
+	private StockService stock;
+
+	@Autowired
+	private ChangeFeedService feed;
+
+	@Autowired
+	private TransactionTemplate transactions;
+
+	private StockFixtures stockFixtures;
 
 	@Autowired
 	private JdbcTemplate jdbc;
@@ -142,6 +171,23 @@ class IntegrationConsentIT {
 
 	private User adminB;
 
+	/** {@code integration:manage} sans {@code warehouse:all}, affecté au seul dépôt {@link #storeA}. */
+	private User managerA;
+
+	private UUID mainA;
+
+	private UUID storeA;
+
+	private UUID otherStoreA;
+
+	private UUID depotA;
+
+	private UUID closedA;
+
+	private UUID warehouseB;
+
+	private UUID managerRole;
+
 	private final List<UUID> createdCompanies = new ArrayList<>();
 
 	private final List<String> sensitive = java.util.Collections.synchronizedList(new ArrayList<>());
@@ -163,12 +209,30 @@ class IntegrationConsentIT {
 		this.otherAdminA = user(this.companyA, "ADMIN");
 		this.cashierA = user(this.companyA, "CAISSIER");
 		this.adminB = user(this.companyB, "ADMIN");
+		String suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+		TenantContext.runAs(this.companyA, () -> {
+			this.mainA = this.jdbc.queryForObject("select id from warehouse where main", UUID.class);
+			this.storeA = warehouse("G4A-S1-" + suffix, "STORE", true);
+			this.otherStoreA = warehouse("G4A-S2-" + suffix, "STORE", true);
+			this.depotA = warehouse("G4A-D-" + suffix, "WAREHOUSE", true);
+			this.closedA = warehouse("G4A-X-" + suffix, "STORE", false);
+			this.managerRole = this.jdbc.queryForObject(
+					"insert into role (code, label) values (?, 'Liaisons boutique (essai G4a)') returning id", UUID.class,
+					"G4A_LINKS_" + suffix);
+			this.jdbc.update("insert into role_permission (role_id, permission_id) select ?, id from permission where code = ?",
+					this.managerRole, "integration:manage");
+		});
+		this.managerA = user(this.companyA, "G4A_LINKS_" + suffix);
+		TenantContext.runAs(this.companyA, () -> this.jdbc.update(
+				"insert into user_warehouse (user_id, warehouse_id) values (?, ?)", this.managerA.id(), this.storeA));
+		this.warehouseB = TenantContext.callAs(this.companyB, () -> warehouse("G4A-B-" + suffix, "STORE", true));
 	}
 
 	@BeforeEach
 	void setUp() {
 		this.clientSecret = remember(randomToken());
 		this.client = this.links.client(this.clientSecret, null, ALLOWED);
+		this.stockFixtures = new StockFixtures(this.jdbc, this.transactions);
 		LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
 		for (Logger logger : context.getLoggerList()) {
 			if (logger.getLevel() != null) {
@@ -197,13 +261,19 @@ class IntegrationConsentIT {
 			this.platform.jdbc().sql("update platform.company set currency = 'FCFA' where id = :id")
 				.param("id", this.companyA.companyId()).update();
 			this.links.cleanUp();
+			this.stockFixtures.purge();
 		}
 	}
 
 	@AfterAll
 	void dropCompanyB() throws Exception {
-		TenantContext.runAs(this.companyA, () -> this.jdbc.update("delete from app_user where id in (?, ?, ?)", this.adminA.id(),
-				this.otherAdminA.id(), this.cashierA.id()));
+		TenantContext.runAs(this.companyA, () -> {
+			this.jdbc.update("delete from app_user where id in (?, ?, ?, ?)", this.adminA.id(), this.otherAdminA.id(),
+					this.cashierA.id(), this.managerA.id());
+			this.jdbc.update("delete from role where id = ?", this.managerRole);
+			this.jdbc.update("delete from warehouse where id in (?, ?, ?, ?)", this.storeA, this.otherStoreA, this.depotA,
+					this.closedA);
+		});
 		for (UUID id : this.createdCompanies) {
 			this.pools.close(id);
 			var database = this.platform.jdbc()
@@ -235,9 +305,10 @@ class IntegrationConsentIT {
 		UUID link = this.links.active(this.client, this.companyA.companyId(), "shop-g10-perm-link", Set.of("catalog:read")).id();
 		String token = token(this.cashierA);
 		List<MockHttpServletRequestBuilder> routes = List.of(jsonPost(REQUESTS + "/lookup", Map.of("requestUri", requestUri)),
-				jsonPost(REQUESTS + "/approve", Map.of("requestUri", requestUri, "scopes", List.of("catalog:read"))),
+				jsonPost(REQUESTS + "/approve",
+						Map.of("requestUri", requestUri, "scopes", List.of("catalog:read"), "warehouseIds", List.of(this.mainA))),
 				jsonPost(REQUESTS + "/deny", Map.of("requestUri", requestUri)), get(LINKS),
-				post(LINKS + "/{id}/suspend", link), post(LINKS + "/{id}/reactivate", link), post(LINKS + "/{id}/revoke", link));
+				post(LINKS + "/{id}/suspend", link), reactivation(link, List.of(this.mainA)), post(LINKS + "/{id}/revoke", link));
 		for (MockHttpServletRequestBuilder route : routes) {
 			this.mvc.perform(bearer(route, token)).andExpect(status().isForbidden());
 		}
@@ -401,7 +472,8 @@ class IntegrationConsentIT {
 			List<Future<Integer>> results = new ArrayList<>();
 			for (int i = 0; i < calls; i++) {
 				MockHttpServletRequestBuilder request = bearer(
-						jsonPost(REQUESTS + "/approve", Map.of("requestUri", requestUri, "scopes", List.of("catalog:read"))),
+						jsonPost(REQUESTS + "/approve", Map.of("requestUri", requestUri, "scopes", List.of("catalog:read"),
+								"warehouseIds", List.of(this.mainA))),
 						i % 2 == 0 ? tokenA : tokenOther);
 				results.add(pool.submit(() -> {
 					start.await(10, TimeUnit.SECONDS);
@@ -453,10 +525,10 @@ class IntegrationConsentIT {
 			.getContentAsString();
 		assertThat(listB).doesNotContain(linkOfA.id().toString());
 		for (String action : List.of("suspend", "reactivate", "revoke")) {
-			String foreign = this.mvc.perform(bearer(post(LINKS + "/{id}/" + action, linkOfA.id()), tokenB))
+			String foreign = this.mvc.perform(bearer(action(action, linkOfA.id(), this.warehouseB), tokenB))
 				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("LINK_NOT_FOUND"))
 				.andReturn().getResponse().getContentAsString();
-			String unknown = this.mvc.perform(bearer(post(LINKS + "/{id}/" + action, UUID.randomUUID()), tokenB))
+			String unknown = this.mvc.perform(bearer(action(action, UUID.randomUUID(), this.warehouseB), tokenB))
 				.andExpect(status().isNotFound()).andReturn().getResponse().getContentAsString();
 			assertThat(withoutVolatileFields(foreign)).as(action + " : même réponse qu'une liaison inexistante")
 				.isEqualTo(withoutVolatileFields(unknown));
@@ -482,7 +554,7 @@ class IntegrationConsentIT {
 		this.mvc.perform(bearer(get(CATALOG), linkToken)).andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("LINK_SUSPENDED"));
 
-		this.mvc.perform(bearer(post(LINKS + "/{id}/reactivate", id), token(this.otherAdminA))).andExpect(status().isOk())
+		this.mvc.perform(bearer(reactivation(id, List.of(this.mainA)), token(this.otherAdminA))).andExpect(status().isOk())
 			.andExpect(jsonPath("$.status").value("ACTIVE"))
 			.andExpect(jsonPath("$.authorizedBy").value(this.otherAdminA.username()));
 		assertThat(this.registry.find(id).orElseThrow().authorizedBy()).as("responsable mis à jour").isEqualTo(this.otherAdminA.id());
@@ -495,6 +567,304 @@ class IntegrationConsentIT {
 
 		this.mvc.perform(bearer(post(LINKS + "/{id}/suspend", id), token(this.adminA))).andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("LINK_TRANSITION_INVALID"));
+	}
+
+	// --- Dépôts vendables (G4a) -----------------------------------------------------------------------------
+
+	@Test
+	void theLookupListsTheActiveWarehousesAccessibleToThePersonWithTheirType() throws Exception {
+		String requestUri = par("shop-g4a-lookup", verifier());
+
+		JsonNode admin = read(lookup(this.adminA, requestUri).andExpect(status().isOk()));
+		Map<UUID, String> adminWarehouses = warehouseTypes(admin);
+		assertThat(adminWarehouses).containsEntry(this.storeA, "STORE").containsEntry(this.otherStoreA, "STORE")
+			.containsEntry(this.depotA, "WAREHOUSE").containsKey(this.mainA).doesNotContainKey(this.closedA)
+			.doesNotContainKey(this.warehouseB);
+
+		JsonNode manager = read(lookup(this.managerA, requestUri).andExpect(status().isOk()));
+		assertThat(warehouseTypes(manager)).as("dépôts affectés seulement").containsOnlyKeys(this.storeA);
+	}
+
+	@Test
+	void theApprovedWarehousesAreRecordedAndListedWithTheLink() throws Exception {
+		String requestUri = par("shop-g4a-approve", verifier());
+		approve(this.adminA, requestUri, List.of("catalog:read"), List.of(this.storeA, this.depotA)).andExpect(status().isOk());
+
+		Link link = linkOfRequest(requestUri);
+		assertThat(warehousesOf(link.id())).containsExactlyInAnyOrder(this.storeA, this.depotA);
+		assertThat(TenantContext.callAs(this.companyA, () -> this.jdbc.queryForList(
+				"select distinct added_by from integration_link_warehouse where link_id = ?", UUID.class, link.id())))
+			.containsExactly(this.adminA.id());
+
+		JsonNode listed = find(read(this.mvc.perform(bearer(get(LINKS), token(this.adminA))).andExpect(status().isOk())), link.id());
+		assertThat(warehouseTypes(listed)).containsOnlyKeys(this.storeA, this.depotA).containsEntry(this.depotA, "WAREHOUSE");
+	}
+
+	@Test
+	void aWarehouseThatCannotBeChosenIsRefusedAndNothingIsWrittenAnywhere() throws Exception {
+		String requestUri = par("shop-g4a-refused", verifier());
+		int rows = linkWarehouseRows();
+
+		approve(this.managerA, requestUri, List.of("catalog:read"), List.of(this.storeA, this.otherStoreA))
+			.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
+		approve(this.adminA, requestUri, List.of("catalog:read"), List.of(this.storeA, this.closedA))
+			.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("WAREHOUSE_INACTIVE"));
+		String unknown = approve(this.adminA, requestUri, List.of("catalog:read"), List.of(UUID.randomUUID()))
+			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("UNKNOWN_WAREHOUSE"))
+			.andReturn().getResponse().getContentAsString();
+		String foreign = approve(this.adminA, requestUri, List.of("catalog:read"), List.of(this.warehouseB))
+			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("UNKNOWN_WAREHOUSE"))
+			.andReturn().getResponse().getContentAsString();
+		assertThat(withoutVolatileFields(foreign)).as("dépôt d'une autre entreprise : même réponse qu'un dépôt inexistant")
+			.isEqualTo(withoutVolatileFields(unknown));
+		approve(this.adminA, requestUri, List.of("catalog:read"), List.of()).andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+		this.mvc.perform(bearer(jsonPost(REQUESTS + "/approve", Map.of("requestUri", requestUri, "scopes", List.of("catalog:read"))),
+				token(this.adminA))).andExpect(status().isBadRequest());
+
+		assertThat(decision(requestUri)).isNull();
+		assertThat(linksOfRequestShop("shop-g4a-refused")).isZero();
+		assertThat(codesOfRequest(requestUri)).isZero();
+		assertThat(linkWarehouseRows()).as("aucune ligne écrite dans la base de l'entreprise").isEqualTo(rows);
+	}
+
+	@Test
+	void theReactivationReplacesTheWarehousesWithTheReconfirmedOnes() throws Exception {
+		UUID link = suspendedLinkWith("shop-g4a-reactivate", this.storeA, this.depotA);
+
+		// Refus : rien ne change.
+		this.mvc.perform(bearer(reactivation(link, List.of(this.otherStoreA)), token(this.managerA)))
+			.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("WAREHOUSE_ACCESS_DENIED"));
+		this.mvc.perform(bearer(reactivation(link, List.of()), token(this.adminA))).andExpect(status().isBadRequest());
+		assertThat(warehousesOf(link)).containsExactlyInAnyOrder(this.storeA, this.depotA);
+		assertThat(this.registry.find(link).orElseThrow().status()).isEqualTo(LinkStatus.SUSPENDED);
+
+		this.mvc.perform(bearer(reactivation(link, List.of(this.otherStoreA)), token(this.otherAdminA))).andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("ACTIVE"))
+			.andExpect(jsonPath("$.warehouses[0].id").value(this.otherStoreA.toString()));
+		assertThat(warehousesOf(link)).as("ancienne liste remplacée").containsExactly(this.otherStoreA);
+		assertThat(TenantContext.callAs(this.companyA, () -> this.jdbc.queryForList(
+				"select distinct added_by from integration_link_warehouse where link_id = ?", UUID.class, link)))
+			.containsExactly(this.otherAdminA.id());
+
+		// Une liaison active n'est pas réactivée : ses dépôts ne sont pas touchés.
+		this.mvc.perform(bearer(reactivation(link, List.of(this.storeA)), token(this.adminA))).andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("LINK_TRANSITION_INVALID"));
+		assertThat(warehousesOf(link)).containsExactly(this.otherStoreA);
+	}
+
+	// --- Deux bases, aucune transaction commune : échecs forcés à chaque étape ----------------------------------
+
+	/** Approbation, étape 1 (base de l'entreprise) en échec : rien n'est écrit nulle part. */
+	@Test
+	void approvalFailingOnTheCompanyDatabaseWritesNothing() throws Exception {
+		String requestUri = par("shop-g4a-fail-1", verifier());
+		int rows = linkWarehouseRows();
+		doThrow(new IllegalStateException("panne simulée de la base de l'entreprise")).when(this.linkWarehouses)
+			.replace(any(UUID.class), anySet(), any(UUID.class));
+
+		approve(this.adminA, requestUri, List.of("catalog:read"), List.of(this.storeA)).andExpect(status().isInternalServerError());
+
+		assertThat(decision(requestUri)).isNull();
+		assertThat(linksOfRequestShop("shop-g4a-fail-1")).isZero();
+		assertThat(codesOfRequest(requestUri)).isZero();
+		assertThat(linkWarehouseRows()).isEqualTo(rows);
+	}
+
+	/**
+	 * Approbation, étape 2 (base plateforme) en échec après l'étape 1 : décision, liaison et code annulés ensemble, puis
+	 * étape 3 : les dépôts écrits en 1 sont retirés.
+	 */
+	@Test
+	void approvalFailingOnThePlatformRemovesTheWarehousesWrittenFirst() throws Exception {
+		String requestUri = par("shop-g4a-fail-2", verifier());
+		int rows = linkWarehouseRows();
+		doThrow(new IllegalStateException("panne simulée de la base plateforme")).when(this.registry)
+			.createPending(any(UUID.class), any(UUID.class), any(UUID.class), any(Authorizer.class), anySet());
+
+		approve(this.adminA, requestUri, List.of("catalog:read"), List.of(this.storeA)).andExpect(status().isInternalServerError());
+
+		assertThat(decision(requestUri)).isNull();
+		assertThat(linksOfRequestShop("shop-g4a-fail-2")).isZero();
+		assertThat(codesOfRequest(requestUri)).isZero();
+		assertThat(linkWarehouseRows()).as("dépôts retirés (compensation)").isEqualTo(rows);
+	}
+
+	/**
+	 * Étapes 2 et 3 en échec : restent des lignes de dépôts pour un identifiant de liaison qui n'existe pas, donc
+	 * qu'aucun jeton ne peut porter : sans effet.
+	 */
+	@Test
+	void approvalFailingOnThePlatformAndOnTheCleanupLeavesOnlyHarmlessOrphanRows() throws Exception {
+		String requestUri = par("shop-g4a-fail-3", verifier());
+		int rows = linkWarehouseRows();
+		doThrow(new IllegalStateException("panne simulée de la base plateforme")).when(this.registry)
+			.createPending(any(UUID.class), any(UUID.class), any(UUID.class), any(Authorizer.class), anySet());
+		doThrow(new IllegalStateException("panne simulée de la base de l'entreprise")).when(this.linkWarehouses)
+			.remove(any(UUID.class));
+
+		approve(this.adminA, requestUri, List.of("catalog:read"), List.of(this.storeA)).andExpect(status().isInternalServerError());
+
+		assertThat(decision(requestUri)).isNull();
+		assertThat(linksOfRequestShop("shop-g4a-fail-3")).isZero();
+		assertThat(codesOfRequest(requestUri)).isZero();
+		List<UUID> orphans = TenantContext.callAs(this.companyA, () -> this.jdbc.queryForList("""
+				select distinct link_id from integration_link_warehouse where added_by = ? and warehouse_id = ?
+				  and added_at > now() - interval '1 minute'""", UUID.class, this.adminA.id(), this.storeA));
+		try {
+			assertThat(linkWarehouseRows()).as("lignes orphelines").isEqualTo(rows + 1);
+			assertThat(orphans).isNotEmpty().allSatisfy(orphan -> assertThat(this.registry.find(orphan))
+				.as("liaison %s inexistante : lignes sans effet", orphan).isEmpty());
+		}
+		finally {
+			TenantContext.runAs(this.companyA, () -> orphans.forEach(orphan -> {
+				if (this.registry.find(orphan).isEmpty()) {
+					this.jdbc.update("delete from integration_link_warehouse where link_id = ?", orphan);
+				}
+			}));
+		}
+	}
+
+	/**
+	 * Réactivation, étape 1 (base de l'entreprise) en échec après la publication des événements, dans la même
+	 * transaction : ancienne liste intacte, aucun événement, liaison toujours suspendue.
+	 */
+	@Test
+	void reactivationFailingOnTheCompanyDatabaseChangesNothingAndPublishesNothing() throws Exception {
+		UUID product = stocked(this.storeA, 2);
+		UUID link = suspendedLinkWith("shop-g4a-fail-r1", this.storeA);
+		int before = availabilityEvents(product);
+		doAnswer(invocation -> {
+			invocation.callRealMethod();
+			throw new IllegalStateException("panne simulée de la base de l'entreprise, après la publication");
+		}).when(this.linkWarehouses).republish(anySet());
+
+		this.mvc.perform(bearer(reactivation(link, List.of(this.otherStoreA)), token(this.adminA)))
+			.andExpect(status().isInternalServerError());
+
+		assertThat(warehousesOf(link)).containsExactly(this.storeA);
+		assertThat(availabilityEvents(product)).as("événements annulés avec la transaction").isEqualTo(before);
+		assertThat(this.registry.find(link).orElseThrow().status()).isEqualTo(LinkStatus.SUSPENDED);
+	}
+
+	/**
+	 * Réactivation, étape 2 (base plateforme) en échec après l'étape 1 : la liste reconfirmée est en place mais la
+	 * liaison reste suspendue ({@code 403 LINK_SUSPENDED}) : aucune disponibilité servie ; une nouvelle réactivation
+	 * remplacera la liste.
+	 */
+	@Test
+	void reactivationFailingOnThePlatformLeavesTheLinkSuspended() throws Exception {
+		UUID link = suspendedLinkWith("shop-g4a-fail-r2", this.storeA);
+		doThrow(new IllegalStateException("panne simulée de la base plateforme")).when(this.registry)
+			.reactivate(any(UUID.class), any(Authorizer.class));
+
+		this.mvc.perform(bearer(reactivation(link, List.of(this.otherStoreA)), token(this.adminA)))
+			.andExpect(status().isInternalServerError());
+
+		assertThat(this.registry.find(link).orElseThrow().status()).isEqualTo(LinkStatus.SUSPENDED);
+		assertThat(warehousesOf(link)).as("liste reconfirmée, jamais plus large").containsExactly(this.otherStoreA);
+	}
+
+	// --- Changement de périmètre : disponibilité republiée (v11-D9) ---------------------------------------------
+
+	/**
+	 * Réactivation avec une autre liste : un événement AVAILABILITY par produit stocké dans l'ancienne ou la nouvelle
+	 * liste (union), dans la transaction du remplacement ; la valeur servie ensuite est celle des nouveaux dépôts.
+	 */
+	@Test
+	void aReactivationWithOtherWarehousesRepublishesTheAvailabilityOfTheirProducts() throws Exception {
+		UUID inOld = stocked(this.storeA, 3);
+		UUID inNew = stocked(this.otherStoreA, 5);
+		UUID inBoth = stocked(this.depotA, 2);
+		UUID elsewhere = stocked(this.mainA, 1);
+		UUID link = suspendedLinkWith("shop-g4a-scope", this.storeA, this.depotA);
+		long after = lastSeq();
+		Map<UUID, Integer> before = Map.of(inOld, availabilityEvents(inOld), inNew, availabilityEvents(inNew), inBoth,
+				availabilityEvents(inBoth), elsewhere, availabilityEvents(elsewhere));
+
+		this.mvc.perform(bearer(reactivation(link, List.of(this.otherStoreA, this.depotA)), token(this.adminA)))
+			.andExpect(status().isOk());
+
+		assertThat(availabilityEvents(inOld)).as("dépôt retiré").isEqualTo(before.get(inOld) + 1);
+		assertThat(availabilityEvents(inNew)).as("dépôt ajouté").isEqualTo(before.get(inNew) + 1);
+		assertThat(availabilityEvents(inBoth)).as("dépôt conservé").isEqualTo(before.get(inBoth) + 1);
+		assertThat(availabilityEvents(elsewhere)).as("hors des deux listes").isEqualTo(before.get(elsewhere));
+
+		Map<UUID, JsonNode> served = servedAvailability(new com.geststock.integration.LinkRef(link), after);
+		assertThat(served.get(inOld).get("available").asInt()).isZero();
+		assertThat(served.get(inNew).get("available").asInt()).isEqualTo(5);
+		assertThat(served.get(inBoth).get("available").asInt()).isEqualTo(2);
+		assertThat(served).doesNotContainKey(elsewhere);
+	}
+
+	/** Liste identique : le périmètre ne change pas, aucun événement n'est publié. */
+	@Test
+	void aReactivationWithTheSameWarehousesPublishesNothing() throws Exception {
+		UUID product = stocked(this.storeA, 4);
+		UUID link = suspendedLinkWith("shop-g4a-same", this.storeA);
+		int before = availabilityEvents(product);
+
+		this.mvc.perform(bearer(reactivation(link, List.of(this.storeA)), token(this.otherAdminA))).andExpect(status().isOk());
+
+		assertThat(availabilityEvents(product)).isEqualTo(before);
+		assertThat(TenantContext.callAs(this.companyA, () -> this.jdbc.queryForList(
+				"select distinct added_by from integration_link_warehouse where link_id = ?", UUID.class, link)))
+			.as("reconfirmée par la personne qui réactive").containsExactly(this.otherAdminA.id());
+	}
+
+	private UUID stocked(UUID warehouse, int quantity) {
+		UUID product = this.stockFixtures.product("g4a", 1000);
+		UUID actor = this.stockFixtures.user("g4a");
+		StockFixtures.runAs(actor, () -> this.stock.applyMovement(StockMovementCommand.of(warehouse, product,
+				StockMovementType.RECEIPT, quantity, StockSourceType.MANUAL, "Stock G4a")));
+		return product;
+	}
+
+	private int availabilityEvents(UUID product) {
+		return TenantContext.callAs(this.companyA, () -> this.jdbc.queryForObject(
+				"select count(*) from integration_outbox where type = 'AVAILABILITY' and object_id = ?", Integer.class, product));
+	}
+
+	private long lastSeq() {
+		return TenantContext.callAs(this.companyA, () -> {
+			this.feed.read(new com.geststock.integration.LinkRef(UUID.randomUUID()), 0, 1, com.geststock.integration.ChangeFilter.ALL);
+			return this.jdbc.queryForObject("select last_seq from integration_feed_state", Long.class);
+		});
+	}
+
+	/** Dernière valeur AVAILABILITY servie à la liaison, par produit, après {@code after}. */
+	private Map<UUID, JsonNode> servedAvailability(com.geststock.integration.LinkRef link, long after) {
+		Map<UUID, JsonNode> values = new LinkedHashMap<>();
+		long cursor = after;
+		while (true) {
+			com.geststock.integration.ChangePage page = this.feed.read(link, cursor, 500,
+					com.geststock.integration.ChangeFilter.ALL);
+			for (com.geststock.integration.ChangeEvent event : page.items()) {
+				if (event.type() == com.geststock.integration.IntegrationEventType.AVAILABILITY) {
+					values.put(event.objectId(), event.data());
+				}
+			}
+			cursor = page.lastSeq();
+			if (!page.hasMore()) {
+				return values;
+			}
+		}
+	}
+
+	/** Liaison de A approuvée par l'API avec ces dépôts, activée puis suspendue. */
+	private UUID suspendedLinkWith(String shop, UUID... warehouses) throws Exception {
+		String requestUri = par(shop, verifier());
+		approve(this.adminA, requestUri, List.of("catalog:read"), List.of(warehouses)).andExpect(status().isOk());
+		UUID link = linkOfRequest(requestUri).id();
+		remember(this.registry.activate(link).secret());
+		this.mvc.perform(bearer(post(LINKS + "/{id}/suspend", link), token(this.adminA))).andExpect(status().isOk());
+		return link;
+	}
+
+	private static Map<UUID, String> warehouseTypes(JsonNode holder) {
+		Map<UUID, String> types = new LinkedHashMap<>();
+		holder.get("warehouses").forEach(w -> types.put(UUID.fromString(w.get("id").asString()), w.get("type").asString()));
+		return types;
 	}
 
 	// --- Outils ---------------------------------------------------------------------------------------------
@@ -538,8 +908,12 @@ class IntegrationConsentIT {
 	}
 
 	private ResultActions approve(User user, String requestUri, List<String> scopes) throws Exception {
-		ResultActions result = this.mvc.perform(bearer(
-				jsonPost(REQUESTS + "/approve", Map.of("requestUri", requestUri, "scopes", scopes)), token(user)));
+		return approve(user, requestUri, scopes, List.of(this.mainA));
+	}
+
+	private ResultActions approve(User user, String requestUri, List<String> scopes, List<UUID> warehouses) throws Exception {
+		ResultActions result = this.mvc.perform(bearer(jsonPost(REQUESTS + "/approve",
+				Map.of("requestUri", requestUri, "scopes", scopes, "warehouseIds", warehouses)), token(user)));
 		MockHttpServletResponse response = result.andReturn().getResponse();
 		if (response.getStatus() == 200) {
 			remember(code(this.json.readTree(response.getContentAsString())));
@@ -549,6 +923,30 @@ class IntegrationConsentIT {
 
 	private ResultActions deny(User user, String requestUri) throws Exception {
 		return this.mvc.perform(bearer(jsonPost(REQUESTS + "/deny", Map.of("requestUri", requestUri)), token(user)));
+	}
+
+	private MockHttpServletRequestBuilder reactivation(UUID link, List<UUID> warehouses) {
+		return jsonPost(LINKS + "/" + link + "/reactivate", Map.of("warehouseIds", warehouses));
+	}
+
+	private MockHttpServletRequestBuilder action(String action, UUID link, UUID warehouse) {
+		return "reactivate".equals(action) ? reactivation(link, List.of(warehouse)) : post(LINKS + "/{id}/" + action, link);
+	}
+
+	private UUID warehouse(String code, String type, boolean active) {
+		return this.jdbc.queryForObject("insert into warehouse (code, name, type, active) values (?, ?, ?, ?) returning id",
+				UUID.class, code, "Dépôt " + code, type, active);
+	}
+
+	/** Dépôts enregistrés pour la liaison, dans la base de l'entreprise A. */
+	private Set<UUID> warehousesOf(UUID link) {
+		return Set.copyOf(TenantContext.callAs(this.companyA, () -> this.jdbc.queryForList(
+				"select warehouse_id from integration_link_warehouse where link_id = ?", UUID.class, link)));
+	}
+
+	private int linkWarehouseRows() {
+		return TenantContext.callAs(this.companyA,
+				() -> this.jdbc.queryForObject("select count(*) from integration_link_warehouse", Integer.class));
 	}
 
 	private MockHttpServletRequestBuilder jsonPost(String path, Map<String, Object> body) {

@@ -50,6 +50,9 @@ import tools.jackson.databind.json.JsonMapper;
 @ExtendWith(OutputCaptureExtension.class)
 class ChangeFeedServiceIT {
 
+	/** Liaison qui lit le flux (G4a : la disponibilité servie est celle de ses dépôts). */
+	private static final LinkRef LINK = new LinkRef(UUID.randomUUID());
+
 	private static final String FEED_STATE_ID = "00000000-0000-0000-0000-000000000001";
 
 	@Autowired
@@ -97,12 +100,12 @@ class ChangeFeedServiceIT {
 	@Test
 	void theDefaultLimitIs100AndAtMost500AreServed() {
 		insertCategories(501);
-		ChangePage byDefault = this.feed.read(0, null, ChangeFilter.ALL);
+		ChangePage byDefault = this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		assertThat(byDefault.items()).hasSize(100);
 		assertThat(byDefault.lastSeq()).isEqualTo(100L);
 		assertThat(byDefault.hasMore()).isTrue();
 
-		ChangePage widest = this.feed.read(0, 500, ChangeFilter.ALL);
+		ChangePage widest = this.feed.read(LINK, 0, 500, ChangeFilter.ALL);
 		assertThat(widest.items()).hasSize(500);
 		assertThat(widest.lastSeq()).isEqualTo(500L);
 		assertThat(widest.hasMore()).isTrue();
@@ -112,15 +115,15 @@ class ChangeFeedServiceIT {
 	void aLimitOutside1To500OrANegativeAfterIsRefused() {
 		insertCategories(1);
 		for (int limit : new int[] { 0, 501, -1 }) {
-			assertThatThrownBy(() -> this.feed.read(0, limit, ChangeFilter.ALL)).as("limit " + limit)
+			assertThatThrownBy(() -> this.feed.read(LINK, 0, limit, ChangeFilter.ALL)).as("limit " + limit)
 				.isInstanceOfSatisfying(ChangeFeedRequestException.class,
 						e -> assertThat(e.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
 		}
-		assertThatThrownBy(() -> this.feed.read(-1, 10, ChangeFilter.ALL))
+		assertThatThrownBy(() -> this.feed.read(LINK, -1, 10, ChangeFilter.ALL))
 			.isInstanceOfSatisfying(ChangeFeedRequestException.class,
 					e -> assertThat(e.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
 		assertThat(sequencedCount()).as("validation avant toute attribution").isZero();
-		assertThat(this.feed.read(0, 1, ChangeFilter.ALL).items()).hasSize(1);
+		assertThat(this.feed.read(LINK, 0, 1, ChangeFilter.ALL).items()).hasSize(1);
 	}
 
 	// --- Séquenceur avant lecture ----------------------------------------------------------------------
@@ -130,7 +133,7 @@ class ChangeFeedServiceIT {
 		UUID category = insert(IntegrationEventType.CATEGORY, IntegrationOperation.UPSERT, 3, "{\"name\":\"Boissons\"}");
 		assertThat(sequencedCount()).isZero();
 
-		ChangePage page = this.feed.read(0, null, ChangeFilter.ALL);
+		ChangePage page = this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		assertThat(page.items()).extracting(ChangeEvent::objectId).containsExactly(category);
 		assertThat(page.lastSeq()).isEqualTo(1L);
 		assertThat(page.hasMore()).isFalse();
@@ -139,20 +142,20 @@ class ChangeFeedServiceIT {
 	@Test
 	void aSkippedSequencerIsNotAnErrorAndAlreadySequencedEventsAreServed() throws Exception {
 		insertCategories(2);
-		this.feed.read(0, null, ChangeFilter.ALL);
+		this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		insertCategories(3);
 		HikariDataSource pool = (HikariDataSource) this.registry.dataSource(this.defaultTenant.get().orElseThrow());
 		try (Connection other = pool.getConnection()) {
 			other.setAutoCommit(false);
 			other.createStatement().execute("select last_seq from integration_feed_state for update");
 
-			ChangePage page = this.feed.read(0, null, ChangeFilter.ALL);
+			ChangePage page = this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 			assertThat(page.items()).extracting(ChangeEvent::seq).containsExactly(1L, 2L);
 			assertThat(page.lastSeq()).isEqualTo(2L);
 			assertThat(page.hasMore()).as("3 événements validés attendent leur seq").isTrue();
 			other.rollback();
 		}
-		assertThat(this.feed.read(2, null, ChangeFilter.ALL).items()).extracting(ChangeEvent::seq)
+		assertThat(this.feed.read(LINK, 2, null, ChangeFilter.ALL).items()).extracting(ChangeEvent::seq)
 			.containsExactly(3L, 4L, 5L);
 	}
 
@@ -160,7 +163,7 @@ class ChangeFeedServiceIT {
 	void callingFromAnActiveTransactionFails() {
 		insertCategories(1);
 		TransactionTemplate transaction = new TransactionTemplate(this.transactionManager);
-		assertThatThrownBy(() -> transaction.executeWithoutResult(status -> this.feed.read(0, null, ChangeFilter.ALL)))
+		assertThatThrownBy(() -> transaction.executeWithoutResult(status -> this.feed.read(LINK, 0, null, ChangeFilter.ALL)))
 			.isInstanceOf(IllegalTransactionStateException.class);
 	}
 
@@ -172,7 +175,7 @@ class ChangeFeedServiceIT {
 				"{\"sku\":\"A-1\",\"referencePrice\":1500}");
 		UUID archived = insert(IntegrationEventType.CATEGORY, IntegrationOperation.ARCHIVE, 4, null);
 
-		List<ChangeEvent> items = this.feed.read(0, null, ChangeFilter.ALL).items();
+		List<ChangeEvent> items = this.feed.read(LINK, 0, null, ChangeFilter.ALL).items();
 		assertThat(items).hasSize(2);
 		ChangeEvent upsert = items.get(0);
 		assertThat(upsert.seq()).isEqualTo(1L);
@@ -196,7 +199,7 @@ class ChangeFeedServiceIT {
 	@Test
 	void filteredEventsGiveAnEmptyPageButLastSeqAdvances() {
 		insertCategories(3);
-		ChangePage page = this.feed.read(0, null, (type, objectId) -> false);
+		ChangePage page = this.feed.read(LINK, 0, null, (type, objectId) -> false);
 		assertThat(page.items()).isEmpty();
 		assertThat(page.lastSeq()).isEqualTo(3L);
 		assertThat(page.hasMore()).isFalse();
@@ -206,7 +209,7 @@ class ChangeFeedServiceIT {
 	void lastSeqIsTheLastExaminedEventEvenWhenFiltered() {
 		UUID kept = insert(IntegrationEventType.PRODUCT, IntegrationOperation.UPSERT, 1, "{}");
 		insertCategories(2);
-		ChangePage page = this.feed.read(0, 2, (type, objectId) -> type == IntegrationEventType.PRODUCT);
+		ChangePage page = this.feed.read(LINK, 0, 2, (type, objectId) -> type == IntegrationEventType.PRODUCT);
 		assertThat(page.items()).extracting(ChangeEvent::objectId).containsExactly(kept);
 		assertThat(page.lastSeq()).isEqualTo(2L);
 		assertThat(page.hasMore()).isTrue();
@@ -215,7 +218,7 @@ class ChangeFeedServiceIT {
 	@Test
 	void nothingToExamineReturnsAfterAsLastSeq() {
 		insertCategories(2);
-		ChangePage page = this.feed.read(2, null, ChangeFilter.ALL);
+		ChangePage page = this.feed.read(LINK, 2, null, ChangeFilter.ALL);
 		assertThat(page.items()).isEmpty();
 		assertThat(page.lastSeq()).isEqualTo(2L);
 		assertThat(page.hasMore()).isFalse();
@@ -226,7 +229,7 @@ class ChangeFeedServiceIT {
 	@Test
 	void hasMoreIsTrueWhenSequencedEventsRemainBeyondLastSeq() {
 		insertCategories(5);
-		ChangePage page = this.feed.read(0, 2, ChangeFilter.ALL);
+		ChangePage page = this.feed.read(LINK, 0, 2, ChangeFilter.ALL);
 		assertThat(page.lastSeq()).isEqualTo(2L);
 		assertThat(page.hasMore()).isTrue();
 	}
@@ -236,7 +239,7 @@ class ChangeFeedServiceIT {
 		insertCategories(3);
 		ChangeFeedService oneAtATime = service(new FeedSequencer(this.dataSource, this.transactionManager,
 				new FeedSequencerProperties(1, Duration.ofMillis(1500), Duration.ofMillis(4500))));
-		ChangePage page = oneAtATime.read(0, 500, ChangeFilter.ALL);
+		ChangePage page = oneAtATime.read(LINK, 0, 500, ChangeFilter.ALL);
 		assertThat(page.items()).extracting(ChangeEvent::seq).containsExactly(1L);
 		assertThat(page.lastSeq()).isEqualTo(1L);
 		assertThat(page.hasMore()).as("2 événements validés sans seq").isTrue();
@@ -245,7 +248,7 @@ class ChangeFeedServiceIT {
 	@Test
 	void hasMoreIsFalseWhenEverythingWasExamined() {
 		insertCategories(3);
-		ChangePage page = this.feed.read(0, 3, ChangeFilter.ALL);
+		ChangePage page = this.feed.read(LINK, 0, 3, ChangeFilter.ALL);
 		assertThat(page.lastSeq()).isEqualTo(3L);
 		assertThat(page.hasMore()).isFalse();
 	}
@@ -255,23 +258,23 @@ class ChangeFeedServiceIT {
 	@Test
 	void aCursorBelowThePurgeMarkExpiresAndReplayFromTheMarkLosesNothing() {
 		insertCategories(6);
-		this.feed.read(0, null, ChangeFilter.ALL);
+		this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		purgeThrough(3);
 
-		assertThatThrownBy(() -> this.feed.read(2, null, ChangeFilter.ALL))
+		assertThatThrownBy(() -> this.feed.read(LINK, 2, null, ChangeFilter.ALL))
 			.isInstanceOfSatisfying(CursorExpiredException.class, e -> {
 				assertThat(e.getCode()).isEqualTo(ErrorCode.CURSOR_EXPIRED);
 				assertThat(e.getStatus().value()).isEqualTo(410);
 				assertThat(e.getAfter()).isEqualTo(2L);
 				assertThat(e.getPurgedThroughSeq()).isEqualTo(3L);
 			});
-		assertThat(this.feed.read(3, null, ChangeFilter.ALL).items()).extracting(ChangeEvent::seq)
+		assertThat(this.feed.read(LINK, 3, null, ChangeFilter.ALL).items()).extracting(ChangeEvent::seq)
 			.containsExactly(4L, 5L, 6L);
 
 		// Instantané simulé (étape 7) : son asOfSeq est le last_seq validé au moment de l'instantané.
 		long asOfSeq = this.jdbc.queryForObject("select last_seq from integration_feed_state", Long.class);
 		insertCategories(2);
-		ChangePage resumed = this.feed.read(asOfSeq, null, ChangeFilter.ALL);
+		ChangePage resumed = this.feed.read(LINK, asOfSeq, null, ChangeFilter.ALL);
 		assertThat(resumed.items()).extracting(ChangeEvent::seq).containsExactly(7L, 8L);
 		assertThat(resumed.hasMore()).isFalse();
 	}
@@ -279,18 +282,18 @@ class ChangeFeedServiceIT {
 	@Test
 	void aCursorAheadOfTheLastSeqIsAnExplicitError() {
 		insertCategories(3);
-		assertThatThrownBy(() -> this.feed.read(4, null, ChangeFilter.ALL))
+		assertThatThrownBy(() -> this.feed.read(LINK, 4, null, ChangeFilter.ALL))
 			.isInstanceOfSatisfying(CursorAheadException.class, e -> {
 				assertThat(e.getAfter()).isEqualTo(4L);
 				assertThat(e.getLastSeq()).isEqualTo(3L);
 			});
-		assertThat(this.feed.read(3, null, ChangeFilter.ALL).items()).isEmpty();
+		assertThat(this.feed.read(LINK, 3, null, ChangeFilter.ALL).items()).isEmpty();
 	}
 
 	@Test
 	void aCursorAheadCarriesTheContractCode() {
 		insertCategories(1);
-		assertThatThrownBy(() -> this.feed.read(2, null, ChangeFilter.ALL))
+		assertThatThrownBy(() -> this.feed.read(LINK, 2, null, ChangeFilter.ALL))
 			.isInstanceOfSatisfying(ApiException.class, e -> {
 				assertThat(e.getCode()).isEqualTo(ErrorCode.CURSOR_AHEAD);
 				assertThat(e.getStatus().value()).isEqualTo(409);
@@ -307,8 +310,8 @@ class ChangeFeedServiceIT {
 		insert(IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, product, 0, null);
 		insert(IntegrationEventType.PRODUCT, IntegrationOperation.UPSERT, 2, "{\"sku\":\"B-2\"}");
 
-		ChangePage first = this.feed.read(1, null, ChangeFilter.ALL);
-		ChangePage second = this.feed.read(1, null, ChangeFilter.ALL);
+		ChangePage first = this.feed.read(LINK, 1, null, ChangeFilter.ALL);
+		ChangePage second = this.feed.read(LINK, 1, null, ChangeFilter.ALL);
 		assertThat(second).isEqualTo(first);
 		assertThat(first.items()).extracting(ChangeEvent::seq).containsExactly(2L, 3L, 4L);
 	}
@@ -327,7 +330,7 @@ class ChangeFeedServiceIT {
 		insert(IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, p2, 0, null); // 4
 		insert(IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, p1, 0, null); // 5
 
-		ChangePage page = this.feed.read(0, null, ChangeFilter.ALL);
+		ChangePage page = this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		assertThat(page.items()).extracting(ChangeEvent::seq).containsExactly(2L, 4L, 5L);
 		assertThat(page.items()).extracting(ChangeEvent::objectId).containsExactly(category, p2, p1);
 		ChangeEvent merged = page.items().get(2);
@@ -345,7 +348,7 @@ class ChangeFeedServiceIT {
 		UUID product = UUID.randomUUID();
 		this.availability.set(product, 1);
 		insert(IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, product, 0, null);
-		this.feed.read(0, null, ChangeFilter.ALL);
+		this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		assertThat(this.availability.isolation).isEqualTo("repeatable read");
 		assertThat(this.availability.readOnly).isEqualTo("on");
 	}
@@ -354,7 +357,7 @@ class ChangeFeedServiceIT {
 	void aFilteredAvailabilityEventIsNotComputed() {
 		UUID product = UUID.randomUUID();
 		insert(IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, product, 0, null);
-		ChangePage page = this.feed.read(0, null, (type, objectId) -> type != IntegrationEventType.AVAILABILITY);
+		ChangePage page = this.feed.read(LINK, 0, null, (type, objectId) -> type != IntegrationEventType.AVAILABILITY);
 		assertThat(page.items()).isEmpty();
 		assertThat(page.lastSeq()).isEqualTo(1L);
 		assertThat(this.availability.calls).isEmpty();
@@ -368,7 +371,7 @@ class ChangeFeedServiceIT {
 		insertRaw("LOYALTY_POINTS", 9, "{\"marker\":\"payload-jamais-journalise\"}");
 		insertCategories(1);
 
-		ChangePage page = this.feed.read(0, 2, ChangeFilter.ALL);
+		ChangePage page = this.feed.read(LINK, 0, 2, ChangeFilter.ALL);
 		assertThat(page.items()).extracting(ChangeEvent::seq).containsExactly(1L, 2L);
 		ChangeEvent unknown = page.items().get(1);
 		assertThat(unknown.isKnownType()).isFalse();
@@ -381,7 +384,7 @@ class ChangeFeedServiceIT {
 		assertThat(page.lastSeq()).isEqualTo(2L);
 		assertThat(page.hasMore()).isTrue();
 
-		ChangePage next = this.feed.read(page.lastSeq(), null, ChangeFilter.ALL);
+		ChangePage next = this.feed.read(LINK, page.lastSeq(), null, ChangeFilter.ALL);
 		assertThat(next.items()).extracting(ChangeEvent::seq).containsExactly(3L);
 		assertThat(next.hasMore()).isFalse();
 
@@ -405,7 +408,7 @@ class ChangeFeedServiceIT {
 			}
 
 		};
-		ChangePage page = this.feed.read(0, null, knownOnly);
+		ChangePage page = this.feed.read(LINK, 0, null, knownOnly);
 		assertThat(page.items()).isEmpty();
 		assertThat(page.lastSeq()).isEqualTo(1L);
 	}
@@ -416,7 +419,7 @@ class ChangeFeedServiceIT {
 	void theConfiguredStatementTimeoutAppliesToTheReadTransaction() {
 		UUID product = UUID.randomUUID();
 		insert(IntegrationEventType.AVAILABILITY, IntegrationOperation.UPSERT, product, 0, null);
-		this.feed.read(0, null, ChangeFilter.ALL);
+		this.feed.read(LINK, 0, null, ChangeFilter.ALL);
 		assertThat(this.availability.statementTimeout).isEqualTo("3500ms");
 		assertThat(this.properties.statementTimeout()).as("valeur par défaut").isEqualTo(Duration.ofSeconds(5));
 	}
@@ -492,7 +495,7 @@ class ChangeFeedServiceIT {
 		}
 
 		@Override
-		public Map<UUID, ?> availability(Set<UUID> productIds) {
+		public Map<UUID, ?> availability(LinkRef link, Set<UUID> productIds) {
 			this.calls.addAll(productIds);
 			this.isolation = this.jdbc.queryForObject("show transaction_isolation", String.class);
 			this.readOnly = this.jdbc.queryForObject("show transaction_read_only", String.class);

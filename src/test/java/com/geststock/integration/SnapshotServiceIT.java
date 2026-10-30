@@ -143,10 +143,15 @@ class SnapshotServiceIT {
 		as(this.actor, () -> this.cash.open(new OpenCashSessionRequest(new BigDecimal("50000"), null, null), this.warehouse));
 		this.storedCurrency = companyCurrency();
 		resetFeed();
+		// G4a : la disponibilité servie est celle des dépôts de la liaison ; ce test compare au stock de tous les
+		// dépôts actifs (périmètre du lot 1) : la liaison qui lit reçoit donc tous les dépôts actifs.
+		this.jdbc.update("insert into integration_link_warehouse (link_id, warehouse_id, added_by) "
+				+ "select ?, id, ? from warehouse where active", this.link.id(), this.link.id());
 	}
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("delete from integration_link_warehouse where link_id = ?", this.link.id());
 		setCompanyCurrency(this.storedCurrency);
 		this.scenario.purge(List.of(this.warehouse), List.of(), List.of());
 		this.jdbc.update("delete from product where sku like ?", PREFIX + "%");
@@ -234,13 +239,13 @@ class SnapshotServiceIT {
 		update(stocked.get(0), "7000");
 		receive(stocked.get(1), 4);
 		this.images.upload(stocked.get(2), photo(Color.GREEN));
-		ChangePage tail = this.feed.read(cursor, 500, ChangeFilter.ALL);
+		ChangePage tail = this.feed.read(this.link, cursor, 500, ChangeFilter.ALL);
 		long purgedThrough = tail.lastSeq() - 1;
 		this.jdbc.update("delete from integration_outbox where seq <= ?", purgedThrough);
 		this.jdbc.update("update integration_feed_state set purged_through_seq = ?", purgedThrough);
 
 		long expired = cursor;
-		assertThatThrownBy(() -> this.feed.read(expired, 500, ChangeFilter.ALL))
+		assertThatThrownBy(() -> this.feed.read(this.link, expired, 500, ChangeFilter.ALL))
 			.isInstanceOfSatisfying(CursorExpiredException.class,
 					e -> assertThat(e.getCode()).isEqualTo(ErrorCode.CURSOR_EXPIRED));
 
@@ -532,7 +537,7 @@ class SnapshotServiceIT {
 			long cursor = after;
 			ChangePage page;
 			do {
-				page = changes.read(cursor, 500, ChangeFilter.ALL);
+				page = changes.read(SnapshotServiceIT.this.link, cursor, 500, ChangeFilter.ALL);
 				page.items().forEach(e -> offer(e.typeName(), e.objectId().toString(), e.version(), e.data()));
 				cursor = page.lastSeq();
 			}
@@ -545,7 +550,7 @@ class SnapshotServiceIT {
 			long cursor = after;
 			ChangePage page;
 			do {
-				page = changes.read(cursor, 500, ChangeFilter.ALL);
+				page = changes.read(SnapshotServiceIT.this.link, cursor, 500, ChangeFilter.ALL);
 				events.addAll(page.items());
 				cursor = page.lastSeq();
 			}

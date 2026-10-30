@@ -86,9 +86,9 @@ public class LinkRegistry {
 			           and l.created_at <= now() - interval '""" + CODE_LIFETIME + "'))";
 
 	private static final String INSERT_PENDING = """
-			insert into platform.integration_link (client_id, company_id, external_shop_id, shop_name, status, currency, scopes,
-			  authorized_by, authorized_by_username)
-			values (:client, :company, :shop, :name, 'PENDING', :currency, string_to_array(:scopes, ' ')::varchar(30)[],
+			insert into platform.integration_link (id, client_id, company_id, external_shop_id, shop_name, status, currency,
+			  scopes, authorized_by, authorized_by_username)
+			values (:id, :client, :company, :shop, :name, 'PENDING', :currency, string_to_array(:scopes, ' ')::varchar(30)[],
 			  :authorizedBy, :username)
 			returning\s""" + LINK_COLUMNS;
 
@@ -147,7 +147,15 @@ public class LinkRegistry {
 	 * @throws LinkException demande, client, entreprise, devise ou portées refusées ; boutique déjà liée
 	 */
 	public Link createPending(UUID requestId, UUID companyId, Authorizer authorizer, Set<String> grantedScopes) {
-		if (requestId == null || companyId == null || authorizer == null || authorizer.userId() == null
+		return createPending(UUID.randomUUID(), requestId, companyId, authorizer, grantedScopes);
+	}
+
+	/**
+	 * Comme {@link #createPending(UUID, UUID, Authorizer, Set)}, avec l'identifiant de la liaison choisi par l'appelant :
+	 * l'approbation (G4a) écrit d'abord les dépôts de la liaison dans la base de l'entreprise, sous cet identifiant.
+	 */
+	public Link createPending(UUID linkId, UUID requestId, UUID companyId, Authorizer authorizer, Set<String> grantedScopes) {
+		if (linkId == null || requestId == null || companyId == null || authorizer == null || authorizer.userId() == null
 				|| authorizer.username() == null || authorizer.username().isBlank() || authorizer.username().length() > 50
 				|| grantedScopes == null || grantedScopes.isEmpty()) {
 			throw new LinkException(LinkException.Reason.INVALID_ARGUMENT);
@@ -178,7 +186,8 @@ public class LinkRegistry {
 				if (expired > 0) {
 					log.info("Liaison(s) en attente expirée(s) révoquée(s) (EXPIRED) avant une nouvelle demande : {}.", expired);
 				}
-				Link link = this.platform.jdbc().sql(INSERT_PENDING).param("client", request.clientId()).param("company", companyId)
+				Link link = this.platform.jdbc().sql(INSERT_PENDING).param("id", linkId).param("client", request.clientId())
+					.param("company", companyId)
 					.param("shop", request.externalShopId()).param("name", request.shopName()).param("currency", currency)
 					.param("scopes", String.join(" ", new TreeSet<>(grantedScopes))).param("authorizedBy", authorizer.userId())
 					.param("username", authorizer.username())

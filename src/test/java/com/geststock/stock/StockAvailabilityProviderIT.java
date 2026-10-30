@@ -31,6 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.geststock.integration.ReservedQuantities;
+import com.geststock.integration.LinkRef;
 import com.geststock.integration.WarehouseScope;
 import com.geststock.stock.StockAvailabilityProvider.Availability;
 import com.geststock.stock.StockAvailabilityProvider.WarehouseAvailability;
@@ -46,13 +47,15 @@ import com.geststock.support.PostgresTestConfiguration;
 @Import(PostgresTestConfiguration.class)
 class StockAvailabilityProviderIT {
 
+	private static final LinkRef LINK = new LinkRef(UUID.randomUUID());
+
 	private static final Instant NOW = Instant.parse("2026-10-29T10:00:00Z");
 
 	@Autowired
 	private StockService stock;
 
 	@Autowired
-	private WarehouseScope activeWarehouses;
+	private WarehouseScope linkWarehouses;
 
 	@Autowired
 	private DataSource dataSource;
@@ -91,7 +94,7 @@ class StockAvailabilityProviderIT {
 		receive(this.store, product, 7);
 		receive(this.depot, product, 5);
 
-		Availability value = provider(Set.of(this.store, this.depot), noReservation()).availability(Set.of(product))
+		Availability value = provider(Set.of(this.store, this.depot), noReservation()).availability(LINK, Set.of(product))
 			.get(product);
 
 		assertThat(value.productId()).isEqualTo(product);
@@ -109,7 +112,7 @@ class StockAvailabilityProviderIT {
 		ReservedQuantities reserved = (products, warehouses) -> Map.of(product,
 				Map.of(this.store, 5, this.depot, 4));
 
-		Availability value = provider(Set.of(this.store, this.depot), reserved).availability(Set.of(product)).get(product);
+		Availability value = provider(Set.of(this.store, this.depot), reserved).availability(LINK, Set.of(product)).get(product);
 
 		assertThat(value.perWarehouse()).containsExactlyInAnyOrder(new WarehouseAvailability(this.store, 0),
 				new WarehouseAvailability(this.depot, 6));
@@ -124,21 +127,32 @@ class StockAvailabilityProviderIT {
 		receive(this.store, product, 4);
 		receive(this.depot, product, 6);
 
-		Map<UUID, Availability> values = provider(Set.of(this.store), noReservation()).availability(Set.of(product, unknown));
+		Map<UUID, Availability> values = provider(Set.of(this.store), noReservation()).availability(LINK, Set.of(product, unknown));
 
 		assertThat(values.get(product).available()).isEqualTo(4);
 		assertThat(values.get(product).perWarehouse()).containsExactly(new WarehouseAvailability(this.store, 4));
 		assertThat(values.get(unknown).available()).isZero();
 		assertThat(values.get(unknown).perWarehouse()).isEmpty();
-		assertThat(provider(Set.of(), noReservation()).availability(Set.of(product)).get(product).available())
+		assertThat(provider(Set.of(), noReservation()).availability(LINK, Set.of(product)).get(product).available())
 			.as("périmètre vide").isZero();
 	}
 
+	/** G4a : le périmètre est celui de la liaison (ses dépôts encore actifs), jamais « tous les dépôts ». */
 	@Test
-	void theLotOneScopeIsEveryActiveWarehouse() {
-		assertThat(this.activeWarehouses.warehouseIds()).contains(this.store, this.depot);
-		this.jdbc.update("update warehouse set active = false where id = ?", this.depot);
-		assertThat(this.activeWarehouses.warehouseIds()).contains(this.store).doesNotContain(this.depot);
+	void theScopeOfALinkIsItsWarehousesThatAreStillActive() {
+		assertThat(this.linkWarehouses.warehouseIds(LINK)).as("liaison sans dépôt").isEmpty();
+		try {
+			for (UUID warehouse : List.of(this.store, this.depot)) {
+				this.jdbc.update("insert into integration_link_warehouse (link_id, warehouse_id, added_by) values (?, ?, ?)",
+						LINK.id(), warehouse, this.actor);
+			}
+			assertThat(this.linkWarehouses.warehouseIds(LINK)).containsExactlyInAnyOrder(this.store, this.depot);
+			this.jdbc.update("update warehouse set active = false where id = ?", this.depot);
+			assertThat(this.linkWarehouses.warehouseIds(LINK)).containsExactly(this.store);
+		}
+		finally {
+			this.jdbc.update("delete from integration_link_warehouse where link_id = ?", LINK.id());
+		}
 	}
 
 	@Test
@@ -152,8 +166,8 @@ class StockAvailabilityProviderIT {
 		products.add(stocked);
 
 		CountingDataSource counting = new CountingDataSource(this.dataSource);
-		Map<UUID, Availability> values = new StockAvailabilityProvider(counting, () -> Set.of(this.store, this.depot),
-				noReservation(), Clock.fixed(NOW, ZoneOffset.UTC)).availability(products);
+		Map<UUID, Availability> values = new StockAvailabilityProvider(counting, link -> Set.of(this.store, this.depot),
+				noReservation(), Clock.fixed(NOW, ZoneOffset.UTC)).availability(LINK, products);
 
 		assertThat(values).hasSize(501);
 		assertThat(values.get(stocked).available()).isEqualTo(2);
@@ -174,7 +188,7 @@ class StockAvailabilityProviderIT {
 	// --- Outils ------------------------------------------------------------------------------------------
 
 	private StockAvailabilityProvider provider(Set<UUID> scope, ReservedQuantities reserved) {
-		return new StockAvailabilityProvider(this.dataSource, () -> scope, reserved, Clock.fixed(NOW, ZoneOffset.UTC));
+		return new StockAvailabilityProvider(this.dataSource, link -> scope, reserved, Clock.fixed(NOW, ZoneOffset.UTC));
 	}
 
 	private static ReservedQuantities noReservation() {

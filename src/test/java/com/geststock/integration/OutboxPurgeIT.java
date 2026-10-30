@@ -40,6 +40,9 @@ import com.geststock.support.PostgresTestConfiguration;
 @Import(PostgresTestConfiguration.class)
 class OutboxPurgeIT {
 
+	/** Liaison qui lit le flux (G4a : la disponibilité servie est celle de ses dépôts). */
+	private static final LinkRef LINK = new LinkRef(UUID.randomUUID());
+
 	private static final String FEED_STATE_ID = "00000000-0000-0000-0000-000000000001";
 
 	@Autowired
@@ -126,7 +129,7 @@ class OutboxPurgeIT {
 		assertThat(purgedThrough()).isEqualTo(6L);
 
 		long expired = 3;
-		assertThatThrownBy(() -> this.feed.read(expired, null, ChangeFilter.ALL))
+		assertThatThrownBy(() -> this.feed.read(LINK, expired, null, ChangeFilter.ALL))
 			.isInstanceOfSatisfying(CursorExpiredException.class,
 					e -> assertThat(e.getCode()).isEqualTo(ErrorCode.CURSOR_EXPIRED));
 		assertRepairInvariant();

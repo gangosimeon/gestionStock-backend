@@ -98,8 +98,10 @@ public class ChangeFeedService {
 	}
 
 	/**
-	 * Page du flux après {@code after}.
+	 * Page du flux après {@code after}, pour la liaison qui lit : la disponibilité servie est celle de ses dépôts
+	 * (G4a).
 	 *
+	 * @param link   liaison qui lit
 	 * @param after  dernier {@code seq} consommé (0 au départ)
 	 * @param limit  nombre maximal d'événements examinés ; {@code null} : 100
 	 * @param filter filtre de la liaison
@@ -111,7 +113,8 @@ public class ChangeFeedService {
 	 * @throws IllegalTransactionStateException    appel depuis une transaction active
 	 * @throws IntegrationFeedStateMissingException ligne d'état du flux absente
 	 */
-	public ChangePage read(long after, Integer limit, ChangeFilter filter) {
+	public ChangePage read(LinkRef link, long after, Integer limit, ChangeFilter filter) {
+		Objects.requireNonNull(link, "link");
 		Objects.requireNonNull(filter, "filter");
 		if (after < 0) {
 			throw new ChangeFeedRequestException("Curseur du flux invalide : after doit être positif ou nul.");
@@ -121,10 +124,10 @@ public class ChangeFeedService {
 			throw new ChangeFeedRequestException("Taille de page invalide : limit doit être compris entre 1 et 500.");
 		}
 		this.sequencer.sequence();
-		return this.transaction.execute(status -> page(after, effectiveLimit, filter));
+		return this.transaction.execute(status -> page(link, after, effectiveLimit, filter));
 	}
 
-	private ChangePage page(long after, int limit, ChangeFilter filter) {
+	private ChangePage page(LinkRef link, long after, int limit, ChangeFilter filter) {
 		// Valeur numérique issue de la configuration : SET n'accepte pas de paramètre lié.
 		this.jdbc.sql("set local statement_timeout = " + this.properties.statementTimeout().toMillis()).update();
 		FeedState state = this.jdbc.sql(READ_STATE)
@@ -150,7 +153,7 @@ public class ChangeFeedService {
 		// Fusion des événements minces : seul le plus grand seq de chaque objet est servi.
 		Map<UUID, Long> latestThin = new HashMap<>();
 		accepted.stream().filter(StoredEvent::isThin).forEach(e -> latestThin.put(e.objectId(), e.seq()));
-		Map<UUID, JsonNode> thinValues = thinValues(accepted, latestThin);
+		Map<UUID, JsonNode> thinValues = thinValues(link, accepted, latestThin);
 		List<ChangeEvent> items = new ArrayList<>();
 		for (StoredEvent event : accepted) {
 			if (!event.isThin()) {
@@ -166,7 +169,7 @@ public class ChangeFeedService {
 	}
 
 	/** Valeurs des événements minces servis, en <b>un seul appel</b> du fournisseur pour toute la page. */
-	private Map<UUID, JsonNode> thinValues(List<StoredEvent> accepted, Map<UUID, Long> latestThin) {
+	private Map<UUID, JsonNode> thinValues(LinkRef link, List<StoredEvent> accepted, Map<UUID, Long> latestThin) {
 		accepted.stream().filter(StoredEvent::isThin).forEach(event -> {
 			if (event.type() != IntegrationEventType.AVAILABILITY) {
 				throw new IllegalStateException("Événement mince sans calcul à la lecture : " + event.type());
@@ -175,7 +178,7 @@ public class ChangeFeedService {
 		if (latestThin.isEmpty()) {
 			return Map.of();
 		}
-		Map<UUID, ?> values = this.availability.availability(Set.copyOf(latestThin.keySet()));
+		Map<UUID, ?> values = this.availability.availability(link, Set.copyOf(latestThin.keySet()));
 		Map<UUID, JsonNode> nodes = new HashMap<>();
 		latestThin.keySet().forEach(productId -> nodes.put(productId, this.jsonMapper.valueToTree(
 				Objects.requireNonNull(values.get(productId), () -> "disponibilité absente pour " + productId))));

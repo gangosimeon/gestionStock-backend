@@ -40,6 +40,9 @@ import tools.jackson.databind.JsonNode;
 @Import(PostgresTestConfiguration.class)
 class WarehouseAvailabilityIT {
 
+	/** Liaison qui lit le flux (G4a : la disponibilité servie est celle de ses dépôts). */
+	private static final LinkRef LINK = new LinkRef(UUID.randomUUID());
+
 	private static final String FEED_STATE_ID = "00000000-0000-0000-0000-000000000001";
 
 	@Autowired
@@ -91,10 +94,15 @@ class WarehouseAvailabilityIT {
 		receive(this.depot, this.depotOnly, 4);
 		receive(this.store, this.storeOnly, 6);
 		resetFeed();
+		// G4a : la disponibilité servie est celle des dépôts de la liaison ; ce test compare au stock de tous les
+		// dépôts actifs (périmètre du lot 1) : la liaison qui lit reçoit donc tous les dépôts actifs.
+		this.jdbc.update("insert into integration_link_warehouse (link_id, warehouse_id, added_by) "
+				+ "select ?, id, ? from warehouse where active", LINK.id(), LINK.id());
 	}
 
 	@AfterEach
 	void tearDown() {
+		this.jdbc.update("delete from integration_link_warehouse where link_id = ?", LINK.id());
 		this.jdbc.update("update warehouse set active = true where id = any(?)", (Object) new UUID[] { this.store, this.depot });
 		this.scenario.purge(List.of(this.store, this.depot), List.of(), List.of());
 		this.fixtures.purge();
@@ -176,7 +184,7 @@ class WarehouseAvailabilityIT {
 		JsonNode last = null;
 		Set<Long> seen = new HashSet<>();
 		while (true) {
-			ChangePage page = this.feed.read(after, 500, ChangeFilter.ALL);
+			ChangePage page = this.feed.read(LINK, after, 500, ChangeFilter.ALL);
 			for (ChangeEvent event : page.items()) {
 				if (event.type() == IntegrationEventType.AVAILABILITY && event.objectId().equals(product)
 						&& seen.add(event.seq())) {

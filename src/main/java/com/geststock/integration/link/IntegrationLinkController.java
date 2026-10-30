@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.geststock.common.security.Permissions;
 import com.geststock.common.security.RequiresPermission;
+import com.geststock.integration.LinkWarehouses;
 import com.geststock.security.CurrentUser;
 import com.geststock.tenancy.TenantContext;
 
@@ -64,11 +66,12 @@ class IntegrationLinkController {
 	@Operation(operationId = "approveIntegrationAuthorizationRequest", summary = "Approuver une demande de liaison",
 			description = "Crée la liaison en attente de l'entreprise, au nom de la personne connectée, et renvoie l'URL "
 					+ "de retour vers la boutique (redirect_uri enregistrée, code, state, iss). Portées accordées incluses "
-					+ "dans celles demandées.")
+					+ "dans celles demandées ; dépôts vendables (au moins un) actifs et accessibles à la personne connectée "
+					+ "(UNKNOWN_WAREHOUSE, WAREHOUSE_ACCESS_DENIED, WAREHOUSE_INACTIVE sinon).")
 	AuthorizationRedirect approve(@AuthenticationPrincipal CurrentUser user,
 			@Valid @RequestBody AuthorizationApproval request) {
 		return new AuthorizationRedirect(this.consent.approve(request.requestUri(), Set.copyOf(request.scopes()),
-				currentCompany(), authorizer(user)));
+				Set.copyOf(request.warehouseIds()), currentCompany(), authorizer(user)));
 	}
 
 	@PostMapping("/authorization-requests/deny")
@@ -97,9 +100,12 @@ class IntegrationLinkController {
 	@PostMapping("/{id}/reactivate")
 	@RequiresPermission(Permissions.INTEGRATION_MANAGE)
 	@Operation(operationId = "reactivateIntegrationLink", summary = "Réactiver une liaison suspendue",
-			description = "La personne connectée devient responsable de la liaison.")
-	IntegrationLinkView reactivate(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID id) {
-		return IntegrationLinkView.of(this.consent.reactivate(id, currentCompany(), authorizer(user)));
+			description = "Liaison suspendue seulement. La personne connectée reconfirme les dépôts vendables (la liste "
+					+ "remplace l'ancienne) et devient responsable de la liaison.")
+	IntegrationLinkView reactivate(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID id,
+			@Valid @RequestBody LinkReactivation request) {
+		return IntegrationLinkView.of(this.consent.reactivate(id, currentCompany(), Set.copyOf(request.warehouseIds()),
+				authorizer(user)));
 	}
 
 	@PostMapping("/{id}/revoke")
@@ -128,15 +134,20 @@ class IntegrationLinkController {
 
 	}
 
-	/** Approbation : {@code request_uri} (masqué dans les journaux) et portées accordées. */
+	/** Approbation : {@code request_uri} (masqué dans les journaux), portées accordées et dépôts vendables. */
 	record AuthorizationApproval(@NotBlank @Size(max = 200) String requestUri,
-			@NotEmpty @Size(max = 6) List<@NotBlank @Size(max = 30) String> scopes) {
+			@NotEmpty @Size(max = 6) List<@NotBlank @Size(max = 30) String> scopes,
+			@NotEmpty @Size(max = 100) List<@NotNull UUID> warehouseIds) {
 
 		@Override
 		public String toString() {
-			return "AuthorizationApproval[***, scopes=" + this.scopes + "]";
+			return "AuthorizationApproval[***, scopes=" + this.scopes + ", warehouseIds=" + this.warehouseIds + "]";
 		}
 
+	}
+
+	/** Réactivation : dépôts vendables reconfirmés (au moins un). */
+	record LinkReactivation(@NotEmpty @Size(max = 100) List<@NotNull UUID> warehouseIds) {
 	}
 
 	/** URL de retour vers la boutique, à suivre par le navigateur ; porte le code : masquée dans les journaux. */
@@ -152,17 +163,21 @@ class IntegrationLinkController {
 	/**
 	 * Liaison de l'entreprise, sans aucune empreinte.
 	 *
+	 * @param warehouses   dépôts vendables de la liaison (G4a)
 	 * @param authorizedBy nom d'utilisateur de la personne responsable de la liaison
 	 */
 	@Schema(name = "IntegrationLink")
 	record IntegrationLinkView(UUID id, String shopId, String shopName, LinkStatus status,
 			SuspensionReason suspensionReason, RevocationReason revocationReason, String currency, List<String> scopes,
-			String authorizedBy, Instant createdAt, Instant activatedAt, Instant suspendedAt, Instant revokedAt) {
+			List<LinkWarehouses.WarehouseChoice> warehouses, String authorizedBy, Instant createdAt, Instant activatedAt,
+			Instant suspendedAt, Instant revokedAt) {
 
-		static IntegrationLinkView of(Link link) {
+		static IntegrationLinkView of(LinkConsentService.ManagedLink managed) {
+			Link link = managed.link();
 			return new IntegrationLinkView(link.id(), link.externalShopId(), link.shopName(), link.status(),
 					link.suspensionReason(), link.revocationReason(), link.currency(), List.copyOf(new TreeSet<>(link.scopes())),
-					link.authorizedByUsername(), link.createdAt(), link.activatedAt(), link.suspendedAt(), link.revokedAt());
+					managed.warehouses(), link.authorizedByUsername(), link.createdAt(), link.activatedAt(), link.suspendedAt(),
+					link.revokedAt());
 		}
 
 	}

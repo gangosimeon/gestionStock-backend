@@ -13,9 +13,10 @@ import java.util.UUID;
 public interface AvailabilityProvider {
 
 	/**
+	 * @param link       liaison qui lit : seuls ses dépôts encore actifs comptent ({@link WarehouseScope}, G4a)
 	 * @param productIds produits des événements {@code AVAILABILITY} servis dans la page (non vide)
 	 * @return une valeur par produit demandé, jamais {@code null} ; sérialisée par le {@code JsonMapper}
 	 */
-	Map<UUID, ?> availability(Set<UUID> productIds);
+	Map<UUID, ?> availability(LinkRef link, Set<UUID> productIds);
 
 }

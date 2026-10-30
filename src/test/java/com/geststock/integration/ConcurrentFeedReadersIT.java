@@ -43,6 +43,9 @@ import com.geststock.support.PostgresTestConfiguration;
 @Import(PostgresTestConfiguration.class)
 class ConcurrentFeedReadersIT {
 
+	/** Liaison qui lit le flux (G4a : la disponibilité servie est celle de ses dépôts). */
+	private static final LinkRef LINK = new LinkRef(UUID.randomUUID());
+
 	private static final String FEED_STATE_ID = "00000000-0000-0000-0000-000000000001";
 
 	private static final int EVENTS = 30;
@@ -116,11 +119,11 @@ class ConcurrentFeedReadersIT {
 		CyclicBarrier barrier = new CyclicBarrier(2);
 		Future<ChangePage> first = this.threads.submit(() -> {
 			barrier.await(10, TimeUnit.SECONDS);
-			return this.feed.read(0, 500, ChangeFilter.ALL);
+			return this.feed.read(LINK, 0, 500, ChangeFilter.ALL);
 		});
 		Future<ChangePage> second = this.threads.submit(() -> {
 			barrier.await(10, TimeUnit.SECONDS);
-			return this.feed.read(0, 500, ChangeFilter.ALL);
+			return this.feed.read(LINK, 0, 500, ChangeFilter.ALL);
 		});
 		ChangePage a = first.get(20, TimeUnit.SECONDS);
 		ChangePage b = second.get(20, TimeUnit.SECONDS);
@@ -146,7 +149,7 @@ class ConcurrentFeedReadersIT {
 		List<ChangePage> pages = new ArrayList<>();
 		long after = 0;
 		do {
-			ChangePage page = this.feed.read(after, 7, ChangeFilter.ALL);
+			ChangePage page = this.feed.read(LINK, after, 7, ChangeFilter.ALL);
 			pages.add(page);
 			assertContiguousFromAfter(page, after);
 			after = page.lastSeq();
@@ -161,7 +164,7 @@ class ConcurrentFeedReadersIT {
 		long cursor = after;
 		ChangePage page;
 		do {
-			page = this.feed.read(cursor, 500, ChangeFilter.ALL);
+			page = this.feed.read(LINK, cursor, 500, ChangeFilter.ALL);
 			assertContiguousFromAfter(page, cursor);
 			page.items().forEach(event -> served.add(event.seq()));
 			cursor = page.lastSeq();

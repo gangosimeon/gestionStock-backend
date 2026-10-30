@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 import com.geststock.integration.AvailabilityProvider;
+import com.geststock.integration.LinkRef;
 import com.geststock.integration.ReservedQuantities;
 import com.geststock.integration.WarehouseScope;
 
@@ -53,11 +54,11 @@ class StockAvailabilityProvider implements AvailabilityProvider {
 	}
 
 	@Override
-	public Map<UUID, Availability> availability(Set<UUID> productIds) {
+	public Map<UUID, Availability> availability(LinkRef link, Set<UUID> productIds) {
 		if (productIds.isEmpty()) {
 			return Map.of();
 		}
-		Set<UUID> warehouseIds = this.scope.warehouseIds();
+		Set<UUID> warehouseIds = this.scope.warehouseIds(link);
 		Map<UUID, Map<UUID, Integer>> stock = new HashMap<>();
 		Map<UUID, Map<UUID, Integer>> reservations = Map.of();
 		if (!warehouseIds.isEmpty()) {
