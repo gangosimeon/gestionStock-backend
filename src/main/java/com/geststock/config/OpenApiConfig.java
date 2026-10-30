@@ -32,6 +32,9 @@ public class OpenApiConfig {
 	/** Client JeCréeMaBoutique (HTTP Basic) : seules les routes {@code /api/integration/v1/oauth/**} l'exigent. */
 	public static final String INTEGRATION_CLIENT_SCHEME = "integrationClient";
 
+	/** Liaison boutique (jeton de liaison Bearer, 15 min) : routes {@code /api/integration/v1/**} hors {@code oauth}. */
+	public static final String INTEGRATION_LINK_SCHEME = "integrationLink";
+
 	/** Erreur au format OAuth (RFC 6749 § 5.2) des routes du client, distincte d'{@code ApiError}. */
 	public static final String OAUTH_ERROR_SCHEMA = "OAuthError";
 
@@ -96,6 +99,11 @@ public class OpenApiConfig {
 				.scheme("bearer")
 				.bearerFormat("JWT")
 				.description("Jeton d'accès obtenu par POST /api/auth/login ou /api/auth/refresh."))
+				.addSecuritySchemes(INTEGRATION_LINK_SCHEME, new SecurityScheme()
+					.type(SecurityScheme.Type.HTTP)
+					.scheme("bearer")
+					.bearerFormat("JWT")
+					.description("Jeton de liaison obtenu par POST /api/integration/v1/oauth/token (client_credentials)."))
 				.addSecuritySchemes(INTEGRATION_CLIENT_SCHEME, new SecurityScheme()
 					.type(SecurityScheme.Type.HTTP)
 					.scheme("basic")

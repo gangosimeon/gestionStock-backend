@@ -75,6 +75,10 @@ class OpenApiDocumentationIT {
 	private static final Set<String> INTEGRATION_CLIENT = Set.of("POST /api/integration/v1/oauth/par",
 			"POST /api/integration/v1/oauth/token");
 
+	/** Routes de la liaison (jeton de liaison, portée et non permission) : ni utilisateur, ni permission (G11). */
+	private static final Set<String> INTEGRATION_LINK = Set.of("GET /api/integration/v1/link",
+			"POST /api/integration/v1/link/revoke");
+
 	@Autowired
 	private MockMvc mvc;
 
@@ -140,6 +144,11 @@ class OpenApiDocumentationIT {
 					.isEqualTo("[{\"integrationClient\":[]}]");
 				assertThat(responses.propertyNames()).as(key + " : erreurs OAuth").contains("400", "401")
 					.doesNotContain("403");
+				assertThat(op.has(OpenApiCustomization.PERMISSIONS_EXTENSION)).as(key + " : x-permissions").isFalse();
+			}
+			else if (INTEGRATION_LINK.contains(key)) {
+				assertThat(op.get("security").toString()).as(key + " : liaison").isEqualTo("[{\"integrationLink\":[]}]");
+				assertThat(responses.propertyNames()).as(key + " : 401").contains("401");
 				assertThat(op.has(OpenApiCustomization.PERMISSIONS_EXTENSION)).as(key + " : x-permissions").isFalse();
 			}
 			else if (!isPublic) {

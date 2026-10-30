@@ -7,7 +7,6 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -69,12 +68,15 @@ class OAuthService {
 
 	private final IntegrationTokenService tokens;
 
+	private final LinkViews views;
+
 	private final SecureRandom random = new SecureRandom();
 
-	OAuthService(PlatformDb platform, LinkRegistry links, IntegrationTokenService tokens) {
+	OAuthService(PlatformDb platform, LinkRegistry links, IntegrationTokenService tokens, LinkViews views) {
 		this.platform = platform;
 		this.links = links;
 		this.tokens = tokens;
+		this.views = views;
 	}
 
 	// --- PAR ------------------------------------------------------------------------------------------------
@@ -175,7 +177,7 @@ class OAuthService {
 		Link link = exchange.activated().link();
 		log.info("Liaison {} activée par l'échange du code (client {}).", link.id(), client.clientId());
 		Map<String, Object> body = tokenBody(link.id(), client.clientId(), link.scopes());
-		body.put("link", linkView(link));
+		body.put("link", this.views.afterExchange(link));
 		body.put("link_secret", exchange.activated().secret());
 		return body;
 	}
@@ -235,27 +237,6 @@ class OAuthService {
 		body.put("expires_in", token.expiresInSeconds());
 		body.put("scope", String.join(" ", new TreeSet<>(scopes)));
 		return body;
-	}
-
-	/** Liaison au format {@code Link} du contrat ; dépôts et réglages arrivent aux étapes G4 et suivantes. */
-	private Map<String, Object> linkView(Link link) {
-		String companyCode = this.platform.jdbc().sql("select code from platform.company where id = :id").param("id", link.companyId())
-			.query(String.class).single();
-		Map<String, Object> view = new LinkedHashMap<>();
-		view.put("id", link.id());
-		view.put("status", link.status());
-		view.put("suspensionReason", link.suspensionReason());
-		view.put("revocationReason", link.revocationReason());
-		view.put("companyCode", companyCode);
-		view.put("currency", link.currency());
-		view.put("externalShopId", link.externalShopId());
-		view.put("scopes", List.copyOf(new TreeSet<>(link.scopes())));
-		view.put("warehouses", List.of());
-		view.put("settings", Map.of());
-		view.put("createdAt", link.createdAt());
-		view.put("lastSyncAt", null);
-		view.put("revokedAt", link.revokedAt());
-		return view;
 	}
 
 	private static boolean pkceMatches(String verifier, String challenge) {

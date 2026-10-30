@@ -331,10 +331,12 @@ class OpenApiCustomization {
 	private static void addErrorResponses(String path, PathItem.HttpMethod method, Operation operation) {
 		ApiResponses responses = operation.getResponses() != null ? operation.getResponses() : new ApiResponses();
 		boolean secured = operation.getSecurity() == null || !operation.getSecurity().isEmpty();
-		// Routes du client d'intégration : erreurs au format OAuth déclarées sur la route, ni permission ni 403.
+		// Routes d'intégration (client Basic ou jeton de liaison) : erreurs déclarées sur la route, ni permission
+		// utilisateur ni réponses génériques des routes de GestStock.
 		boolean client = operation.getSecurity() != null && !operation.getSecurity().isEmpty() && operation.getSecurity()
 			.stream()
-			.allMatch(requirement -> requirement.containsKey(OpenApiConfig.INTEGRATION_CLIENT_SCHEME));
+			.allMatch(requirement -> requirement.containsKey(OpenApiConfig.INTEGRATION_CLIENT_SCHEME)
+					|| requirement.containsKey(OpenApiConfig.INTEGRATION_LINK_SCHEME));
 		boolean hasInput = operation.getRequestBody() != null
 				|| (operation.getParameters() != null && !operation.getParameters().isEmpty());
 		boolean write = method != PathItem.HttpMethod.GET;
