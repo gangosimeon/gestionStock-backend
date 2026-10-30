@@ -28,6 +28,29 @@ public enum ErrorCode {
 	LINK_SUSPENDED(HttpStatus.FORBIDDEN, "Liaison suspendue."),
 	/** Intégration boutique : limite de débit dépassée, en-tête {@code Retry-After} (contrat integration/v1, v13-D4). */
 	RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Trop de requêtes : réessayez après le délai indiqué."),
+	/** Consentement (G10) : demande d'autorisation inconnue. */
+	AUTHORIZATION_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND,
+			"Demande de liaison introuvable : relancez la connexion depuis la boutique en ligne."),
+	/** Consentement (G10) : demande d'autorisation expirée (10 minutes). */
+	AUTHORIZATION_REQUEST_EXPIRED(HttpStatus.GONE,
+			"Demande de liaison expirée : relancez la connexion depuis la boutique en ligne."),
+	/** Consentement (G10) : demande déjà approuvée ou refusée (une seule décision). */
+	AUTHORIZATION_REQUEST_ALREADY_DECIDED(HttpStatus.CONFLICT,
+			"Cette demande de liaison a déjà été traitée : relancez la connexion depuis la boutique en ligne."),
+	/** Consentement (G10) : portée accordée absente de la demande. */
+	LINK_SCOPE_NOT_REQUESTED(HttpStatus.UNPROCESSABLE_CONTENT, "Accès non demandé par la boutique."),
+	/** Consentement (G10) : devise de l'entreprise sans code ISO 4217 connu (v11-D6). */
+	LINK_CURRENCY_UNSUPPORTED(HttpStatus.UNPROCESSABLE_CONTENT,
+			"La devise de votre entreprise n'est pas prise en charge par la boutique en ligne."),
+	/** Consentement (G10) : application désactivée, ou portée qui ne lui est plus autorisée. */
+	LINK_CLIENT_UNAVAILABLE(HttpStatus.UNPROCESSABLE_CONTENT,
+			"Cette application ne peut pas être liée pour le moment."),
+	/** Consentement (G10) : boutique déjà liée à une entreprise (v14-D2) ; l'entreprise n'est jamais nommée. */
+	SHOP_ALREADY_LINKED(HttpStatus.CONFLICT, "Cette boutique est déjà liée à une entreprise."),
+	/** Gestion des liaisons (G10) : liaison inconnue ou d'une autre entreprise (même réponse). */
+	LINK_NOT_FOUND(HttpStatus.NOT_FOUND, "Liaison introuvable."),
+	/** Gestion des liaisons (G10) : action impossible dans le statut courant de la liaison. */
+	LINK_TRANSITION_INVALID(HttpStatus.CONFLICT, "Action impossible dans l'état actuel de la liaison."),
 
 	// 404 / 405 / 406 / 415
 	RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Ressource introuvable."),

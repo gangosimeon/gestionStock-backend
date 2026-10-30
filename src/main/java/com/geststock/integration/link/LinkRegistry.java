@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -284,6 +285,13 @@ public class LinkRegistry {
 		}
 		return this.platform.jdbc().sql("select " + LINK_COLUMNS + " from platform.integration_link where id = :id")
 			.param("id", linkId).query(LinkRegistry::link).optional();
+	}
+
+	/** Liaisons de l'entreprise, la plus récente d'abord (G10). */
+	public List<Link> listForCompany(UUID companyId) {
+		return this.platform.jdbc()
+			.sql("select " + LINK_COLUMNS + " from platform.integration_link where company_id = :company order by created_at desc, id")
+			.param("company", companyId).query(LinkRegistry::link).list();
 	}
 
 	private static void requireAuthorizer(Authorizer authorizer) {
