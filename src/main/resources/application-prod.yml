@@ -43,6 +43,12 @@ geststock:
     jwt:
       # Obligatoire : le démarrage échoue sans GESTSTOCK_JWT_SECRET (>= 32 octets).
       secret: ${GESTSTOCK_JWT_SECRET}
+  integration:
+    # IP du client pour la limitation de débit (v14-D8) : seul en-tête posé par l'hébergeur, à confirmer sur un
+    # déploiement de prévisualisation Vercel avec un X-Forwarded-For falsifié (checklist I1). Jamais X-Forwarded-For :
+    # forward-headers-strategy: framework (ci-dessus) en tire getRemoteAddr(), que le client peut donc choisir.
+    # Obligatoire quand les liaisons sont activées (ProductionSafetyCheck).
+    client-ip-header: ${GESTSTOCK_INTEGRATION_CLIENT_IP_HEADER:}
 
 logging:
   level:

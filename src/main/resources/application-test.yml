@@ -55,3 +55,10 @@ geststock:
         keys:
           test-0: Z2VzdHN0b2NrLXRlc3QtbGluay10b2tlbi1rZXktMC1wcmV2aW91cy1ub3QtYS1zZWNyZXQ=
           test-1: Z2VzdHN0b2NrLXRlc3QtbGluay10b2tlbi1rZXktMS1jdXJyZW50LW5vdC1hLXNlY3JldA==
+    # Limites de débit relevées : les tests appellent les routes du client depuis la même adresse (127.0.0.1).
+    # IntegrationRateLimitIT rétablit les valeurs de départ (10, 10, 30, 30 par minute).
+    rate-limit:
+      oauth-token-per-client: 100000
+      oauth-token-per-ip: 100000
+      oauth-par-per-client: 100000
+      oauth-par-per-ip: 100000

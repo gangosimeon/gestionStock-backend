@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import com.geststock.integration.IntegrationProperties;
 import com.geststock.integration.PageTokenProperties;
 import com.geststock.integration.link.IntegrationLinkProperties;
+import com.geststock.integration.link.IntegrationRateLimitProperties;
 import com.geststock.security.GestStockSecurityProperties;
 
 /**
@@ -30,7 +31,10 @@ import com.geststock.security.GestStockSecurityProperties;
  * <li>intégration boutique : publication activée ⇒ clé courante valide de signature des {@code pageToken}
  * d'instantané (32 octets au moins), sans jamais afficher la clé ;</li>
  * <li>liaisons boutique : liaisons activées ⇒ clé courante valide de signature des jetons de liaison (32 octets
- * au moins), aucune clé listée identique au secret JWT des utilisateurs, sans jamais afficher de clé.</li>
+ * au moins), aucune clé listée identique au secret JWT des utilisateurs, sans jamais afficher de clé ; en-tête de
+ * l'IP du client configuré ({@code geststock.integration.client-ip-header}, v14-D8), jamais {@code X-Forwarded-For} ni
+ * {@code Forwarded} : avec {@code forward-headers-strategy: framework}, {@code getRemoteAddr()} reprend la première
+ * valeur de {@code X-Forwarded-For}, écrite par le client.</li>
  * </ul>
  * Le secret JWT (32 octets minimum) est déjà vérifié par {@code JwtConfig}.
  */
@@ -77,6 +81,7 @@ class ProductionSafetyCheck implements InitializingBean {
 		IntegrationLinkProperties links = Binder.get(this.environment)
 			.bindOrCreate("geststock.integration.links", IntegrationLinkProperties.class);
 		problems.addAll(linkProblems(links, this.security.jwt().secret()));
+		problems.addAll(clientIpProblems(links.enabled(), this.environment.getProperty("geststock.integration.client-ip-header")));
 		if (!problems.isEmpty()) {
 			throw new IllegalStateException("Configuration de production refusée :\n - " + String.join("\n - ", problems));
 		}
@@ -136,6 +141,14 @@ class ProductionSafetyCheck implements InitializingBean {
 			}
 		}
 		return problems;
+	}
+
+	/**
+	 * IP réelle (lot 2, G9 ; v14-D8) : liaisons activées ⇒ en-tête d'IP configuré, sans quoi la limite par IP de
+	 * {@code /oauth/token} reposerait sur une adresse que le client choisit.
+	 */
+	static List<String> clientIpProblems(boolean linksEnabled, String clientIpHeader) {
+		return IntegrationRateLimitProperties.clientIpHeaderProblems(clientIpHeader, linksEnabled);
 	}
 
 	/** Problèmes bloquants (liste vide : configuration acceptée). */

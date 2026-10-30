@@ -41,6 +41,11 @@ class OAuthController {
 
 	private static final String OAUTH_ERROR = "#/components/schemas/" + OpenApiConfig.OAUTH_ERROR_SCHEMA;
 
+	private static final String TOO_MANY_REQUESTS = "#/components/responses/" + OpenApiConfig.TOO_MANY_REQUESTS_RESPONSE;
+
+	private static final String RATE_LIMIT_UNAVAILABLE = "#/components/responses/"
+			+ OpenApiConfig.RATE_LIMIT_UNAVAILABLE_RESPONSE;
+
 	private final OAuthService oauth;
 
 	OAuthController(OAuthService oauth) {
@@ -71,7 +76,9 @@ class OAuthController {
 					@ApiResponse(responseCode = "400", description = "invalid_request ou invalid_scope",
 							content = @Content(mediaType = "application/json", schema = @Schema(ref = OAUTH_ERROR))),
 					@ApiResponse(responseCode = "401", description = "invalid_client (en-tête WWW-Authenticate: Basic)",
-							content = @Content(mediaType = "application/json", schema = @Schema(ref = OAUTH_ERROR))) })
+							content = @Content(mediaType = "application/json", schema = @Schema(ref = OAUTH_ERROR))),
+					@ApiResponse(responseCode = "429", ref = TOO_MANY_REQUESTS),
+					@ApiResponse(responseCode = "503", ref = RATE_LIMIT_UNAVAILABLE) })
 	ResponseEntity<OAuthResponseBody> pushAuthorizationRequest(
 			@Parameter(hidden = true) @AuthenticationPrincipal IntegrationClients.AuthenticatedClient client,
 			HttpServletRequest request) {
@@ -111,7 +118,9 @@ class OAuthController {
 									+ "invalid_scope ou unsupported_grant_type",
 							content = @Content(mediaType = "application/json", schema = @Schema(ref = OAUTH_ERROR))),
 					@ApiResponse(responseCode = "401", description = "invalid_client (en-tête WWW-Authenticate: Basic)",
-							content = @Content(mediaType = "application/json", schema = @Schema(ref = OAUTH_ERROR))) })
+							content = @Content(mediaType = "application/json", schema = @Schema(ref = OAUTH_ERROR))),
+					@ApiResponse(responseCode = "429", ref = TOO_MANY_REQUESTS),
+					@ApiResponse(responseCode = "503", ref = RATE_LIMIT_UNAVAILABLE) })
 	ResponseEntity<OAuthResponseBody> token(
 			@Parameter(hidden = true) @AuthenticationPrincipal IntegrationClients.AuthenticatedClient client,
 			HttpServletRequest request) {

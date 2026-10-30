@@ -3,8 +3,14 @@ package com.geststock.config;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.headers.Header;
+import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.IntegerSchema;
+import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.ObjectSchema;
+import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
+import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
@@ -28,6 +34,12 @@ public class OpenApiConfig {
 
 	/** Erreur au format OAuth (RFC 6749 § 5.2) des routes du client, distincte d'{@code ApiError}. */
 	public static final String OAUTH_ERROR_SCHEMA = "OAuthError";
+
+	/** Limite de débit dépassée sur une route d'intégration ({@code 429 RATE_LIMITED}, v13-D4). */
+	public static final String TOO_MANY_REQUESTS_RESPONSE = "TooManyRequests";
+
+	/** Compteurs de débit inaccessibles ({@code 503 RATE_LIMIT_UNAVAILABLE}, v13-D4). */
+	public static final String RATE_LIMIT_UNAVAILABLE_RESPONSE = "RateLimitUnavailable";
 
 	static final String GUIDE = """
 			API REST de GestStock (gestion de stock et gestion commerciale d'un magasin d'optique).
@@ -65,6 +77,12 @@ public class OpenApiConfig {
 
 			""";
 
+	private static ApiResponse apiError(String description) {
+		return new ApiResponse().description(description)
+			.content(new Content().addMediaType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+					new MediaType().schema(new Schema<>().$ref("#/components/schemas/ApiError"))));
+	}
+
 	@Bean
 	OpenAPI gestStockOpenApi(@Value("${geststock.api.version:dev}") String version) {
 		return new OpenAPI()
@@ -88,7 +106,15 @@ public class OpenApiConfig {
 					.addProperty("error_description", new StringSchema())
 					.addProperty("code", new StringSchema()._enum(java.util.List.of("LINK_REVOKED"))
 						.description("Présent seulement quand la liaison est révoquée (400 invalid_grant)."))
-					.required(java.util.List.of("error", "error_description"))))
+					.required(java.util.List.of("error", "error_description")))
+				.addResponses(TOO_MANY_REQUESTS_RESPONSE, apiError("RATE_LIMITED : limite de débit dépassée (compteurs "
+						+ "en fenêtre fixe ; /oauth/token et /oauth/par : par IP, tentatives échouées comprises, et par "
+						+ "client authentifié). Attendre Retry-After secondes.")
+					.addHeaderObject("Retry-After", new Header().required(true)
+						.description("Secondes avant la fin de la fenêtre en cours")
+						.schema(new IntegerSchema().minimum(java.math.BigDecimal.ONE))))
+				.addResponses(RATE_LIMIT_UNAVAILABLE_RESPONSE, apiError("RATE_LIMIT_UNAVAILABLE : compteurs de débit "
+						+ "inaccessibles ; la requête est refusée, jamais laissée passer. Réessayer plus tard.")))
 			.addSecurityItem(new SecurityRequirement().addList(BEARER_SCHEME));
 	}
 

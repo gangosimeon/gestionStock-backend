@@ -98,7 +98,9 @@ class ProductionLinkTokenSafetyTest {
 	void aDistinctValidKeyOrDisabledLinksStart(CapturedOutput output) {
 		this.production.withPropertyValues("geststock.integration.links.enabled=true",
 				"geststock.integration.links.token.current-kid=prod-1",
-				"geststock.integration.links.token.keys.prod-1=" + LINK_KEY)
+				"geststock.integration.links.token.keys.prod-1=" + LINK_KEY,
+				// Exigé depuis G9 (v14-D8), vérifié par ProductionClientIpSafetyTest.
+				"geststock.integration.client-ip-header=X-Real-IP")
 			.run(context -> assertThat(context).hasNotFailed());
 		this.production.run(context -> assertThat(context).hasNotFailed());
 		assertThat(output.getAll()).doesNotContain(LINK_KEY, USER_SECRET);

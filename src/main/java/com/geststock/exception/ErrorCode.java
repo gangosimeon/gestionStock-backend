@@ -26,6 +26,8 @@ public enum ErrorCode {
 	LINK_REVOKED(HttpStatus.UNAUTHORIZED, "Liaison révoquée."),
 	/** Intégration boutique : liaison suspendue (contrat integration/v1, v14-D10). */
 	LINK_SUSPENDED(HttpStatus.FORBIDDEN, "Liaison suspendue."),
+	/** Intégration boutique : limite de débit dépassée, en-tête {@code Retry-After} (contrat integration/v1, v13-D4). */
+	RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Trop de requêtes : réessayez après le délai indiqué."),
 
 	// 404 / 405 / 406 / 415
 	RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Ressource introuvable."),
@@ -292,6 +294,9 @@ public enum ErrorCode {
 					+ "Ne reprenez pas avec ce curseur : vérifiez la liaison."),
 
 	// 5xx
+	/** Intégration boutique : compteurs de débit inaccessibles, requête refusée (contrat integration/v1, v13-D4). */
+	RATE_LIMIT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
+			"Limitation de débit momentanément indisponible : réessayez plus tard."),
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Une erreur interne est survenue."),
 	SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Service momentanément indisponible.");
 

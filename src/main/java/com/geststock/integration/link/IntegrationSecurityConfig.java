@@ -74,7 +74,9 @@ import com.geststock.tenancy.TenantSchemaRegistry;
  * portée absente ⇒ {@code 403 INSUFFICIENT_SCOPE}. Seules les méthodes de contrôleur portant {@link RequiresScope}
  * sont servies ; les routes du client ({@code oauth/token}, {@code oauth/par}, étape G8) exigent l'authentification
  * HTTP Basic du client ({@link ClientAuthenticationFilter}, {@code 401 invalid_client} sinon) et ignorent tout jeton
- * Bearer ; tout le reste est refusé.</li>
+ * Bearer ; tout le reste est refusé. Elles sont limitées en débit ({@link RateLimitFilter}, étape G9 :
+ * {@code 429 RATE_LIMITED}, {@code 503 RATE_LIMIT_UNAVAILABLE}) : par IP avant cette authentification, par client
+ * après une authentification réussie seulement.</li>
  * <li>Entreprise courante : établie après l'autorisation, uniquement depuis {@code company_id} de la liaison (jamais
  * depuis la requête), et vidée en fin de requête, exception comprise ({@code TenantContextFilter} la vide aussi avant et
  * après toute la chaîne). Exception : {@code POST /link/revoke} ({@code platformOnly}, C2) ne touche que la base
@@ -121,7 +123,7 @@ public class IntegrationSecurityConfig {
 	@Order(Ordered.HIGHEST_PRECEDENCE)
 	SecurityFilterChain integrationSecurityFilterChain(HttpSecurity http, IntegrationLinkProperties links,
 			IntegrationTokenService tokens, LinkAccess access, IntegrationClients clients, TenantSchemaRegistry schemas,
-			ApiErrorFactory errors, ApiErrorWriter writer,
+			IntegrationRateLimitProperties rateLimits, RateLimiter limiter, ApiErrorFactory errors, ApiErrorWriter writer,
 			@Qualifier("requestMappingHandlerMapping") ObjectProvider<RequestMappingHandlerMapping> handlerMapping)
 			throws Exception {
 		ScopedEndpoints endpoints = new ScopedEndpoints(handlerMapping, schemas);
@@ -152,6 +154,10 @@ public class IntegrationSecurityConfig {
 				.anyRequest().denyAll())
 			.addFilterAfter(new DisabledLinksFilter(links.enabled(), errors, writer), HeaderWriterFilter.class)
 			.addFilterBefore(new ClientAuthenticationFilter(clientPaths(), clients), BearerTokenAuthenticationFilter.class)
+			// Limitation de débit (G9) : par IP avant l'authentification du client (essais de secrets compris), par client
+			// après une authentification réussie seulement (l'identifiant annoncé n'épuise jamais le quota du client).
+			.addFilterBefore(new RateLimitFilter.ByIp(rateLimits, limiter, errors, writer), ClientAuthenticationFilter.class)
+			.addFilterBefore(new RateLimitFilter.ByClient(rateLimits, limiter, errors, writer), AuthorizationFilter.class)
 			.addFilterAfter(new LinkCompanyFilter(), AuthorizationFilter.class);
 		return http.build();
 	}
