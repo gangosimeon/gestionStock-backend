@@ -221,7 +221,7 @@ public class IntegrationSecurityConfig {
 			Set<String> effective = new HashSet<>(claims.scopes());
 			effective.retainAll(state.scopes());
 			return new LinkAuthentication(new LinkPrincipal(claims.linkId(), claims.clientId(), effective), state.status(),
-					state.company(), state.companyStatus());
+					state.company(), state.companyStatus(), state.companyName());
 		};
 	}
 

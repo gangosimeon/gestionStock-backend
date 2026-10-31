@@ -141,6 +141,45 @@ class IntegrationRateLimitIT {
 		assertThat(hits("oauth-token:client:" + client.clientId())).isEqualTo(1);
 	}
 
+	/**
+	 * Identifiant client illisible (caractère de contrôle, G15) : échec d'authentification compté par IP comme les
+	 * autres (au-delà de la limite : 429) ; trace d'audit sans aucune partie de la valeur reçue.
+	 */
+	@Test
+	void anUnreadableClientIdCountsAgainstItsIpAndIsAuditedWithoutTheReceivedValue() throws Exception {
+		String secret = "secret-client-g15-" + UUID.randomUUID();
+		TestLinks.Client client = this.links.client(secret, null, ALLOWED);
+		String marker = "G15illisible" + UUID.randomUUID().toString().substring(0, 8);
+		String unreadable = client.clientId() + "\u0000" + marker;
+		String attacker = ip();
+		remember("oauth-token:ip:" + attacker);
+		for (int i = 0; i < 15; i++) {
+			// Requête construite ici : l'aide token() retiendrait une clé de compteur contenant NUL, illisible en base.
+			MockHttpServletRequestBuilder request = post(TOKEN).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+				.header(HttpHeaders.AUTHORIZATION, basic(unreadable, secret)).header(IP_HEADER, attacker)
+				.param("grant_type", "client_credentials").param("link_id", UUID.randomUUID().toString())
+				.param("link_secret", "inconnu");
+			MockHttpServletResponse response = this.mvc.perform(request).andReturn().getResponse();
+			assertThat(response.getStatus()).as("tentative " + (i + 1)).isEqualTo(i < 10 ? 401 : 429);
+			assertThat(response.getContentAsString()).doesNotContain(marker);
+		}
+		assertThat(hits("oauth-token:ip:" + attacker)).isEqualTo(15);
+		assertThat(hits("oauth-token:client:" + client.clientId())).as("compteur du client intact").isZero();
+
+		List<String> traces = this.platform.jdbc().sql("""
+				select concat_ws('|', action, announced_client, actor_name, external_shop_id, reason, details::text)
+				from platform.integration_audit_log where ip_address = :ip""")
+			.param("ip", attacker).query(String.class).list();
+		assertThat(traces).as("un échec tracé par tentative non limitée").hasSize(10)
+			.allSatisfy(trace -> assertThat(trace).startsWith(LinkAudit.CLIENT_AUTHENTICATION_FAILED)
+				.doesNotContain(marker).doesNotContain(client.clientId()).doesNotContain("\u0000"));
+		assertThat(this.platform.jdbc().sql("""
+				select count(*) from platform.integration_audit_log where ip_address = :ip and announced_client is not null""")
+			.param("ip", attacker).query(Integer.class).single()).as("aucun identifiant annoncé").isZero();
+		assertThat(this.logs.list).allSatisfy(event -> assertThat(event.getFormattedMessage()).doesNotContain(marker));
+		this.platform.jdbc().sql("delete from platform.integration_audit_log where ip_address = :ip").param("ip", attacker).update();
+	}
+
 	@Test
 	void theEleventhAuthenticatedTokenCallOfTheClientIsRefused() throws Exception {
 		String secret = "secret-client-g9-" + UUID.randomUUID();

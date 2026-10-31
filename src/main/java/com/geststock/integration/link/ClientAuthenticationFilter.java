@@ -100,7 +100,11 @@ final class ClientAuthenticationFilter extends OncePerRequestFilter {
 		chain.doFilter(request, response);
 	}
 
-	/** Identifiant et secret du client, ou rien si l'en-tête est absent ou illisible. */
+	/**
+	 * Identifiant et secret du client, ou rien si l'en-tête est absent ou illisible. Un caractère de contrôle (G15,
+	 * {@link ControlCharacters}) rend l'en-tête illisible : échec d'authentification ({@code 401 invalid_client}), sans
+	 * requête en base ni identifiant annoncé dans la trace d'audit.
+	 */
 	private static Optional<String[]> credentials(String header) {
 		if (header == null || !header.regionMatches(true, 0, "Basic ", 0, 6)) {
 			return Optional.empty();
@@ -111,8 +115,12 @@ final class ClientAuthenticationFilter extends OncePerRequestFilter {
 			if (colon <= 0) {
 				return Optional.empty();
 			}
-			return Optional.of(new String[] { URLDecoder.decode(decoded.substring(0, colon), StandardCharsets.UTF_8),
-					URLDecoder.decode(decoded.substring(colon + 1), StandardCharsets.UTF_8) });
+			String clientId = URLDecoder.decode(decoded.substring(0, colon), StandardCharsets.UTF_8);
+			String secret = URLDecoder.decode(decoded.substring(colon + 1), StandardCharsets.UTF_8);
+			if (ControlCharacters.present(clientId, false) || ControlCharacters.present(secret, false)) {
+				return Optional.empty();
+			}
+			return Optional.of(new String[] { clientId, secret });
 		}
 		catch (IllegalArgumentException ex) {
 			return Optional.empty();

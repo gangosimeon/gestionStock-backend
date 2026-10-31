@@ -36,30 +36,36 @@ class LinkViews {
 		this.schemas = schemas;
 	}
 
-	/** Vue avec les dépôts de la liaison, lus dans la base de l'entreprise (qui doit être lisible). */
-	LinkView withWarehouses(Link link, Set<String> scopes, TenantRef company) {
-		return LinkView.of(link, scopes, company.code(), TenantContext.callAs(company, () -> linkWarehouses(link)));
+	/**
+	 * Vue avec les dépôts de la liaison, lus dans la base de l'entreprise (qui doit être lisible).
+	 * @param companyName nom commercial, déjà lu avec l'entreprise de la liaison ({@link LinkAccess}, G15)
+	 */
+	LinkView withWarehouses(Link link, Set<String> scopes, TenantRef company, String companyName) {
+		return LinkView.of(link, scopes, company.code(), companyName,
+				TenantContext.callAs(company, () -> linkWarehouses(link)));
 	}
 
 	/** Vue sans dépôts : liaison révoquée ({@code POST /link/revoke}, base plateforme seulement) ; aucun dépôt vendable. */
-	LinkView withoutWarehouses(Link link, Set<String> scopes, TenantRef company) {
-		return LinkView.of(link, scopes, company.code(), List.of());
+	LinkView withoutWarehouses(Link link, Set<String> scopes, TenantRef company, String companyName) {
+		return LinkView.of(link, scopes, company.code(), companyName, List.of());
 	}
 
 	/**
 	 * Échange du code ({@code /oauth/token}) : la liaison vient d'être activée et son secret émis, qui doit être remis.
 	 * Base de l'entreprise illisible (entreprise non active, migration en cours ou en échec, base indisponible) :
-	 * dépôts vides plutôt qu'un échec de l'échange ; {@code GET /link} les donnera.
+	 * dépôts vides plutôt qu'un échec de l'échange ; {@code GET /link} les donnera. Nom de l'entreprise lu par la même
+	 * requête que son code (G15).
 	 */
 	LinkView afterExchange(Link link) {
-		Company company = this.platform.jdbc().sql("select code, status from platform.company where id = :id")
+		Company company = this.platform.jdbc().sql("select code, status, trade_name from platform.company where id = :id")
 			.param("id", link.companyId())
-			.query((rs, n) -> new Company(new TenantRef(link.companyId(), rs.getString("code")), rs.getString("status")))
+			.query((rs, n) -> new Company(new TenantRef(link.companyId(), rs.getString("code")), rs.getString("status"),
+					rs.getString("trade_name")))
 			.single();
 		boolean readable = "ACTIVE".equals(company.status()) && this.schemas.blockingState(link.companyId()).isEmpty();
 		if (readable) {
 			try {
-				return withWarehouses(link, link.scopes(), company.ref());
+				return withWarehouses(link, link.scopes(), company.ref(), company.name());
 			}
 			catch (RuntimeException ex) {
 				log.warn("Dépôts de la liaison {} non lus à l'échange du code ({}) : liste vide, lisible par GET /link.",
@@ -69,14 +75,14 @@ class LinkViews {
 		else {
 			log.info("Dépôts de la liaison {} non lus à l'échange du code : base de l'entreprise non disponible.", link.id());
 		}
-		return LinkView.of(link, link.scopes(), company.ref().code(), List.of());
+		return LinkView.of(link, link.scopes(), company.ref().code(), company.name(), List.of());
 	}
 
 	private List<WarehouseChoice> linkWarehouses(Link link) {
 		return this.warehouses.ofLinks(List.of(link.id())).getOrDefault(link.id(), List.of());
 	}
 
-	private record Company(TenantRef ref, String status) {
+	private record Company(TenantRef ref, String status, String name) {
 	}
 
 }

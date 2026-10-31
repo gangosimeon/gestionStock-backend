@@ -95,7 +95,8 @@ class LinkController {
 									schema = @Schema(ref = API_ERROR))) })
 	LinkView get(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal) {
 		Link link = this.links.find(principal.linkId()).orElseThrow(LinkAlreadyRevoked::new);
-		return this.views.withWarehouses(link, principal.scopes(), TenantContext.require());
+		LinkAuthentication authentication = (LinkAuthentication) SecurityContextHolder.getContext().getAuthentication();
+		return this.views.withWarehouses(link, principal.scopes(), TenantContext.require(), authentication.companyName());
 	}
 
 	@PostMapping("/revoke")
@@ -120,7 +121,7 @@ class LinkController {
 		}
 		Link revoked = this.revocations.byShop(principal.linkId(), reason);
 		LinkAuthentication authentication = (LinkAuthentication) SecurityContextHolder.getContext().getAuthentication();
-		return this.views.withoutWarehouses(revoked, principal.scopes(), authentication.company());
+		return this.views.withoutWarehouses(revoked, principal.scopes(), authentication.company(), authentication.companyName());
 	}
 
 	@PostMapping("/secret")
@@ -238,9 +239,11 @@ class LinkController {
 
 	/**
 	 * Corps facultatif de {@code POST /link/revoke}. Le motif est destiné au journal d'audit (G12) : masqué dans les
-	 * journaux applicatifs.
+	 * journaux applicatifs. Motif libre (G15) : tabulation et sauts de ligne permis, autres caractères de contrôle refusés
+	 * ({@link IntegrationBodyAdvice}).
 	 */
-	record LinkRevocationRequest(@Size(max = LinkRevocationRequest.REASON_MAX) String reason) {
+	record LinkRevocationRequest(
+			@ControlCharacters.FreeText @Size(max = LinkRevocationRequest.REASON_MAX) String reason) {
 
 		static final int REASON_MAX = 500;
 

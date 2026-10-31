@@ -77,10 +77,10 @@ class IntegrationLinkRoutesIT {
 
 	private static final String TOKEN = "/api/integration/v1/oauth/token";
 
-	/** Champs du schéma {@code Link} du contrat. */
+	/** Champs du schéma {@code Link} du contrat ; {@code companyName} ajouté par G15. */
 	private static final Set<String> LINK_FIELDS = Set.of("id", "status", "suspensionReason", "revocationReason",
 			"companyCode", "currency", "externalShopId", "scopes", "warehouses", "settings", "createdAt", "lastSyncAt",
-			"revokedAt");
+			"revokedAt", "companyName");
 
 	@Autowired
 	private MockMvc mvc;
@@ -118,6 +118,9 @@ class IntegrationLinkRoutesIT {
 
 	private UUID outside;
 
+	/** Nom commercial de l'entreprise avant le test, rétabli ensuite. */
+	private String tradeName;
+
 	private final List<String> sensitive = java.util.Collections.synchronizedList(new ArrayList<>());
 
 	private final Map<Logger, Level> levels = new LinkedHashMap<>();
@@ -134,6 +137,8 @@ class IntegrationLinkRoutesIT {
 		this.store = warehouse("G11-S-" + suffix, "STORE");
 		this.depot = warehouse("G11-D-" + suffix, "WAREHOUSE");
 		this.outside = warehouse("G11-X-" + suffix, "STORE");
+		this.tradeName = this.platform.jdbc().sql("select trade_name from platform.company where id = :id")
+			.param("id", this.company.companyId()).query(String.class).single();
 		LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
 		for (Logger logger : context.getLoggerList()) {
 			// Sauf le pilote PostgreSQL, que la configuration fixe à INFO : sa trace protocolaire afficherait chaque
@@ -160,8 +165,8 @@ class IntegrationLinkRoutesIT {
 		}
 		finally {
 			this.sensitive.clear();
-			this.platform.jdbc().sql("update platform.company set status = 'ACTIVE' where id = :id")
-				.param("id", this.company.companyId()).update();
+			this.platform.jdbc().sql("update platform.company set status = 'ACTIVE', trade_name = :name where id = :id")
+				.param("name", this.tradeName).param("id", this.company.companyId()).update();
 			this.schemas.upToDate(this.company, 0, 0);
 			this.links.cleanUp();
 			this.jdbc.update("delete from integration_link_warehouse where warehouse_id in (?, ?, ?)", this.store, this.depot,
@@ -345,9 +350,64 @@ class IntegrationLinkRoutesIT {
 		assertThat(migrating.get("link").get("warehouses")).isEmpty();
 	}
 
+	// --- companyName (G15) ---------------------------------------------------------------------------------------
+
+	/** Ordre des champs servis : celui d'avant G15, {@code companyName} ajouté à la fin. */
+	private static final List<String> LINK_FIELD_ORDER = List.of("id", "status", "suspensionReason", "revocationReason",
+			"companyCode", "currency", "externalShopId", "scopes", "warehouses", "settings", "createdAt", "lastSyncAt",
+			"revokedAt", "companyName");
+
+	@Test
+	void everyLinkResponseCarriesTheCompanyTradeNameAfterTheExistingFields() throws Exception {
+		String name = "Entreprise G15 " + UUID.randomUUID().toString().substring(0, 6);
+		tradeName(name);
+
+		JsonNode exchanged = exchange("shop-g15-name-exchange", this.store).get("link");
+		assertThat(new ArrayList<>(exchanged.propertyNames())).as("/oauth/token").isEqualTo(LINK_FIELD_ORDER);
+		assertThat(exchanged.get("companyName").asString()).isEqualTo(name);
+		assertThat(exchanged.get("companyCode").asString()).isEqualTo("test");
+
+		Linked linked = active("shop-g15-name", Set.of("catalog:read"), this.store);
+		String token = token(linked, Set.of("catalog:read"));
+		JsonNode view = read(this.mvc.perform(bearer(get(LINK), token)).andExpect(status().isOk()));
+		assertThat(new ArrayList<>(view.propertyNames())).as("GET /link").isEqualTo(LINK_FIELD_ORDER);
+		assertThat(view.get("companyName").asString()).isEqualTo(name);
+		assertThat(view.get("companyCode").asString()).isEqualTo("test");
+
+		JsonNode revoked = read(revoke(token, null).andExpect(status().isOk()));
+		assertThat(new ArrayList<>(revoked.propertyNames())).as("POST /link/revoke").isEqualTo(LINK_FIELD_ORDER);
+		assertThat(revoked.get("companyName").asString()).isEqualTo(name);
+	}
+
+	@Test
+	void aBlankTradeNameGivesANullCompanyNameWithoutFailingTheResponse() throws Exception {
+		tradeName("   ");
+
+		JsonNode exchanged = exchange("shop-g15-blank-exchange", this.store);
+		assertThat(exchanged.get("link_secret").asString()).isNotBlank();
+		assertThat(exchanged.get("link").has("companyName")).isTrue();
+		assertThat(exchanged.get("link").get("companyName").isNull()).isTrue();
+
+		Linked linked = active("shop-g15-blank", Set.of("catalog:read"), this.store);
+		String token = token(linked, Set.of("catalog:read"));
+		JsonNode view = read(this.mvc.perform(bearer(get(LINK), token)).andExpect(status().isOk()));
+		assertThat(view.has("companyName")).isTrue();
+		assertThat(view.get("companyName").isNull()).isTrue();
+		assertThat(view.get("companyCode").asString()).isEqualTo("test");
+
+		JsonNode revoked = read(revoke(token, null).andExpect(status().isOk()));
+		assertThat(revoked.has("companyName")).isTrue();
+		assertThat(revoked.get("companyName").isNull()).isTrue();
+	}
+
 	// --- Outils ---------------------------------------------------------------------------------------------
 
 	private record Linked(UUID id, String secret) {
+	}
+
+	private void tradeName(String name) {
+		this.platform.jdbc().sql("update platform.company set trade_name = :name where id = :id").param("name", name)
+			.param("id", this.company.companyId()).update();
 	}
 
 	private Linked active(String shop, Set<String> scopes, UUID... warehouses) {

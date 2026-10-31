@@ -9,8 +9,8 @@ import com.geststock.tenancy.TenantRef;
 /**
  * Authentification d'un appel de la chaîne d'intégration par jeton de liaison. Aucune autorité : les portées sont lues
  * dans {@link LinkPrincipal} par la chaîne d'intégration, jamais confondues avec les permissions des utilisateurs.
- * Porte aussi l'état relu en base à cet appel (statut de la liaison, entreprise et son statut), utilisé par
- * l'autorisation et pour établir l'entreprise courante.
+ * Porte aussi l'état relu en base à cet appel (statut de la liaison, entreprise, son statut et son nom), utilisé par
+ * l'autorisation, pour établir l'entreprise courante et pour la vue de la liaison ({@code companyName}, G15).
  */
 public final class LinkAuthentication extends AbstractAuthenticationToken {
 
@@ -22,12 +22,16 @@ public final class LinkAuthentication extends AbstractAuthenticationToken {
 
 	private final String companyStatus;
 
-	public LinkAuthentication(LinkPrincipal principal, LinkStatus linkStatus, TenantRef company, String companyStatus) {
+	private final String companyName;
+
+	public LinkAuthentication(LinkPrincipal principal, LinkStatus linkStatus, TenantRef company, String companyStatus,
+			String companyName) {
 		super(List.of());
 		this.principal = principal;
 		this.linkStatus = linkStatus;
 		this.company = company;
 		this.companyStatus = companyStatus;
+		this.companyName = companyName;
 		setAuthenticated(true);
 	}
 
@@ -58,6 +62,11 @@ public final class LinkAuthentication extends AbstractAuthenticationToken {
 
 	String companyStatus() {
 		return this.companyStatus;
+	}
+
+	/** Nom commercial de l'entreprise ({@code platform.company.trade_name}) ; {@code null} s'il est vide. */
+	String companyName() {
+		return this.companyName;
 	}
 
 }

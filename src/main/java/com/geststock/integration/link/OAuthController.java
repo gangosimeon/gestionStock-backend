@@ -2,6 +2,7 @@ package com.geststock.integration.link;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -19,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.web.firewall.RequestRejectedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,6 +40,10 @@ import com.geststock.config.OpenApiConfig;
 class OAuthController {
 
 	private static final String FORM = MediaType.APPLICATION_FORM_URLENCODED_VALUE;
+
+	/** Paramètres des deux routes : les seuls noms repris dans un message d'erreur. */
+	private static final Set<String> PARAMETERS = Set.of("response_type", "redirect_uri", "scope", "state", "code_challenge",
+			"code_challenge_method", "shop_id", "shop_name", "grant_type", "code", "code_verifier", "link_id", "link_secret");
 
 	private static final String OAUTH_ERROR = "#/components/schemas/" + OpenApiConfig.OAUTH_ERROR_SCHEMA;
 
@@ -144,7 +150,9 @@ class OAuthController {
 	/**
 	 * Corps de formulaire seulement, sans paramètre d'URL ni paramètre répété. Lu ici plutôt que reçu en argument :
 	 * Spring MVC journalise en TRACE les arguments résolus d'une méthode, et donc {@code link_secret} ou
-	 * {@code code_verifier}.
+	 * {@code code_verifier}. Caractère de contrôle dans un nom ou une valeur (G15, {@link ControlCharacters}) :
+	 * {@code invalid_request}, avant tout traitement ; aucun champ de ces routes n'est un motif libre. Seuls les noms de
+	 * {@link #PARAMETERS} sont repris dans un message d'erreur, jamais une valeur reçue.
 	 */
 	private static Map<String, String> form(HttpServletRequest request) {
 		String contentType = request.getContentType();
@@ -154,12 +162,30 @@ class OAuthController {
 		if (request.getQueryString() != null) {
 			throw OAuthException.invalidRequest("Aucun paramètre n'est accepté dans l'URL.");
 		}
+		Map<String, String[]> parameters;
+		try {
+			parameters = request.getParameterMap();
+		}
+		catch (RequestRejectedException ex) {
+			// Pare-feu de Spring Security : nom de paramètre refusé (caractère de contrôle…), à la lecture. Son message
+			// porte le nom reçu : ni journalisé ni repris.
+			throw OAuthException.invalidRequest("Nom de paramètre refusé.");
+		}
 		Map<String, String> form = new LinkedHashMap<>();
-		for (Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
-			if (entry.getValue().length != 1) {
-				throw OAuthException.invalidRequest("Paramètre répété : " + entry.getKey() + ".");
+		for (Map.Entry<String, String[]> entry : parameters.entrySet()) {
+			String name = entry.getKey();
+			boolean known = PARAMETERS.contains(name);
+			if (ControlCharacters.present(name, false)) {
+				throw OAuthException.invalidRequest("Caractère de contrôle refusé dans un nom de paramètre.");
 			}
-			form.put(entry.getKey(), entry.getValue()[0]);
+			if (entry.getValue().length != 1) {
+				throw OAuthException.invalidRequest(known ? "Paramètre répété : " + name + "." : "Paramètre répété.");
+			}
+			if (ControlCharacters.present(entry.getValue()[0], false)) {
+				throw OAuthException.invalidRequest(known ? "Caractère de contrôle refusé : " + name + "."
+						: "Caractère de contrôle refusé dans un paramètre.");
+			}
+			form.put(name, entry.getValue()[0]);
 		}
 		return form;
 	}

@@ -224,3 +224,7 @@ logging:
     # Trace protocolaire du pilote PostgreSQL : en TRACE, elle affiche la valeur de chaque paramètre lié (données
     # métier, motif libre d'une boutique…). Jamais activée par un niveau général TRACE.
     org.postgresql: INFO
+    # Appel des contrôleurs par Spring MVC : en DEBUG, l'échec de lecture d'un argument avec le message de Jackson, qui
+    # cite la valeur reçue (« Could not resolve parameter… ») ; en TRACE, les arguments de chaque appel. Seul son WARN
+    # (anomalie de déclaration d'un contrôleur) reste utile. Jamais activée par un niveau général DEBUG ou TRACE.
+    org.springframework.web.method.HandlerMethod: INFO

@@ -16,14 +16,15 @@ import com.geststock.tenancy.TenantRef;
 /**
  * Lecture de la liaison à chaque appel de la chaîne d'intégration (lot 2, étape G7) : une seule requête sur la base
  * plateforme, sans cache, pour que la révocation, la suspension ou le retrait d'une portée s'appliquent dès l'appel
- * suivant. Elle donne le statut de la liaison, le client, les portées, l'entreprise et son statut.
+ * suivant. Elle donne le statut de la liaison, le client, les portées, l'entreprise, son statut et son nom commercial
+ * (G15 : {@code companyName} de la vue de la liaison, lu par la même requête).
  */
 @Component
 public class LinkAccess {
 
 	static final String STATE = """
 			select l.status, l.scopes, cl.client_id as client_public_id, c.id as company_id, c.code as company_code,
-			       c.status as company_status
+			       c.status as company_status, c.trade_name as company_name
 			from platform.integration_link l
 			join platform.integration_client cl on cl.id = l.client_id
 			join platform.company c on c.id = l.company_id
@@ -39,7 +40,7 @@ public class LinkAccess {
 		return this.platform.jdbc().sql(STATE).param("id", linkId)
 			.query((rs, n) -> new LinkState(LinkStatus.valueOf(rs.getString("status")), strings(rs.getArray("scopes")),
 					rs.getString("client_public_id"), new TenantRef((UUID) rs.getObject("company_id"), rs.getString("company_code")),
-					rs.getString("company_status")))
+					rs.getString("company_status"), rs.getString("company_name")))
 			.optional();
 	}
 
@@ -55,8 +56,10 @@ public class LinkAccess {
 	 * @param clientId       identifiant public du client de la liaison
 	 * @param company        entreprise de la liaison
 	 * @param companyStatus  statut plateforme de l'entreprise ({@code ACTIVE}, {@code SUSPENDED}…)
+	 * @param companyName    nom commercial de l'entreprise ({@code trade_name})
 	 */
-	record LinkState(LinkStatus status, Set<String> scopes, String clientId, TenantRef company, String companyStatus) {
+	record LinkState(LinkStatus status, Set<String> scopes, String clientId, TenantRef company, String companyStatus,
+			String companyName) {
 	}
 
 }

@@ -135,20 +135,29 @@ class IntegrationLinkController {
 
 	}
 
-	/** Approbation : {@code request_uri} (masqué dans les journaux), portées accordées et dépôts vendables. */
+	/**
+	 * Approbation : {@code request_uri}, portées accordées et dépôts vendables. Masquée dans les journaux en entier (G15) :
+	 * Spring MVC et Hibernate Validator journalisent le corps reçu en TRACE, valide ou non.
+	 */
 	record AuthorizationApproval(@NotBlank @Size(max = 200) String requestUri,
 			@NotEmpty @Size(max = 6) List<@NotBlank @Size(max = 30) String> scopes,
 			@NotEmpty @Size(max = 100) List<@NotNull UUID> warehouseIds) {
 
 		@Override
 		public String toString() {
-			return "AuthorizationApproval[***, scopes=" + this.scopes + ", warehouseIds=" + this.warehouseIds + "]";
+			return "AuthorizationApproval[***]";
 		}
 
 	}
 
-	/** Réactivation : dépôts vendables reconfirmés (au moins un). */
+	/** Réactivation : dépôts vendables reconfirmés (au moins un) ; masquée dans les journaux (G15). */
 	record LinkReactivation(@NotEmpty @Size(max = 100) List<@NotNull UUID> warehouseIds) {
+
+		@Override
+		public String toString() {
+			return "LinkReactivation[***]";
+		}
+
 	}
 
 	/** URL de retour vers la boutique, à suivre par le navigateur ; porte le code : masquée dans les journaux. */
