@@ -228,3 +228,8 @@ logging:
     # cite la valeur reçue (« Could not resolve parameter… ») ; en TRACE, les arguments de chaque appel. Seul son WARN
     # (anomalie de déclaration d'un contrôleur) reste utile. Jamais activée par un niveau général DEBUG ou TRACE.
     org.springframework.web.method.HandlerMethod: INFO
+    # Aiguillage des requêtes par Spring MVC : en DEBUG, il lit tous les paramètres pour journaliser la requête, ce qui
+    # déclenche le pare-feu de Spring Security sur un nom refusé (la réponse dépend alors du niveau de journal) ; en
+    # TRACE, il écrit la requête avec sa query, valeurs refusées comprises. Jamais activée par un niveau général DEBUG
+    # ou TRACE.
+    org.springframework.web.servlet.DispatcherServlet: INFO

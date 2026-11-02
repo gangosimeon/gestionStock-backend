@@ -22,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.firewall.RequestRejectedException;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.FieldError;
 import org.springframework.web.ErrorResponse;
@@ -130,6 +131,16 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(MissingRequestHeaderException.class)
 	ResponseEntity<ApiError> handleMissingHeader(MissingRequestHeaderException ex, HttpServletRequest request) {
 		return respond(ErrorCode.INVALID_PARAMETER, "En-tête requis : " + ex.getHeaderName() + ".", request);
+	}
+
+	/**
+	 * Paramètre refusé par le pare-feu de Spring Security à la lecture des arguments (nom avec un caractère de
+	 * contrôle…) : 400, sans journal ni reprise du message, qui cite la valeur refusée. Traité d'ordinaire avant, sans
+	 * aucun journal, par {@link RequestRejectedResolver} ; ce gestionnaire ne sert que si sa réponse n'a pu être écrite.
+	 */
+	@ExceptionHandler(RequestRejectedException.class)
+	ResponseEntity<ApiError> handleRequestRejected(RequestRejectedException ex, HttpServletRequest request) {
+		return respond(ErrorCode.INVALID_PARAMETER, RequestRejectedResolver.MESSAGE, request);
 	}
 
 	// --- Envoi de fichiers -----------------------------------------------------------------

@@ -1,6 +1,7 @@
 package com.geststock.integration.link;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -54,6 +55,9 @@ class IntegrationRateLimitUnavailableIT {
 	@Autowired
 	private LinkRegistry registry;
 
+	@Autowired
+	private IntegrationTokenService tokens;
+
 	private TestLinks links;
 
 	@BeforeEach
@@ -100,6 +104,20 @@ class IntegrationRateLimitUnavailableIT {
 			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
 			.andExpect(jsonPath("$.code").value("RATE_LIMIT_UNAVAILABLE"))
 			.andExpect(jsonPath("$.access_token").doesNotExist());
+	}
+
+	@Test
+	void unavailableCountersRefuseTheReadingOfTheFeed() throws Exception {
+		TestLinks.Client client = this.links.client();
+		Link link = this.links.active(client, this.links.legacyCompany(), "shop-g16-503", Set.of("catalog:read"));
+		String token = this.tokens.issue(link.id(), client.clientId(), Set.of("catalog:read")).value();
+
+		this.mvc.perform(get("/api/integration/v1/catalog/changes").param("after", "0")
+			.header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+			.andExpect(jsonPath("$.code").value("RATE_LIMIT_UNAVAILABLE"))
+			.andExpect(jsonPath("$.items").doesNotExist());
 	}
 
 	/** Limiteur branché sur une base qui refuse toute connexion. */

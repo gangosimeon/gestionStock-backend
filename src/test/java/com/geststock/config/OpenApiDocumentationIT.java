@@ -75,9 +75,13 @@ class OpenApiDocumentationIT {
 	private static final Set<String> INTEGRATION_CLIENT = Set.of("POST /api/integration/v1/oauth/par",
 			"POST /api/integration/v1/oauth/token");
 
-	/** Routes de la liaison (jeton de liaison, portée et non permission) : ni utilisateur, ni permission (G11, G14). */
+	/**
+	 * Routes de la liaison (jeton de liaison, portée et non permission) : ni utilisateur, ni permission (G11, G14,
+	 * G16).
+	 */
 	private static final Set<String> INTEGRATION_LINK = Set.of("GET /api/integration/v1/link",
-			"POST /api/integration/v1/link/revoke", "POST /api/integration/v1/link/secret");
+			"POST /api/integration/v1/link/revoke", "POST /api/integration/v1/link/secret",
+			"GET /api/integration/v1/catalog/changes");
 
 	@Autowired
 	private MockMvc mvc;
