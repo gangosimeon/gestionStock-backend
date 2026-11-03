@@ -53,8 +53,8 @@ class SchemaConventionsIT {
 	@Test
 	void foundationTablesExistAndNothingElse() {
 		assertThat(this.jdbc.queryForList(TABLES_SQL, String.class)).containsExactly("account_access_token", "alert_setting", "app_user", "appointment", "audit_log", "brand",
-				"cash_entry", "cash_session", "category", "customer", "customer_account_entry", "customer_return",
-				"customer_return_line", "expense", "goods_receipt", "goods_receipt_line", "integration_feed_state", "integration_link_ack", "integration_link_warehouse", "integration_outbox", "integration_publication", "inventory_line", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product", "product_image", "product_image_generation", "purchase_order",
+				"cash_entry", "cash_session", "category", "channel_price", "channel_price_head", "customer", "customer_account_entry", "customer_return",
+				"customer_return_line", "expense", "goods_receipt", "goods_receipt_line", "integration_feed_state", "integration_idempotency", "integration_link_ack", "integration_link_warehouse", "integration_outbox", "integration_publication", "inventory_line", "inventory_session", "invoice_logo", "invoice_setting", "permission", "product", "product_image", "product_image_generation", "purchase_order",
 				"purchase_order_line", "quote", "quote_line", "refresh_token", "role", "role_permission", "sale", "sale_line", "stock_level",
 				"stock_movement", "stock_transfer", "stock_transfer_line", "supplier", "supplier_payment", "supplier_payment_allocation", "user_role", "user_warehouse",
 				"warehouse");

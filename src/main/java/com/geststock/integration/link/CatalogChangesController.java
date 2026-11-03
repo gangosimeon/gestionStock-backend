@@ -194,7 +194,7 @@ class CatalogChangesController {
 	}
 
 	/** Paramètres de la requête ; un nom ou une valeur refusés par le pare-feu donnent {@code INVALID_PARAMETER}. */
-	private static Map<String, String[]> parameters(HttpServletRequest request) {
+	static Map<String, String[]> parameters(HttpServletRequest request) {
 		try {
 			return request.getParameterMap();
 		}
@@ -206,7 +206,7 @@ class CatalogChangesController {
 	}
 
 	/** Valeur du paramètre, {@code null} s'il est absent ; refusée si elle est répétée. */
-	private static String text(Map<String, String[]> parameters, String name) {
+	static String text(Map<String, String[]> parameters, String name) {
 		String[] values = parameters.get(name);
 		if (values == null) {
 			return null;
@@ -418,7 +418,7 @@ class CatalogChangesController {
 		}
 	}
 
-	private static boolean isJson(String contentType) {
+	static boolean isJson(String contentType) {
 		if (contentType == null) {
 			return false;
 		}
@@ -607,6 +607,14 @@ class CatalogChangesController {
 			this.constraint = constraint;
 		}
 
+		String field() {
+			return this.field;
+		}
+
+		String constraint() {
+			return this.constraint;
+		}
+
 	}
 
 	/** Quota de lecture du flux de la liaison épuisé. */
@@ -617,6 +625,10 @@ class CatalogChangesController {
 		ChangesRateLimited(long retryAfterSeconds) {
 			super("Lectures du flux trop fréquentes", null, false, false);
 			this.retryAfterSeconds = retryAfterSeconds;
+		}
+
+		long retryAfterSeconds() {
+			return this.retryAfterSeconds;
 		}
 
 	}

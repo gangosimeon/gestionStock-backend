@@ -316,6 +316,16 @@ public enum ErrorCode {
 	CURSOR_AHEAD(HttpStatus.CONFLICT,
 			"Curseur du flux en avance sur ce flux : il ne vient pas de cette entreprise ou le flux a été réinitialisé. "
 					+ "Ne reprenez pas avec ce curseur : vérifiez la liaison."),
+	/** Prix proposé (G22a, C6) : basedOnReferenceVersion n'est plus la version courante du prix de référence. */
+	PRICE_VERSION_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT,
+			"Le prix de référence a changé : relisez-le avant de proposer un prix."),
+	/** Prix proposé (G22a) : devise différente de celle de la liaison. */
+	PRICE_CURRENCY_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT, "Devise différente de celle de la liaison."),
+	/** Prix proposé (G22a) : produit archivé (désactivé), aucun prix ne peut lui être proposé. */
+	PRODUCT_ARCHIVED(HttpStatus.UNPROCESSABLE_CONTENT, "Produit archivé : aucun prix ne peut lui être proposé."),
+	/** Écriture idempotente (G22a) : même clé Idempotency-Key, requête différente. */
+	IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT,
+			"Clé d'idempotence déjà utilisée pour une autre requête : utilisez une nouvelle clé."),
 	/** Maintenance de l'intégration : un passage tient déjà le bail (G20-D4) ; le cron ne relance pas. */
 	MAINTENANCE_IN_PROGRESS(HttpStatus.CONFLICT, "Un passage de maintenance est déjà en cours."),
 
