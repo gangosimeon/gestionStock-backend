@@ -120,6 +120,20 @@ class IntegrationRateLimitUnavailableIT {
 			.andExpect(jsonPath("$.items").doesNotExist());
 	}
 
+	@Test
+	void unavailableCountersRefuseTheAcknowledgementAndStoreNothing() throws Exception {
+		TestLinks.Client client = this.links.client();
+		Link link = this.links.active(client, this.links.legacyCompany(), "shop-g17-503", Set.of("catalog:read"));
+		String token = this.tokens.issue(link.id(), client.clientId(), Set.of("catalog:read")).value();
+
+		this.mvc.perform(post("/api/integration/v1/catalog/changes/ack").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"seq\": 0}").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+			.andExpect(jsonPath("$.code").value("RATE_LIMIT_UNAVAILABLE"))
+			.andExpect(jsonPath("$.acknowledgedSeq").doesNotExist());
+	}
+
 	/** Limiteur branché sur une base qui refuse toute connexion. */
 	@TestConfiguration(proxyBeanMethods = false)
 	static class BrokenCounters {

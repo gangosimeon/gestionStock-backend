@@ -52,10 +52,11 @@ public enum ErrorCode {
 	/** Gestion des liaisons (G10) : action impossible dans le statut courant de la liaison. */
 	LINK_TRANSITION_INVALID(HttpStatus.CONFLICT, "Action impossible dans l'état actuel de la liaison."),
 
-	// 404 / 405 / 406 / 415
+	// 404 / 405 / 406 / 413 / 415
 	RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Ressource introuvable."),
 	METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "Méthode HTTP non autorisée pour cette ressource."),
 	NOT_ACCEPTABLE(HttpStatus.NOT_ACCEPTABLE, "Format de réponse demandé non disponible."),
+	CONTENT_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "Requête trop volumineuse."),
 	UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Format de données non supporté."),
 
 	// 409

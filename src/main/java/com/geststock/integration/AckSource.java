@@ -1,16 +1,16 @@
 package com.geststock.integration;
 
-import java.util.OptionalLong;
-
 /**
  * Acquittements du flux par les liaisons ({@code POST /catalog/changes/ack}, D5) : la purge ne supprime jamais un
- * événement qu'une liaison active n'a pas acquitté. Lot 1 : aucune liaison, donc aucun acquittement
- * ({@link NoAcknowledgements}) ; la vraie source viendra au lot 2.
+ * événement qu'une liaison active ou suspendue n'a pas acquitté (plan § 30.4, v17-D4). Implémentation : liaisons
+ * actives ou suspendues de l'<b>entreprise courante</b> lues dans la base plateforme, puis leurs acquittements dans la
+ * base de l'entreprise ({@code integration_link_ack}). La purge lit son plafond {@code last_seq} <b>avant</b> d'appeler
+ * cette source (v17-D11).
  */
 @FunctionalInterface
 public interface AckSource {
 
-	/** Plus petit {@code seq} acquitté par les liaisons actives ; vide si aucune liaison active n'a acquitté. */
-	OptionalLong minimumAcknowledged();
+	/** Limite des acquittements pour l'entreprise courante. */
+	AckFloor floor();
 
 }

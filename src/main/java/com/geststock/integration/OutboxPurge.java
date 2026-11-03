@@ -1,7 +1,6 @@
 package com.geststock.integration;
 
 import java.util.List;
-import java.util.OptionalLong;
 
 import javax.sql.DataSource;
 
@@ -13,25 +12,41 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Purge du flux d'intégration de l'entreprise courante (lot 1, étape 9 ; D5, v11-D1), livrée <b>désactivée</b> et en
- * <b>simulation</b> ({@link IntegrationPurgeProperties}).
+ * Purge du flux d'intégration de l'entreprise courante (lot 1, étape 9 ; D5, v11-D1 ; lot 3, G17, plan § 30.4),
+ * livrée <b>désactivée</b> et en <b>simulation</b> ({@link IntegrationPurgeProperties}).
  *
- * <p>Éligibles : les événements séquencés de {@code seq} supérieur au repère de purge et inférieur ou égal à la
- * borne {@code min(plus petit acquittement des liaisons actives, MAX(seq) - 1, premier seq trop récent - 1)}. La
- * borne forme un <b>préfixe contigu</b> des {@code seq} : {@code created_at} (début de la transaction d'écriture)
- * n'est pas monotone en {@code seq}, et supprimer un événement ancien au-delà d'un récent ferait mentir le repère
- * (invariant de réparation v11-D1 : {@code MIN(seq) - 1} = repère). Jamais un événement sans {@code seq} ; jamais
- * l'événement de plus grand {@code seq} ; sans acquittement (lot 1 : aucune liaison), rien n'est éligible.
+ * <p>Borne {@code B} d'un passage, calculée <b>une seule fois</b>, dans cet ordre (v17-D11) :
+ * <ol>
+ * <li>plafond {@code P} = {@code last_seq}, lu dans la base de l'entreprise par une instruction distincte, validée
+ * avant l'étape suivante ;</li>
+ * <li>acquittements ({@link AckSource}) : liaisons actives ou suspendues de l'entreprise (base plateforme), puis leurs
+ * acquittements ; une liaison sans acquittement bloque la purge (v17-D4) ;</li>
+ * <li>{@code B = min(P, MAX(seq) - 1, premier seq de moins de la rétention - 1, plus petit acquittement)}.</li>
+ * </ol>
+ * Une liaison activée après la lecture de {@code P} fixe son {@code asOfSeq} à un {@code last_seq} au moins égal à
+ * {@code P} ({@code last_seq} ne décroît jamais) : rien de ce qu'elle doit lire n'est supprimé (§ 30.5).
  *
- * <p>Simulation : calcule et journalise ce qui serait supprimé, sans rien supprimer ni verrouiller. Suppression
- * ({@code mode=DELETE}, explicite) : dans une transaction, verrou de la ligne {@code integration_feed_state}
- * ({@code FOR UPDATE}, {@code lock_timeout}, sans {@code SKIP LOCKED} : le séquenceur, lui, passe son tour),
- * suppression par lots, puis repère = plus grand {@code seq} supprimé, jamais en recul.
+ * <p>Éligibles : les événements séquencés tels que {@code repère < seq ≤ B}, <b>préfixe contigu</b> des {@code seq}
+ * ({@code created_at} n'est pas monotone en {@code seq} ; invariant de réparation v11-D1 : {@code MIN(seq) - 1} =
+ * repère). Jamais un événement sans {@code seq} (v17-D9) ; jamais l'événement de plus grand {@code seq}.
+ *
+ * <p>Suppression ({@code mode=DELETE}, explicite) : <b>un lot = une transaction</b> courte (v17-D10) : verrou de la
+ * ligne {@code integration_feed_state} ({@code FOR UPDATE}, {@code lock_timeout} ; le séquenceur, en
+ * {@code SKIP LOCKED}, passe son tour le temps d'un lot), suppression d'au plus {@code batch-size} événements, repère
+ * avancé au plus grand {@code seq} supprimé dans la même transaction, jamais en recul. Aucun verrou entre deux lots.
+ * Une erreur annule le lot en cours seul et arrête le passage ; le suivant reprend depuis le repère. Le passage
+ * s'arrête au plus tard après {@code max-batches} lots ; la durée {@code max-duration} est vérifiée entre deux lots :
+ * un lot commencé est mené à son terme, le premier lot a toujours lieu (v17-D16).
+ *
+ * <p>Simulation : même plafond, même borne, mêmes critères et mêmes limites de lots ; ne supprime rien, n'avance pas
+ * le repère et ne prend aucun verrou (elle ne reproduit pas {@code lock_timeout}).
  */
 @Component
 class OutboxPurge {
 
 	private static final Logger log = LoggerFactory.getLogger(OutboxPurge.class);
+
+	private static final String READ_LAST_SEQ = "select last_seq from integration_feed_state where id = :id";
 
 	private static final String READ_STATE = "select purged_through_seq from integration_feed_state where id = :id";
 
@@ -74,6 +89,12 @@ class OutboxPurge {
 		if (properties.batchSize() < 1) {
 			throw new IllegalArgumentException("geststock.integration.purge.batch-size doit être positif");
 		}
+		if (properties.maxBatches() < 1) {
+			throw new IllegalArgumentException("geststock.integration.purge.max-batches doit être positif");
+		}
+		if (properties.maxDuration() == null || properties.maxDuration().isNegative()) {
+			throw new IllegalArgumentException("geststock.integration.purge.max-duration ne peut pas être négative");
+		}
 		this.jdbc = JdbcClient.create(dataSource);
 		this.readOnly = new TransactionTemplate(transactionManager);
 		this.readOnly.setReadOnly(true);
@@ -84,50 +105,91 @@ class OutboxPurge {
 
 	/** Un passage, dans le mode configuré, sur la base de l'entreprise courante. */
 	PurgeReport run() {
-		OptionalLong acknowledged = this.acknowledgements.minimumAcknowledged();
+		// 1. Plafond P, lu et validé AVANT la liste des liaisons (v17-D11). Hors transaction : instruction distincte.
+		long ceiling = this.jdbc.sql(READ_LAST_SEQ).param("id", FeedSequencer.FEED_STATE_ID).query(Long.class).optional()
+			.orElseThrow(IntegrationFeedStateMissingException::new);
+		// 2. Liaisons actives ou suspendues, puis leurs acquittements.
+		AckFloor floor = this.acknowledgements.floor();
+		// 3. Borne du passage, jamais relevée ensuite.
+		Bound bound = this.readOnly.execute(status -> bound(ceiling, floor));
 		if (this.properties.mode() == PurgeMode.DELETE) {
-			return this.readWrite.execute(status -> delete(acknowledged));
+			return delete(ceiling, floor, bound);
 		}
-		return this.readOnly.execute(status -> simulate(acknowledged));
+		int batches = (int) Math.min(this.properties.maxBatches(),
+				(bound.eligible() + this.properties.batchSize() - 1) / this.properties.batchSize());
+		log.info("Purge du flux d'intégration (simulation) : {} événement(s) éligibles (seq {} à {}), {} lot(s) ; plafond {}, "
+				+ "{} ; repère inchangé à {}", bound.eligible(), bound.watermark() + 1, bound.through(), batches, ceiling,
+				describe(floor), bound.watermark());
+		return new PurgeReport(PurgeMode.SIMULATION, ceiling, floor, bound.watermark(), bound.through(), bound.eligible(),
+				batches, 0, bound.watermark());
 	}
 
-	private PurgeReport simulate(OptionalLong acknowledged) {
-		long watermark = watermark(READ_STATE);
-		long through = eligibleThrough(acknowledged, watermark);
-		long eligible = eligibleCount(watermark, through);
-		log.info("Purge du flux d'intégration (simulation) : {} événement(s) seraient supprimés (seq {} à {}) ; "
-				+ "repère inchangé à {}", eligible, watermark + 1, through, watermark);
-		return new PurgeReport(PurgeMode.SIMULATION, watermark, through, eligible, 0, watermark);
+	private PurgeReport delete(long ceiling, AckFloor floor, Bound bound) {
+		long started = System.nanoTime();
+		int batches = 0;
+		long deleted = 0;
+		long watermark = bound.watermark();
+		while (batches < this.properties.maxBatches()
+				&& (batches == 0 || System.nanoTime() - started < this.properties.maxDuration().toNanos())) {
+			Batch batch = this.readWrite.execute(status -> batch(bound.through()));
+			if (batch.deleted() == 0) {
+				break;
+			}
+			batches++;
+			deleted += batch.deleted();
+			watermark = batch.watermark();
+		}
+		log.info("Purge du flux d'intégration : {} événement(s) supprimés en {} lot(s) ; repère {} → {} ; borne {}, plafond {}, {}",
+				deleted, batches, bound.watermark(), watermark, bound.through(), ceiling, describe(floor));
+		return new PurgeReport(PurgeMode.DELETE, ceiling, floor, bound.watermark(), bound.through(), bound.eligible(),
+				batches, deleted, watermark);
 	}
 
-	private PurgeReport delete(OptionalLong acknowledged) {
+	/** Un lot, dans la transaction courante : verrou de la ligne d'état, suppression, repère. */
+	private Batch batch(long through) {
 		// Valeur numérique issue de la configuration : SET n'accepte pas de paramètre lié.
 		this.jdbc.sql("set local lock_timeout = " + this.properties.lockTimeout().toMillis()).update();
 		long watermark = watermark(LOCK_STATE);
-		long through = eligibleThrough(acknowledged, watermark);
-		long eligible = eligibleCount(watermark, through);
-		long deleted = 0;
-		long largestDeleted = watermark;
-		List<Long> batch;
-		do {
-			batch = this.jdbc.sql(DELETE_BATCH)
-				.param("fromSeq", watermark)
-				.param("throughSeq", through)
-				.param("batchSize", this.properties.batchSize())
-				.query(Long.class)
-				.list();
-			deleted += batch.size();
-			for (long seq : batch) {
-				largestDeleted = Math.max(largestDeleted, seq);
+		if (through <= watermark) {
+			return new Batch(0, watermark);
+		}
+		List<Long> removed = this.jdbc.sql(DELETE_BATCH)
+			.param("fromSeq", watermark)
+			.param("throughSeq", through)
+			.param("batchSize", this.properties.batchSize())
+			.query(Long.class)
+			.list();
+		long largest = watermark;
+		for (long seq : removed) {
+			largest = Math.max(largest, seq);
+		}
+		if (largest > watermark) {
+			this.jdbc.sql(ADVANCE_WATERMARK).param("seq", largest).param("id", FeedSequencer.FEED_STATE_ID).update();
+		}
+		return new Batch(removed.size(), largest);
+	}
+
+	/** Borne du passage : {@code min(P, MAX(seq) - 1, premier seq récent - 1, acquittement)} ; le repère si rien. */
+	private Bound bound(long ceiling, AckFloor floor) {
+		long watermark = watermark(READ_STATE);
+		long through = watermark;
+		Long maxSeq = nullableLong(this.jdbc.sql(MAX_SEQ));
+		if (!(floor instanceof AckFloor.Blocked) && maxSeq != null) {
+			through = Math.min(ceiling, maxSeq - 1);
+			if (floor instanceof AckFloor.Acknowledged acknowledged) {
+				through = Math.min(through, acknowledged.seq());
 			}
+			Long firstRecent = nullableLong(this.jdbc.sql(FIRST_RECENT_SEQ)
+				.param("retentionSeconds", (double) this.properties.retention().toSeconds()));
+			if (firstRecent != null) {
+				through = Math.min(through, firstRecent - 1);
+			}
+			through = Math.max(through, watermark);
 		}
-		while (!batch.isEmpty());
-		if (largestDeleted > watermark) {
-			this.jdbc.sql(ADVANCE_WATERMARK).param("seq", largestDeleted).param("id", FeedSequencer.FEED_STATE_ID).update();
-		}
-		log.info("Purge du flux d'intégration : {} événement(s) supprimés ; repère {} → {}", deleted, watermark,
-				largestDeleted);
-		return new PurgeReport(PurgeMode.DELETE, watermark, through, eligible, deleted, largestDeleted);
+		long eligible = through <= watermark ? 0
+				: this.jdbc.sql(COUNT_ELIGIBLE).param("fromSeq", watermark).param("throughSeq", through).query(Long.class)
+					.single();
+		return new Bound(watermark, through, eligible);
 	}
 
 	private long watermark(String sql) {
@@ -135,35 +197,32 @@ class OutboxPurge {
 			.orElseThrow(IntegrationFeedStateMissingException::new);
 	}
 
-	/** Plus grand {@code seq} éligible ; le repère lui-même si rien ne l'est. */
-	private long eligibleThrough(OptionalLong acknowledged, long watermark) {
-		if (acknowledged.isEmpty()) {
-			return watermark;
-		}
-		Long maxSeq = nullableLong(this.jdbc.sql(MAX_SEQ));
-		if (maxSeq == null) {
-			return watermark;
-		}
-		long through = Math.min(acknowledged.getAsLong(), maxSeq - 1);
-		Long firstRecent = nullableLong(this.jdbc.sql(FIRST_RECENT_SEQ)
-			.param("retentionSeconds", (double) this.properties.retention().toSeconds()));
-		if (firstRecent != null) {
-			through = Math.min(through, firstRecent - 1);
-		}
-		return Math.max(through, watermark);
-	}
-
 	/** Agrégat d'une ligne, {@code null} sur un ensemble vide ({@code max}, {@code min}). */
 	private static Long nullableLong(JdbcClient.StatementSpec statement) {
 		return statement.query((rs, row) -> rs.getObject(1, Long.class)).list().get(0);
 	}
 
-	private long eligibleCount(long watermark, long through) {
-		if (through <= watermark) {
-			return 0;
-		}
-		return this.jdbc.sql(COUNT_ELIGIBLE).param("fromSeq", watermark).param("throughSeq", through).query(Long.class)
-			.single();
+	private static String describe(AckFloor floor) {
+		return switch (floor) {
+			case AckFloor.NoLink noLink -> "aucune liaison";
+			case AckFloor.Blocked blocked -> "bloquée (liaison sans acquittement)";
+			case AckFloor.Acknowledged acknowledged -> "acquittement " + acknowledged.seq();
+		};
+	}
+
+	/**
+	 * @param watermark repère au calcul de la borne
+	 * @param through   borne {@code B} ; le repère si rien n'est éligible
+	 * @param eligible  événements tels que {@code repère < seq ≤ B}
+	 */
+	private record Bound(long watermark, long through, long eligible) {
+	}
+
+	/**
+	 * @param deleted   événements supprimés par le lot
+	 * @param watermark repère après le lot
+	 */
+	private record Batch(int deleted, long watermark) {
 	}
 
 }

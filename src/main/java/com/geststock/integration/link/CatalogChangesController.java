@@ -1,5 +1,7 @@
 package com.geststock.integration.link;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -24,12 +26,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.web.firewall.RequestRejectedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -44,7 +48,12 @@ import com.geststock.integration.ChangePage;
 import com.geststock.integration.IntegrationOperation;
 import com.geststock.integration.LinkRef;
 
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectReader;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Flux des changements de l'entreprise liée (lot 3, étape G16 ; contrat {@code GET /catalog/changes}, portée
@@ -57,6 +66,13 @@ import tools.jackson.databind.JsonNode;
  * journaux, et le pare-feu de Spring Security la cite dans son exception (G15 : aucune valeur reçue dans les journaux).
  * {@code after} absent, vide, non entier ou répété, de même pour {@code limit} : {@code 400 INVALID_PARAMETER} ; hors
  * bornes : {@code 400 VALIDATION_FAILED}, paramètre fautif dans {@code errors} (v11-D3).
+ *
+ * <p>Acquittement ({@code POST /catalog/changes/ack}, lot 3, étape G17 ; plan § 30.3) : dans l'ordre, chaîne de
+ * sécurité, limite de débit (60 par minute et par liaison, v17-D7, comptée avant la lecture du corps, v17-D14), type de
+ * contenu, lecture stricte du corps (v17-D12), enregistrement ({@link LinkAcknowledgements} : jamais en recul,
+ * {@code 409 CURSOR_AHEAD} au-delà du flux). Le corps est lu ici, et non par un {@code @RequestBody} que Spring MVC lirait
+ * avant la méthode ; la route ne déclare pas {@code consumes} : la chaîne d'intégration ne trouverait alors aucune
+ * règle pour un autre type de contenu et répondrait {@code 403} au lieu de {@code 415}.
  */
 @RestController
 @RequestMapping(IntegrationSecurityConfig.BASE_PATH + "/catalog")
@@ -72,6 +88,9 @@ class CatalogChangesController {
 
 	private static final int MAX_LIMIT = 500;
 
+	/** Taille maximale du corps d'un acquittement ({@code {"seq": <entier>}}). */
+	static final int MAX_ACK_BODY = 1024;
+
 	private final ChangeFeedService feed;
 
 	private final RateLimiter limiter;
@@ -80,12 +99,20 @@ class CatalogChangesController {
 
 	private final ApiErrorFactory errors;
 
+	private final LinkAcknowledgements acknowledgements;
+
+	/** Lecture stricte du corps : clés répétées et contenu après l'objet refusés (v17-D12). */
+	private final ObjectReader strictJson;
+
 	CatalogChangesController(ChangeFeedService feed, RateLimiter limiter, IntegrationRateLimitProperties rateLimits,
-			ApiErrorFactory errors) {
+			ApiErrorFactory errors, LinkAcknowledgements acknowledgements, JsonMapper json) {
 		this.feed = feed;
 		this.limiter = limiter;
 		this.rateLimits = rateLimits;
 		this.errors = errors;
+		this.acknowledgements = acknowledgements;
+		this.strictJson = json.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+			.with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 	}
 
 	@GetMapping("/changes")
@@ -132,14 +159,7 @@ class CatalogChangesController {
 									schema = @Schema(ref = API_ERROR))) })
 	ChangePageView changes(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
 			HttpServletRequest request) {
-		IntegrationRateLimitProperties.RateLimit limits = this.rateLimits.rateLimit();
-		RateLimiter.Decision decision = this.limiter.hit("catalog-changes:link:" + principal.linkId(),
-				limits.catalogChangesPerLink(), limits.window());
-		if (!decision.allowed()) {
-			log.info("Limitation de débit : {} ({} / {}) ⇒ 429, Retry-After {} s.", decision.key(), decision.hits(),
-					decision.limit(), decision.retryAfterSeconds());
-			throw new ChangesRateLimited(decision.retryAfterSeconds());
-		}
+		limit("catalog-changes:link:" + principal.linkId(), this.rateLimits.rateLimit().catalogChangesPerLink());
 		Map<String, String[]> parameters;
 		try {
 			parameters = request.getParameterMap();
@@ -186,6 +206,126 @@ class CatalogChangesController {
 		throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre invalide : " + name + ".");
 	}
 
+	@PostMapping("/changes/ack")
+	@RequiresScope("catalog:read")
+	@Operation(operationId = "acknowledgeCatalogChanges", summary = "Acquittement du curseur appliqué (condition de purge, D5)",
+			description = "Acquittement de la liaison du jeton, enregistré dans la base de son entreprise : jamais en recul "
+					+ "(un seq inférieur ou égal, même sous le repère de purge, répond 200 avec la valeur enregistrée) ; "
+					+ "seq supérieur au dernier seq attribué : 409 CURSOR_AHEAD. Corps strict {\"seq\": entier de 0 à 2^63 - 1}. "
+					+ "Limite : 60 acquittements par minute et par liaison (configurable), comptés avant la lecture du corps.",
+			security = @SecurityRequirement(name = OpenApiConfig.INTEGRATION_LINK_SCHEME),
+			requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = AcknowledgementRequest.class))),
+			responses = { @ApiResponse(responseCode = "200", description = "Curseur acquitté ; valeur enregistrée"),
+					@ApiResponse(responseCode = "400", description = "VALIDATION_FAILED (seq absent, nul ou négatif), "
+							+ "MALFORMED_REQUEST (seq d'un autre type, corps illisible)",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "401", description = "INVALID_TOKEN, LINK_REVOKED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "403",
+							description = "INSUFFICIENT_SCOPE, LINK_SUSPENDED, COMPANY_SUSPENDED, COMPANY_UNAVAILABLE",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "409", description = "CURSOR_AHEAD : seq dépasse le dernier seq attribué",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "413", description = "CONTENT_TOO_LARGE : corps de plus de 1 024 octets",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "415", description = "UNSUPPORTED_MEDIA_TYPE : corps autre que application/json",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "429", description = "RATE_LIMITED : plus de 60 acquittements par minute pour "
+							+ "la liaison (valeur de départ, configurable) ; en-tête Retry-After",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "503",
+							description = "RATE_LIMIT_UNAVAILABLE, SCHEMA_UPGRADE_IN_PROGRESS, SCHEMA_UPGRADE_FAILED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))) })
+	AcknowledgementView acknowledge(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
+			HttpServletRequest request) {
+		// v17-D14 : limite d'abord ; un appel refusé n'est ni lu ni enregistré.
+		limit("catalog-ack:link:" + principal.linkId(), this.rateLimits.rateLimit().catalogAckPerLink());
+		if (!isJson(request.getContentType())) {
+			throw new InvalidRequestException(ErrorCode.UNSUPPORTED_MEDIA_TYPE, null);
+		}
+		long seq = acknowledgedSeq(request);
+		return new AcknowledgementView(this.acknowledgements.acknowledge(principal.linkId(), seq));
+	}
+
+	/** Compte l'appel sous {@code key} ; au-delà de {@code limit} dans la fenêtre : {@code 429} avec {@code Retry-After}. */
+	private void limit(String key, int limit) {
+		RateLimiter.Decision decision = this.limiter.hit(key, limit, this.rateLimits.rateLimit().window());
+		if (!decision.allowed()) {
+			log.info("Limitation de débit : {} ({} / {}) ⇒ 429, Retry-After {} s.", decision.key(), decision.hits(),
+					decision.limit(), decision.retryAfterSeconds());
+			throw new ChangesRateLimited(decision.retryAfterSeconds());
+		}
+	}
+
+	private static boolean isJson(String contentType) {
+		if (contentType == null) {
+			return false;
+		}
+		try {
+			return MediaType.APPLICATION_JSON.equalsTypeAndSubtype(MediaType.parseMediaType(contentType));
+		}
+		catch (InvalidMediaTypeException ex) {
+			return false;
+		}
+	}
+
+	/**
+	 * {@code seq} du corps, lu strictement (v17-D12), sans conversion implicite : objet JSON seul, clés uniques ; absent,
+	 * {@code null} ou négatif : {@code VALIDATION_FAILED} ; tout autre type qu'un entier JSON sur 64 bits, ou corps
+	 * illisible : {@code MALFORMED_REQUEST} ; plus de {@link #MAX_ACK_BODY} octets : {@code 413 CONTENT_TOO_LARGE} (choix
+	 * E2). Aucun message ne reprend la valeur reçue ; aucune exception de lecture
+	 * n'est journalisée.
+	 */
+	private long acknowledgedSeq(HttpServletRequest request) {
+		byte[] body;
+		try (InputStream in = request.getInputStream()) {
+			body = in.readNBytes(MAX_ACK_BODY + 1);
+		}
+		catch (IOException ex) {
+			throw malformed();
+		}
+		if (body.length > MAX_ACK_BODY) {
+			// RFC 9110 § 15.5.14 : 413, comme FILE_TOO_LARGE pour les fichiers ; le reste du corps n'est pas lu.
+			throw new InvalidRequestException(ErrorCode.CONTENT_TOO_LARGE, null);
+		}
+		JsonNode root;
+		try {
+			root = this.strictJson.readTree(body);
+		}
+		catch (JacksonException ex) {
+			throw malformed();
+		}
+		if (root == null || !root.isObject()) {
+			throw malformed();
+		}
+		JsonNode seq = root.get("seq");
+		if (seq == null || seq.isNull()) {
+			throw new OutOfBounds("seq", "ne doit pas être nul");
+		}
+		if (!seq.isIntegralNumber() || !seq.canConvertToLong()) {
+			throw malformed();
+		}
+		long value = seq.longValue();
+		if (value < 0) {
+			throw new OutOfBounds("seq", "doit être supérieur ou égal à 0");
+		}
+		return value;
+	}
+
+	private static InvalidRequestException malformed() {
+		return new InvalidRequestException(ErrorCode.MALFORMED_REQUEST, null);
+	}
+
 	@ExceptionHandler(OutOfBounds.class)
 	ResponseEntity<ApiError> outOfBounds(OutOfBounds ex, HttpServletRequest request) {
 		ApiError.FieldViolation violation = new ApiError.FieldViolation(ex.field, ex.constraint);
@@ -208,7 +348,7 @@ class CatalogChangesController {
 	/** Compteurs de débit inaccessibles : jamais de laisser-passer (v13-D4). */
 	@ExceptionHandler(RateLimiter.Unavailable.class)
 	ResponseEntity<ApiError> rateLimitUnavailable(RateLimiter.Unavailable ex, HttpServletRequest request) {
-		log.warn("Limitation de débit indisponible ⇒ 503, lecture du flux refusée : {}.",
+		log.warn("Limitation de débit indisponible ⇒ 503, lecture ou acquittement du flux refusé : {}.",
 				ex.getCause().getClass().getSimpleName());
 		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).cacheControl(CacheControl.noStore())
 			.header(HttpHeaders.PRAGMA, "no-cache")
@@ -253,6 +393,25 @@ class CatalogChangesController {
 					event.occurredAt(), event.data());
 		}
 
+	}
+
+	/**
+	 * Corps de {@code POST /catalog/changes/ack}, pour la documentation seulement : le corps est lu strictement par la
+	 * route ({@link #acknowledgedSeq}).
+	 *
+	 * @param seq dernier {@code seq} dont les événements sont appliqués par la boutique
+	 */
+	@Schema(name = "IntegrationAcknowledgementRequest")
+	record AcknowledgementRequest(@Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0", format = "int64") long seq) {
+	}
+
+	/**
+	 * Réponse {@code 200} de {@code POST /catalog/changes/ack}.
+	 *
+	 * @param acknowledgedSeq valeur enregistrée après l'appel, jamais inférieure à la précédente
+	 */
+	@Schema(name = "IntegrationAcknowledgement")
+	record AcknowledgementView(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) long acknowledgedSeq) {
 	}
 
 	/** Paramètre hors bornes : {@code VALIDATION_FAILED}, paramètre fautif dans {@code errors}. */
