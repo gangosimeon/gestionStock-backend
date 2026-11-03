@@ -23,8 +23,8 @@ import com.geststock.integration.link.RetainedLink;
  * <li>sinon, plus ancien événement en attente ancien : {@code CONSUMER_STALLED}.</li>
  * </ol>
  * Au niveau de l'entreprise, et en plus : {@code UNSEQUENCED_EVENTS} (seulement avec une liaison active),
- * {@code LOCK_WAIT}, {@code COMPANY_ERROR}, {@code COMPANY_INTERRUPTED} ; pour le passage, {@code CLEANUP_ERROR}
- * (G20d).
+ * {@code LOCK_WAIT}, {@code COMPANY_ERROR}, {@code COMPANY_INTERRUPTED}, {@code PUBLICATION_FLAG_RAISED},
+ * {@code LINK_SUSPENDED_LOST_ACCESS} (G20f-1) ; pour le passage, {@code CLEANUP_ERROR} (G20d).
  */
 @Component
 class MaintenanceAlerts {
@@ -34,6 +34,12 @@ class MaintenanceAlerts {
 
 	/** Nettoyage de la base plateforme en échec (G20d, décision E4) : le passage n'est pas arrêté. */
 	static final Alert CLEANUP_ERROR = new Alert(Type.CLEANUP_ERROR, Severity.WARNING);
+
+	/** Drapeau de publication trouvé baissé avec une liaison active ou suspendue, levé (G20f-1). */
+	static final Alert PUBLICATION_FLAG_RAISED = new Alert(Type.PUBLICATION_FLAG_RAISED, Severity.CRITICAL);
+
+	/** Liaison suspendue par la réévaluation de sa personne responsable (G20f-1). */
+	static final Alert LINK_SUSPENDED_LOST_ACCESS = new Alert(Type.LINK_SUSPENDED_LOST_ACCESS, Severity.WARNING);
 
 	/** Entreprise interrompue au moins deux fois de suite au début du passage (G20-D13). */
 	static final Alert COMPANY_INTERRUPTED = new Alert(Type.COMPANY_INTERRUPTED, Severity.CRITICAL);
@@ -100,7 +106,7 @@ class MaintenanceAlerts {
 	enum Type {
 
 		NO_FIRST_ACK, NO_ACTIVITY, CONSUMER_STALLED, PURGE_BLOCKED_BY_SUSPENSION, UNSEQUENCED_EVENTS, COMPANY_ERROR,
-		COMPANY_INTERRUPTED, LOCK_WAIT, CLEANUP_ERROR
+		COMPANY_INTERRUPTED, LOCK_WAIT, CLEANUP_ERROR, PUBLICATION_FLAG_RAISED, LINK_SUSPENDED_LOST_ACCESS
 
 	}
 

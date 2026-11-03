@@ -21,6 +21,7 @@ import com.geststock.integration.PassControl;
 import com.geststock.integration.PassStop;
 import com.geststock.integration.PurgeReport;
 import com.geststock.integration.SequencingOutcome;
+import com.geststock.integration.link.LinkCatchUp;
 import com.geststock.integration.link.LinkRegistry;
 import com.geststock.integration.link.LinkStatus;
 import com.geststock.integration.link.RetainedLink;
@@ -38,7 +39,8 @@ import com.geststock.tenancy.TenantSchemaRegistry;
  * <p>Pour chaque entreprise, tant que le budget global le permet (G20-D3) : bail prolongé (sauf pour la première, il
  * vient d'être pris) ; tentative commencée ; base en migration : sautée ; aucune liaison active ou suspendue :
  * séquencement des événements sans {@code seq} (G20-D9) ; purge dans le mode configuré (simulation par défaut,
- * G20-D5) ; mesures et alertes (G20c) ; tentative terminée avec son résultat. Après les entreprises, une fois : liaisons
+ * G20-D5) ; mesures et alertes (G20c) ; tentative terminée avec son résultat. Avant le flux : rattrapages du lot 2
+ * (G20f-1). Après les entreprises, une fois : liaisons
  * en attente expirées révoquées (G20d). Une entreprise dispose au plus de la
  * moitié du budget restant, sauf la dernière à visiter (décision D).
  *
@@ -84,10 +86,12 @@ class MaintenanceService {
 
 	private final LinkRegistry links;
 
+	private final LinkCatchUp catchUp;
+
 	MaintenanceService(MaintenanceLease lease, MaintenanceCompanies companies, MaintenanceTenants tenants,
 			MaintenanceTicker ticker, MaintenanceAuthFailures failures, IntegrationMaintenanceProperties properties,
 			IntegrationPurgeProperties purge, FeedMaintenance feed, RetainedLinks retainedLinks, TenantSchemaRegistry schemas,
-			MaintenanceAlerts alerts, LinkRegistry links) {
+			MaintenanceAlerts alerts, LinkRegistry links, LinkCatchUp catchUp) {
 		this.lease = lease;
 		this.companies = companies;
 		this.tenants = tenants;
@@ -100,6 +104,7 @@ class MaintenanceService {
 		this.schemas = schemas;
 		this.alerts = alerts;
 		this.links = links;
+		this.catchUp = catchUp;
 	}
 
 	MaintenanceReport run() {
@@ -290,12 +295,30 @@ class MaintenanceService {
 				this.skippedUpgrade++;
 				return MaintenanceCompanies.Outcome.SKIPPED_UPGRADE;
 			}
+			catchUp(company);
 			return TenantContext.callAs(company, () -> {
 				MaintenanceCompanies.Outcome outcome = clean(company, control);
 				// C3 : mesures même après un arrêt faute de budget ; jamais après la perte du bail (exception remontée).
 				measure(company.companyId());
 				return outcome;
 			});
+		}
+
+		/**
+		 * Rattrapages du lot 2 (G20f-1), avant le flux : drapeau de publication levé s'il manque (jamais baissé), puis
+		 * personnes responsables réévaluées (une liaison suspendue reste mesurée comme suspendue).
+		 */
+		private void catchUp(TenantRef company) {
+			UUID companyId = company.companyId();
+			if (MaintenanceService.this.catchUp.restorePublication(companyId)) {
+				raise(MaintenanceAlerts.PUBLICATION_FLAG_RAISED, companyId, null,
+						"drapeau de publication levé : des changements ont pu ne pas être publiés, instantané à relire");
+			}
+			int suspended = MaintenanceService.this.catchUp.reassessAuthorizers(company);
+			for (int i = 0; i < suspended; i++) {
+				raise(MaintenanceAlerts.LINK_SUSPENDED_LOST_ACCESS, companyId, null,
+						"liaison suspendue : personne responsable sans ses droits (identifiant dans le journal de la réévaluation)");
+			}
 		}
 
 		/** Séquencement sans liaison (G20-D9), puis purge, dans le contexte de l'entreprise. */

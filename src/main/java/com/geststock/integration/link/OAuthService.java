@@ -59,7 +59,7 @@ class OAuthService {
 
 	/** Entreprise de la liaison en attente d'un code encore utilisable (lecture seule, avant l'échange). */
 	private static final String PENDING_COMPANY = """
-			select l.company_id from platform.integration_authorization_code c
+			select l.company_id, l.id from platform.integration_authorization_code c
 			join platform.integration_authorization_request r on r.id = c.request_id
 			join platform.integration_link l on l.id = c.link_id
 			where c.code_hash = :hash and r.client_id = :client and c.used_at is null and c.expires_at > now()
@@ -161,8 +161,11 @@ class OAuthService {
 		}
 		String codeHash = LinkRegistry.sha256Hex(code);
 		// G13 : drapeau de publication levé AVANT l'activation (aucune fenêtre avant le premier instantané).
-		Optional<UUID> company = this.platform.jdbc().sql(PENDING_COMPANY).param("hash", codeHash).param("client", client.id())
-			.query(UUID.class).optional();
+		Optional<PendingLink> pendingLink = this.platform.jdbc().sql(PENDING_COMPANY).param("hash", codeHash)
+			.param("client", client.id())
+			.query((rs, n) -> new PendingLink((UUID) rs.getObject("company_id"), (UUID) rs.getObject("id")))
+			.optional();
+		Optional<UUID> company = pendingLink.map(PendingLink::companyId);
 		if (company.isPresent()) {
 			try {
 				this.publication.open(company.get());
@@ -232,14 +235,15 @@ class OAuthService {
 		finally {
 			if (company.isPresent() && !exchanged) {
 				// Activation non aboutie : le drapeau levé sans liaison active est remis à sa valeur.
-				resynchronize(company.get());
+				resynchronize(company.get(), pendingLink.get().linkId());
 			}
 		}
 	}
 
-	private void resynchronize(UUID companyId) {
+	/** Sa propre liaison ignorée : son code reste utilisable, mais son échange vient d'échouer (G20f-1). */
+	private void resynchronize(UUID companyId, UUID failedLinkId) {
 		try {
-			this.publication.synchronize(companyId);
+			this.publication.synchronize(companyId, failedLinkId);
 		}
 		catch (RuntimeException ex) {
 			log.warn("Drapeau de publication de l'entreprise {} non resynchronisé ({}) : rattrapage par la tâche planifiée "
@@ -385,6 +389,10 @@ class OAuthService {
 	}
 
 	private record Exchange(ActivatedLink activated, boolean replay) {
+	}
+
+	/** Liaison en attente d'un code encore utilisable, et son entreprise (avant l'échange). */
+	private record PendingLink(UUID companyId, UUID linkId) {
 	}
 
 }

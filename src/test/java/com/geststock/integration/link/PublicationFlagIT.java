@@ -263,6 +263,67 @@ class PublicationFlagIT {
 		assertThat(flag()).as("drapeau remis à faux : aucune liaison active").isFalse();
 	}
 
+	// --- Resynchronisation pendant un échange de code (G20f-1) ------------------------------------------------
+
+	/**
+	 * L'échange lève le drapeau, puis active la liaison : entre les deux, la liaison est en attente avec un code encore
+	 * utilisable. Une resynchronisation (révocation d'une autre liaison, maintenance) qui la lirait « non liée »
+	 * baisserait le drapeau juste avant l'activation : la liaison active ne recevrait plus les changements.
+	 */
+	@Test
+	void aSynchronizationDuringACodeExchangeKeepsTheFlagRaised() throws Exception {
+		Pending pending = pendingExchange("shop-g20f-echange");
+		setFlag(true);
+		assertThat(this.publication.synchronize(this.company.companyId())).isTrue();
+		assertThat(flag()).as("échange en cours : drapeau maintenu").isTrue();
+		assertThat(pending.linkId()).isNotNull();
+	}
+
+	/** Les liaisons sont lues une fois le verrou du drapeau obtenu, pas avant : une activation entre-temps est vue. */
+	@Test
+	void aSynchronizationWaitingForTheFlagLockReadsTheLinksOnceItHoldsIt() throws Exception {
+		Pending pending = pendingExchange("shop-g20f-verrou");
+		expireCode(pending, "5 minutes");
+		setFlag(true);
+		CountDownLatch locked = new CountDownLatch(1);
+		CountDownLatch release = new CountDownLatch(1);
+		ExecutorService pool = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> holder = pool.submit(() -> this.transactions.executeWithoutResult(status -> {
+				this.jdbc.execute("lock table integration_publication in exclusive mode");
+				locked.countDown();
+				try {
+					release.await(30, TimeUnit.SECONDS);
+				}
+				catch (InterruptedException ex) {
+					Thread.currentThread().interrupt();
+				}
+			}));
+			assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+			Future<Boolean> synchronization = pool.submit(() -> this.publication.synchronize(this.company.companyId()));
+			awaitLockWaiter();
+			// Pendant l'attente : l'activation de la liaison est validée (base plateforme).
+			this.registry.activate(pending.linkId());
+			release.countDown();
+			holder.get(30, TimeUnit.SECONDS);
+			assertThat(synchronization.get(30, TimeUnit.SECONDS)).as("liaison active vue après le verrou").isTrue();
+		}
+		finally {
+			release.countDown();
+			pool.shutdownNow();
+		}
+		assertThat(flag()).isTrue();
+	}
+
+	@Test
+	void aPendingLinkWhoseCodeExpiredBeyondTheGraceNoLongerKeepsTheFlag() throws Exception {
+		Pending pending = pendingExchange("shop-g20f-expire");
+		expireCode(pending, "5 minutes");
+		setFlag(true);
+		assertThat(this.publication.synchronize(this.company.companyId())).isFalse();
+		assertThat(flag()).isFalse();
+	}
+
 	@Test
 	void aFailedSynchronizationAfterARevocationLogsAWarningWithoutUserError() throws Exception {
 		Exchanged link = exchange("shop-g13-sync");
@@ -415,6 +476,28 @@ class PublicationFlagIT {
 
 	private int outbox() {
 		return this.jdbc.queryForObject("select count(*) from integration_outbox", Integer.class);
+	}
+
+	/** Code de la liaison expiré depuis {@code age}. */
+	private void expireCode(Pending pending, String age) {
+		this.platform.jdbc().sql("""
+				update platform.integration_authorization_code
+				set created_at = now() - cast(:age as interval) - interval '5 minutes', expires_at = now() - cast(:age as interval)
+				where link_id = :link""").param("age", age).param("link", pending.linkId()).update();
+	}
+
+	/** Attend qu'une transaction attende le verrou du drapeau. */
+	private void awaitLockWaiter() throws InterruptedException {
+		for (int i = 0; i < 200; i++) {
+			Integer waiting = this.jdbc.queryForObject("""
+					select count(*) from pg_locks
+					where relation = 'integration_publication'::regclass and not granted""", Integer.class);
+			if (waiting != null && waiting > 0) {
+				return;
+			}
+			Thread.sleep(50);
+		}
+		throw new AssertionError("aucune attente du verrou du drapeau");
 	}
 
 	private boolean flag() {

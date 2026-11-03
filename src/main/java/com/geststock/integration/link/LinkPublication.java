@@ -17,11 +17,33 @@ import com.geststock.tenancy.TenantRef;
  * instantané ; si l'activation échoue ensuite, {@link #synchronize} le remet à sa valeur ;</li>
  * <li>{@link #synchronize} après le commit d'une révocation, au mieux ; aussi pour la tâche planifiée du lot 3.</li>
  * </ul>
+ *
+ * <p><b>Échange de code concurrent</b> (lot 3, G20f-1) : l'échange lève le drapeau, puis active la liaison. Une
+ * resynchronisation entre les deux ne doit pas le baisser : les liaisons sont lues une fois le verrou du drapeau obtenu
+ * ({@link PublicationFlag#synchronize(java.util.function.BooleanSupplier)}), et une liaison en attente dont le code est
+ * encore utilisable (non utilisé, expiré depuis moins de {@value #EXCHANGE_GRACE}) compte comme liée. Le drapeau peut
+ * donc rester levé quelques minutes de trop : sans danger (événements en trop, séquencés puis purgés).
+ * L'échange qui échoue ignore sa propre liaison : le drapeau revient à sa valeur.
+ *
+ * <p>{@link #raiseIfLinked} (maintenance, G20f-1) ne fait que lever le drapeau, sans verrou si rien n'est à faire.
  */
 @Component
 class LinkPublication {
 
+	/** Marge après l'expiration du code : un échange commencé juste avant reste couvert. */
+	static final String EXCHANGE_GRACE = "1 minute";
+
+	/** Liaison active ou suspendue, ou en attente avec un code encore utilisable (sauf la liaison ignorée). */
 	private static final String LINKED = """
+			select exists (select 1 from platform.integration_link l where l.company_id = :company
+			               and (l.status in ('ACTIVE', 'SUSPENDED')
+			                    or (l.status = 'PENDING' and l.id is distinct from cast(:ignored as uuid)
+			                        and exists (select 1 from platform.integration_authorization_code c
+			                                    where c.link_id = l.id and c.used_at is null
+			                                      and c.expires_at > now() - interval '""" + EXCHANGE_GRACE + "'))))";
+
+	/** Liaison active ou suspendue : seule raison de lever le drapeau par la maintenance. */
+	private static final String RETAINED = """
 			select exists (select 1 from platform.integration_link where company_id = :company
 			               and status in ('ACTIVE', 'SUSPENDED'))""";
 
@@ -40,13 +62,38 @@ class LinkPublication {
 	}
 
 	/**
-	 * Idempotente : drapeau levé si l'entreprise a au moins une liaison active ou suspendue, baissé sinon.
+	 * Idempotente : drapeau levé si l'entreprise a au moins une liaison active ou suspendue (ou un échange de code
+	 * possible), baissé sinon ; liaisons lues sous le verrou du drapeau.
 	 * @return la valeur posée
 	 */
 	boolean synchronize(UUID companyId) {
-		boolean linked = this.platform.jdbc().sql(LINKED).param("company", companyId).query(Boolean.class).single();
-		TenantContext.runAs(company(companyId), () -> this.flag.set(linked));
-		return linked;
+		return synchronize(companyId, null);
+	}
+
+	/**
+	 * Comme {@link #synchronize(UUID)}, sans compter la liaison en attente {@code ignoredPendingLink} : celle d'un
+	 * échange qui vient d'échouer.
+	 */
+	boolean synchronize(UUID companyId, UUID ignoredPendingLink) {
+		return TenantContext.callAs(company(companyId), () -> this.flag.synchronize(() -> this.platform.jdbc().sql(LINKED)
+			.param("company", companyId).param("ignored", ignoredPendingLink).query(Boolean.class).single()));
+	}
+
+	/**
+	 * Lève le drapeau s'il est baissé alors que l'entreprise a une liaison active ou suspendue ; ne le baisse jamais.
+	 * Sans verrou si rien n'est à faire.
+	 * @return vrai si le drapeau a été levé (des événements ont pu ne pas être publiés)
+	 */
+	boolean raiseIfLinked(UUID companyId) {
+		TenantRef company = company(companyId);
+		if (TenantContext.callAs(company, this.flag::peek)) {
+			return false;
+		}
+		if (!this.platform.jdbc().sql(RETAINED).param("company", companyId).query(Boolean.class).single()) {
+			return false;
+		}
+		TenantContext.runAs(company, () -> this.flag.set(true));
+		return true;
 	}
 
 	private TenantRef company(UUID companyId) {

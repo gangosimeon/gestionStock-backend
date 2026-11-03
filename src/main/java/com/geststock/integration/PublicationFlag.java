@@ -1,6 +1,7 @@
 package com.geststock.integration;
 
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 
 import javax.sql.DataSource;
 
@@ -77,15 +78,38 @@ public class PublicationFlag {
 	 * @throws org.springframework.dao.DataAccessException délai dépassé (verrou non obtenu) : rien n'est changé
 	 */
 	public void set(boolean enabled) {
-		this.transaction.executeWithoutResult(status -> {
+		synchronize(() -> enabled);
+	}
+
+	/**
+	 * Pose le drapeau de l'entreprise courante à la valeur calculée par {@code value}, évaluée <b>une fois le verrou
+	 * exclusif obtenu</b> (lot 3, G20f-1) : une activation de liaison validée pendant l'attente du verrou est vue. Le
+	 * passage à vrai d'un échange de code prend le même verrou : les deux sont strictement ordonnés.
+	 * @return la valeur posée
+	 * @throws org.springframework.dao.DataAccessException délai dépassé (verrou non obtenu) : rien n'est changé
+	 */
+	public boolean synchronize(BooleanSupplier value) {
+		return Boolean.TRUE.equals(this.transaction.execute(status -> {
 			long timeout = this.properties.lockTimeout().toMillis();
 			this.jdbc.sql("set local lock_timeout = " + timeout).update();
 			this.jdbc.sql("set local statement_timeout = " + timeout).update();
 			// File équitable : EXCLUSIVE entre en conflit avec le ROW SHARE du FOR SHARE des ventes ; la demande en
 			// attente passe avant les ventes qui arrivent après elle (observé), qui attendent derrière.
 			this.jdbc.sql("lock table integration_publication in exclusive mode").update();
+			boolean enabled = value.getAsBoolean();
 			this.jdbc.sql(WRITE).param("enabled", enabled).param("id", ROW).update();
-		});
+			return enabled;
+		}));
+	}
+
+	/**
+	 * Valeur du drapeau de l'entreprise courante, lue sans verrou ni effet sur la transaction courante (contrôle de la
+	 * maintenance, G20f-1) ; ne remplace jamais {@link #isOpen()} pour décider de publier.
+	 */
+	public boolean peek() {
+		return Boolean.TRUE.equals(this.transaction.execute(status -> this.jdbc
+			.sql("select enabled from integration_publication where id = :id").param("id", ROW).query(Boolean.class)
+			.optional().orElse(false)));
 	}
 
 	/** Valeur lue par la transaction courante ; suspendue et oubliée avec elle. */

@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.junit.jupiter.api.AfterEach;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -63,6 +65,9 @@ import tools.jackson.databind.json.JsonMapper;
 abstract class DeleteModeMaintenanceSupport {
 
 	static final String FEED_STATE_ID = "00000000-0000-0000-0000-000000000001";
+
+	/** Personne responsable des liaisons de test, créée à la demande et supprimée après chaque test. */
+	static final String RESPONSIBLE = "it_g20_responsable";
 
 	static final String REDIRECT_URI = "https://www.jecreemaboutique.com/integrations/geststock/callback";
 
@@ -183,10 +188,37 @@ abstract class DeleteModeMaintenanceSupport {
 	 * ({@code OAuthService}, G13) : drapeau de publication de l'entreprise levé <b>avant</b> l'activation.
 	 */
 	protected Link activeLink(UUID client, TenantRef company, String shop) {
-		Link pending = this.registry.createPending(approvedRequest(client, shop), company.companyId(),
-				new Authorizer(UUID.randomUUID(), "admin"), Set.of("catalog:read"));
+		return activeLink(client, company, shop, responsible());
+	}
+
+	/** Comme {@link #activeLink(UUID, TenantRef, String)}, avec cette personne responsable. */
+	protected Link activeLink(UUID client, TenantRef company, String shop, Authorizer responsible) {
+		Link pending = this.registry.createPending(approvedRequest(client, shop), company.companyId(), responsible,
+				Set.of("catalog:read"));
 		TenantContext.runAs(company, () -> this.publicationFlag.set(true));
 		return this.registry.activate(pending.id()).link();
+	}
+
+	/**
+	 * Personne responsable qui garde ses droits : un administrateur actif de l'entreprise historique, créé pour les
+	 * tests ({@code ADMIN} a {@code integration:manage}, V049) ; la maintenance réévalue les responsables à chaque
+	 * passage (G20f-1).
+	 */
+	protected Authorizer responsible() {
+		List<UUID> existing = this.jdbc.queryForList("select id from app_user where username = ?", UUID.class, RESPONSIBLE);
+		UUID admin = !existing.isEmpty() ? existing.get(0) : this.jdbc.queryForObject("""
+				insert into app_user (username, last_name, must_change_password, active)
+				values (?, 'Responsable des liaisons (essai)', false, true) returning id""", UUID.class, RESPONSIBLE);
+		this.jdbc.update("""
+				insert into user_role (user_id, role_id) select ?, id from role where code = 'ADMIN'
+				on conflict do nothing""", admin);
+		return new Authorizer(admin, RESPONSIBLE);
+	}
+
+	@AfterEach
+	void forgetResponsible() {
+		this.jdbc.update("delete from user_role where user_id in (select id from app_user where username = ?)", RESPONSIBLE);
+		this.jdbc.update("delete from app_user where username = ?", RESPONSIBLE);
 	}
 
 	/** Demande d'autorisation approuvée pour cette boutique, prête pour {@link LinkRegistry#createPending}. */
