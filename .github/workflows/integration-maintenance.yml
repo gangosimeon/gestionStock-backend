@@ -1,0 +1,38 @@
+# Maintenance de l'intégration JeCréeMaBoutique (lot 3, G20e ; plan § 33 à § 37) : un passage toutes les 15 minutes sur
+# la route interne POST /internal/integration/maintenance du backend (purge du flux en SIMULATION, aucune suppression ;
+# mesures et alertes ; liaisons en attente expirées révoquées). Le rapport affiché ne contient aucun identifiant.
+#
+# Ne fait RIEN tant que la variable du dépôt GESTSTOCK_MAINTENANCE_ENABLED ne vaut pas « true ».
+# Réglages du dépôt (Settings > Secrets and variables > Actions) :
+#   variable GESTSTOCK_MAINTENANCE_ENABLED   true pour activer, false (ou absente) pour arrêter
+#   variable GESTSTOCK_MAINTENANCE_URL       https://<backend>/internal/integration/maintenance
+#   secret   GESTSTOCK_MAINTENANCE_TOKEN     secret du cron ; le backend ne connaît que son empreinte SHA-256
+# Exploitation (mise en service, lecture du rapport, alertes, rotation du secret) : dépôt gestion-stock,
+# docs/integration-jecreemaboutique/02-exploitation-maintenance.md.
+name: integration-maintenance
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *' # toutes les 15 minutes (G20-D6), hors de l'heure pleine (moins de retards)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    if: vars.GESTSTOCK_MAINTENANCE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    # 3 tentatives de 120 s au plus (réveil de l'hébergeur compris) et 2 attentes de 30 s.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Passage de maintenance
+        env:
+          GESTSTOCK_MAINTENANCE_URL: ${{ vars.GESTSTOCK_MAINTENANCE_URL }}
+          GESTSTOCK_MAINTENANCE_TOKEN: ${{ secrets.GESTSTOCK_MAINTENANCE_TOKEN }}
+        run: bash scripts/integration/maintenance-pass.sh
