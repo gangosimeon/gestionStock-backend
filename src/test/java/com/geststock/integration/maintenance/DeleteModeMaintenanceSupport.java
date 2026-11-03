@@ -42,7 +42,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Contexte commun des tests d'orchestration de la maintenance (lot 3, G20b) : route activée, purge en mode
+ * Contexte commun des tests d'orchestration de la maintenance (lot 3, G20b et G20c) : route activée, purge en mode
  * {@code DELETE} par lots de 1 <b>sur les bases de test seulement</b>, horloge du budget manuelle (aucun délai réel),
  * espions sur les entreprises visitées, la façade du flux, le bail et la liste des liaisons. Un seul contexte Spring
  * pour toutes les classes qui en héritent.
@@ -55,6 +55,8 @@ import tools.jackson.databind.json.JsonMapper;
 		"geststock.integration.maintenance.token-sha256=" + MaintenanceRouteIT.CURRENT_SHA256,
 		"geststock.integration.maintenance.calls-per-window=100000",
 		"geststock.integration.purge.mode=DELETE", "geststock.integration.purge.batch-size=1",
+		// Seuil de l'attente du verrou abaissé : un verrou tenu 900 ms le franchit nettement, sous lock_timeout (2 s).
+		"geststock.integration.maintenance.alerts.lock-wait-warning=300ms",
 		"geststock.platform.provisioning.async=false" })
 abstract class DeleteModeMaintenanceSupport {
 

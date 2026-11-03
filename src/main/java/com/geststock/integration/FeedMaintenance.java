@@ -1,11 +1,15 @@
 package com.geststock.integration;
 
+import java.util.Set;
+import java.util.UUID;
+
 import org.springframework.stereotype.Component;
 
 /**
  * Maintenance du flux de l'entreprise courante (lot 3, G20b ; décision A) : seul point d'entrée de la maintenance de
- * l'intégration vers la purge ({@link OutboxPurge}) et le séquenceur ({@link FeedSequencer}), qui restent internes au
- * flux. Chaque opération est contrôlée par le passage ({@link PassControl}) avant chaque lot.
+ * l'intégration vers la purge ({@link OutboxPurge}), le séquenceur ({@link FeedSequencer}) et les mesures
+ * ({@link FeedHealth}, G20c), qui restent internes au flux. La purge et le séquencement sont contrôlés par le passage
+ * ({@link PassControl}) avant chaque lot.
  */
 @Component
 public class FeedMaintenance {
@@ -14,9 +18,12 @@ public class FeedMaintenance {
 
 	private final FeedSequencer sequencer;
 
-	FeedMaintenance(OutboxPurge purge, FeedSequencer sequencer) {
+	private final FeedHealth health;
+
+	FeedMaintenance(OutboxPurge purge, FeedSequencer sequencer, FeedHealth health) {
 		this.purge = purge;
 		this.sequencer = sequencer;
+		this.health = health;
 	}
 
 	/** Purge dans le mode configuré ({@code SIMULATION} par défaut), bail et budget vérifiés avant chaque lot. */
@@ -45,6 +52,14 @@ public class FeedMaintenance {
 				return new SequencingOutcome(assigned, PassStop.LIMIT_REACHED);
 			}
 		}
+	}
+
+	/**
+	 * Mesures du flux (G20c ; G20-D7) : entreprise, et chacune de ces liaisons qui a acquitté. Quelques requêtes en
+	 * lecture, sans verrou ni contrôle du passage.
+	 */
+	public FeedMeasures measure(Set<UUID> links) {
+		return this.health.measure(links);
 	}
 
 }

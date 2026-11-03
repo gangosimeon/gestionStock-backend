@@ -46,6 +46,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * {@link PassStop#LEASE_LOST}) et, à partir du deuxième lot, qu'il lui reste du budget (sinon arrêt propre :
  * {@link PassStop#LIMIT_REACHED}). Un lot commencé est mené à son terme et validé ; rien n'est vérifié pendant un lot.
  * Plafond, borne, préfixe contigu et repère sous verrou sont inchangés : la sécurité des données ne dépend pas du bail.
+ *
+ * <p>G20c : la plus longue attente du verrou d'un lot est rapportée ({@link PurgeReport#maxLockWaitMs()}, alerte
+ * {@code LOCK_WAIT} de la maintenance) ; un dépassement de {@code lock-timeout} reste une erreur du lot.
  */
 @Component
 class OutboxPurge {
@@ -132,7 +135,7 @@ class OutboxPurge {
 				+ "{} ; repère inchangé à {}", bound.eligible(), bound.watermark() + 1, bound.through(), batches, ceiling,
 				describe(floor), bound.watermark());
 		return new PurgeReport(PurgeMode.SIMULATION, ceiling, floor, bound.watermark(), bound.through(), bound.eligible(),
-				batches, 0, bound.watermark(), PassStop.COMPLETE);
+				batches, 0, bound.watermark(), PassStop.COMPLETE, 0);
 	}
 
 	private PurgeReport delete(long ceiling, AckFloor floor, Bound bound, PassControl control) {
@@ -140,6 +143,7 @@ class OutboxPurge {
 		int batches = 0;
 		long deleted = 0;
 		long watermark = bound.watermark();
+		long maxLockWait = 0;
 		PassStop stop = PassStop.COMPLETE;
 		while (watermark < bound.through()) {
 			// Limites du passage, à partir du deuxième lot seulement : le premier lot a toujours lieu (v17-D16).
@@ -154,6 +158,7 @@ class OutboxPurge {
 				break;
 			}
 			Batch batch = this.readWrite.execute(status -> batch(bound.through()));
+			maxLockWait = Math.max(maxLockWait, batch.lockWaitNanos());
 			if (batch.deleted() == 0) {
 				break;
 			}
@@ -161,19 +166,24 @@ class OutboxPurge {
 			deleted += batch.deleted();
 			watermark = batch.watermark();
 		}
-		log.info("Purge du flux d'intégration : {} événement(s) supprimés en {} lot(s) ; repère {} → {} ; borne {}, plafond {}, {} ; {}",
-				deleted, batches, bound.watermark(), watermark, bound.through(), ceiling, describe(floor), stop);
+		long maxLockWaitMs = maxLockWait / 1_000_000;
+		log.info("Purge du flux d'intégration : {} événement(s) supprimés en {} lot(s) ; repère {} → {} ; borne {}, plafond {}, {} ; {} ; "
+				+ "attente du verrou {} ms au plus", deleted, batches, bound.watermark(), watermark, bound.through(), ceiling,
+				describe(floor), stop, maxLockWaitMs);
 		return new PurgeReport(PurgeMode.DELETE, ceiling, floor, bound.watermark(), bound.through(), bound.eligible(),
-				batches, deleted, watermark, stop);
+				batches, deleted, watermark, stop, maxLockWaitMs);
 	}
 
 	/** Un lot, dans la transaction courante : verrou de la ligne d'état, suppression, repère. */
 	private Batch batch(long through) {
 		// Valeur numérique issue de la configuration : SET n'accepte pas de paramètre lié.
 		this.jdbc.sql("set local lock_timeout = " + this.properties.lockTimeout().toMillis()).update();
+		// Attente du verrou (G20c, alerte LOCK_WAIT) : le séquenceur passe son tour, seule une autre purge le retient.
+		long locking = System.nanoTime();
 		long watermark = watermark(LOCK_STATE);
+		long lockWait = System.nanoTime() - locking;
 		if (through <= watermark) {
-			return new Batch(0, watermark);
+			return new Batch(0, watermark, lockWait);
 		}
 		List<Long> removed = this.jdbc.sql(DELETE_BATCH)
 			.param("fromSeq", watermark)
@@ -188,7 +198,7 @@ class OutboxPurge {
 		if (largest > watermark) {
 			this.jdbc.sql(ADVANCE_WATERMARK).param("seq", largest).param("id", FeedSequencer.FEED_STATE_ID).update();
 		}
-		return new Batch(removed.size(), largest);
+		return new Batch(removed.size(), largest, lockWait);
 	}
 
 	/** Borne du passage : {@code min(P, MAX(seq) - 1, premier seq récent - 1, acquittement)} ; le repère si rien. */
@@ -241,10 +251,11 @@ class OutboxPurge {
 	}
 
 	/**
-	 * @param deleted   événements supprimés par le lot
-	 * @param watermark repère après le lot
+	 * @param deleted       événements supprimés par le lot
+	 * @param watermark     repère après le lot
+	 * @param lockWaitNanos attente du verrou de la ligne d'état
 	 */
-	private record Batch(int deleted, long watermark) {
+	private record Batch(int deleted, long watermark, long lockWaitNanos) {
 	}
 
 }

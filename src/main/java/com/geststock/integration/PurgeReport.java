@@ -18,8 +18,10 @@ package com.geststock.integration;
  * @param stop                raison de l'arrêt : {@link PassStop#LIMIT_REACHED} s'il reste des événements éligibles au-delà
  *                            des limites du passage (lots, durée, budget) ; {@link PassStop#LEASE_LOST} si le bail de la
  *                            maintenance a été perdu (G20b)
+ * @param maxLockWaitMs       plus longue attente du verrou de la ligne d'état du flux par un lot, en millisecondes
+ *                            (G20c ; 0 en simulation, qui ne prend aucun verrou)
  */
 public record PurgeReport(PurgeMode mode, long ceilingSeq, AckFloor floor, long purgedThroughBefore,
 		long eligibleThroughSeq, long eligibleCount, int batches, long deletedCount, long purgedThroughAfter,
-		PassStop stop) {
+		PassStop stop, long maxLockWaitMs) {
 }

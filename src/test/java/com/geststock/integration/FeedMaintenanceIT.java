@@ -240,7 +240,7 @@ class FeedMaintenanceIT {
 						Duration.ofSeconds(30)));
 		FeedSequencer sequencer = new FeedSequencer(this.dataSource, this.transactionManager,
 				new FeedSequencerProperties(3, Duration.ofSeconds(2), Duration.ofSeconds(5)));
-		return new FeedMaintenance(purge, sequencer);
+		return new FeedMaintenance(purge, sequencer, new FeedHealth(this.dataSource));
 	}
 
 	private static PassControl control(boolean leaseHeld, boolean timeLeft) {

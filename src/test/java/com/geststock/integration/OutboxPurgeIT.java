@@ -23,6 +23,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -85,7 +86,7 @@ class OutboxPurgeIT {
 		assertThat(this.defaults.maxDuration()).isEqualTo(Duration.ofSeconds(30));
 		// G20-D10 : plus de tâche planifiée ; seule la maintenance de l'intégration déclenche la purge.
 		assertThat(this.context.containsBean("outboxPurgeJob")).isFalse();
-		assertThat(this.context.getBeansOfType(IntegrationScheduling.class)).isEmpty();
+		assertThat(this.context.getBeansWithAnnotation(EnableScheduling.class)).as("aucun planificateur").isEmpty();
 	}
 
 	@Test
@@ -108,7 +109,7 @@ class OutboxPurgeIT {
 
 		// Plafond 10, borne 8, lots de 3 : trois lots seraient faits.
 		assertThat(report).isEqualTo(new PurgeReport(PurgeMode.SIMULATION, 10, AckFloor.acknowledged(8), 0, 8, 8, 3, 0, 0,
-				PassStop.COMPLETE));
+				PassStop.COMPLETE, 0));
 		assertThat(outboxCount()).isEqualTo(10);
 		assertThat(purgedThrough()).isZero();
 	}
@@ -125,7 +126,8 @@ class OutboxPurgeIT {
 		PurgeReport report = purge(PurgeMode.DELETE, () -> AckFloor.acknowledged(9)).run();
 
 		assertThat(report).isEqualTo(new PurgeReport(PurgeMode.DELETE, 10, AckFloor.acknowledged(9), 0, 6, 6, 2, 6, 6,
-				PassStop.COMPLETE));
+				PassStop.COMPLETE, report.maxLockWaitMs()));
+		assertThat(report.maxLockWaitMs()).as("aucune attente sans verrou concurrent").isLessThan(1000);
 		assertThat(sequencedSeqs()).containsExactly(7L, 8L, 9L, 10L);
 		assertThat(unsequencedCount()).as("événements sans seq conservés").isEqualTo(2);
 		assertThat(purgedThrough()).isEqualTo(6L);

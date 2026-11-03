@@ -225,10 +225,13 @@ class MaintenanceRouteIT {
 			.andExpect(header().string(HttpHeaders.CONTENT_TYPE, containsString(MediaType.APPLICATION_JSON_VALUE)))
 			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store"))));
 		assertThat(report.propertyNames()).containsExactlyInAnyOrder("status", "mode", "generation", "durationMs",
-				"companies", "purge", "authFailures");
+				"companies", "purge", "links", "alerts", "authFailures");
 		assertThat(report.get("companies").propertyNames()).containsExactlyInAnyOrder("active", "visited", "skippedUpgrade",
 				"errors", "interrupted", "remaining");
-		assertThat(report.get("purge").propertyNames()).containsExactlyInAnyOrder("eligible", "deleted", "batches", "blocked");
+		assertThat(report.get("purge").propertyNames()).containsExactlyInAnyOrder("eligible", "deleted", "batches", "blocked",
+				"maxLockWaitMs");
+		assertThat(report.get("links").propertyNames()).containsExactlyInAnyOrder("active", "suspended");
+		assertThat(report.get("alerts").isArray()).isTrue();
 		assertThat(report.get("status").asString()).isEqualTo("COMPLETED");
 		assertThat(report.get("mode").asString()).as("purge en simulation (G20-D5)").isEqualTo("SIMULATION");
 		assertThat(report.get("generation").asLong()).isEqualTo(before + 1);

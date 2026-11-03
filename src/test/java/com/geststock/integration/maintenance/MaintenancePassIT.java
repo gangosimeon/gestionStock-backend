@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -54,7 +56,8 @@ import tools.jackson.databind.JsonNode;
  * <li>Une erreur ou une migration ne bloque pas les autres entreprises ; le message d'une erreur n'apparaît ni dans la
  * réponse ni dans les journaux.</li>
  * <li>Bail repris pendant une purge : l'ancien passage ne commence aucun lot de plus, ne termine pas l'entreprise et ne
- * touche pas au bail du nouveau propriétaire ; statut {@code FAILED}, jamais confondu avec un budget épuisé.</li>
+ * touche pas au bail du nouveau propriétaire ni ne mesure l'entreprise (G20c) ; statut {@code FAILED}, jamais confondu
+ * avec un budget épuisé.</li>
  * </ul>
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -290,6 +293,7 @@ class MaintenancePassIT extends DeleteModeMaintenanceSupport {
 				.isTrue();
 			assertThat(outcome(this.a)).as("entreprise non terminée par l'ancien passage").isNull();
 			assertThat(startedGeneration(this.b)).as("aucune entreprise commencée après la perte").isNull();
+			verify(this.feed, never()).measure(any());
 		}
 		finally {
 			if (newer.get() != null) {
