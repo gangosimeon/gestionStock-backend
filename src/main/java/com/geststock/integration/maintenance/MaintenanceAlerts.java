@@ -23,13 +23,17 @@ import com.geststock.integration.link.RetainedLink;
  * <li>sinon, plus ancien événement en attente ancien : {@code CONSUMER_STALLED}.</li>
  * </ol>
  * Au niveau de l'entreprise, et en plus : {@code UNSEQUENCED_EVENTS} (seulement avec une liaison active),
- * {@code LOCK_WAIT}, {@code COMPANY_ERROR}, {@code COMPANY_INTERRUPTED}.
+ * {@code LOCK_WAIT}, {@code COMPANY_ERROR}, {@code COMPANY_INTERRUPTED} ; pour le passage, {@code CLEANUP_ERROR}
+ * (G20d).
  */
 @Component
 class MaintenanceAlerts {
 
 	/** Entreprise terminée en erreur pendant ce passage. */
 	static final Alert COMPANY_ERROR = new Alert(Type.COMPANY_ERROR, Severity.CRITICAL);
+
+	/** Nettoyage de la base plateforme en échec (G20d, décision E4) : le passage n'est pas arrêté. */
+	static final Alert CLEANUP_ERROR = new Alert(Type.CLEANUP_ERROR, Severity.WARNING);
 
 	/** Entreprise interrompue au moins deux fois de suite au début du passage (G20-D13). */
 	static final Alert COMPANY_INTERRUPTED = new Alert(Type.COMPANY_INTERRUPTED, Severity.CRITICAL);
@@ -96,7 +100,7 @@ class MaintenanceAlerts {
 	enum Type {
 
 		NO_FIRST_ACK, NO_ACTIVITY, CONSUMER_STALLED, PURGE_BLOCKED_BY_SUSPENSION, UNSEQUENCED_EVENTS, COMPANY_ERROR,
-		COMPANY_INTERRUPTED, LOCK_WAIT
+		COMPANY_INTERRUPTED, LOCK_WAIT, CLEANUP_ERROR
 
 	}
 

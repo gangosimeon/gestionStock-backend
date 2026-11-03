@@ -42,9 +42,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Contexte commun des tests d'orchestration de la maintenance (lot 3, G20b et G20c) : route activée, purge en mode
+ * Contexte commun des tests d'orchestration de la maintenance (lot 3, G20b à G20d) : route activée, purge en mode
  * {@code DELETE} par lots de 1 <b>sur les bases de test seulement</b>, horloge du budget manuelle (aucun délai réel),
- * espions sur les entreprises visitées, la façade du flux, le bail et la liste des liaisons. Un seul contexte Spring
+ * espions sur les entreprises visitées, la façade du flux, le bail, la liste et le registre des liaisons. Un seul contexte Spring
  * pour toutes les classes qui en héritent.
  */
 @SpringBootTest
@@ -57,6 +57,8 @@ import tools.jackson.databind.json.JsonMapper;
 		"geststock.integration.purge.mode=DELETE", "geststock.integration.purge.batch-size=1",
 		// Seuil de l'attente du verrou abaissé : un verrou tenu 900 ms le franchit nettement, sous lock_timeout (2 s).
 		"geststock.integration.maintenance.alerts.lock-wait-warning=300ms",
+		// Nettoyage limité à 2 liaisons par passage : la reprise au passage suivant se voit avec peu de données.
+		"geststock.integration.maintenance.expired-pending-links-per-pass=2",
 		"geststock.platform.provisioning.async=false" })
 abstract class DeleteModeMaintenanceSupport {
 
@@ -82,7 +84,7 @@ abstract class DeleteModeMaintenanceSupport {
 	@Autowired
 	protected IntegrationMaintenanceProperties properties;
 
-	@Autowired
+	@MockitoSpyBean
 	protected LinkRegistry registry;
 
 	@Autowired
@@ -181,7 +183,15 @@ abstract class DeleteModeMaintenanceSupport {
 	 * ({@code OAuthService}, G13) : drapeau de publication de l'entreprise levé <b>avant</b> l'activation.
 	 */
 	protected Link activeLink(UUID client, TenantRef company, String shop) {
-		UUID request = this.platform.jdbc().sql("""
+		Link pending = this.registry.createPending(approvedRequest(client, shop), company.companyId(),
+				new Authorizer(UUID.randomUUID(), "admin"), Set.of("catalog:read"));
+		TenantContext.runAs(company, () -> this.publicationFlag.set(true));
+		return this.registry.activate(pending.id()).link();
+	}
+
+	/** Demande d'autorisation approuvée pour cette boutique, prête pour {@link LinkRegistry#createPending}. */
+	protected UUID approvedRequest(UUID client, String shop) {
+		return this.platform.jdbc().sql("""
 				insert into platform.integration_authorization_request (request_uri_hash, client_id, external_shop_id, shop_name,
 				  redirect_uri, code_challenge, scopes, state, expires_at, decision, used_at)
 				values (:hash, :client, :shop, :name, :redirect, 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
@@ -189,10 +199,6 @@ abstract class DeleteModeMaintenanceSupport {
 				returning id""")
 			.param("hash", sha256Hex(UUID.randomUUID().toString())).param("client", client).param("shop", shop)
 			.param("name", "Boutique " + shop).param("redirect", REDIRECT_URI).query(UUID.class).single();
-		Link pending = this.registry.createPending(request, company.companyId(), new Authorizer(UUID.randomUUID(), "admin"),
-				Set.of("catalog:read"));
-		TenantContext.runAs(company, () -> this.publicationFlag.set(true));
-		return this.registry.activate(pending.id()).link();
 	}
 
 	protected static String sha256Hex(String value) {

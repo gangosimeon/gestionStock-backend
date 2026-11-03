@@ -241,7 +241,7 @@ class MaintenanceAlertsIT extends DeleteModeMaintenanceSupport {
 		JsonNode report = this.json.readTree(body);
 
 		assertThat(report.propertyNames()).containsExactlyInAnyOrder("status", "mode", "generation", "durationMs",
-				"companies", "purge", "links", "alerts", "authFailures");
+				"companies", "purge", "links", "cleanup", "alerts", "authFailures");
 		assertThat(report.get("purge").propertyNames()).containsExactlyInAnyOrder("eligible", "deleted", "batches", "blocked",
 				"maxLockWaitMs");
 		assertThat(report.get("links").propertyNames()).containsExactlyInAnyOrder("active", "suspended");

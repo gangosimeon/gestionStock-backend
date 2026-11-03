@@ -81,15 +81,35 @@ public class LinkRegistry {
 
 	private static final String COMPANY = "select status, currency from platform.company where id = :id for share";
 
-	/** Liaisons en attente de la boutique dont le code a expiré (ou, sans code, plus anciennes que sa durée de vie). */
-	private static final String EXPIRE_STALE_PENDING = """
-			update platform.integration_link l
-			set status = 'REVOKED', revocation_reason = 'EXPIRED', revoked_at = now(), updated_at = now()
-			where l.client_id = :client and l.external_shop_id = :shop and l.status = 'PENDING'
+	/**
+	 * Liaison {@code l} en attente expirée : son code a expiré, ou, sans code, elle est plus ancienne que sa durée de vie.
+	 * Règle unique de l'expiration par boutique et de l'expiration globale (G20d, décision E1).
+	 */
+	private static final String STALE_PENDING = """
+			l.status = 'PENDING'
 			  and (exists (select 1 from platform.integration_authorization_code c
 			               where c.link_id = l.id and c.expires_at <= now())
 			       or (not exists (select 1 from platform.integration_authorization_code c where c.link_id = l.id)
-			           and l.created_at <= now() - interval '""" + CODE_LIFETIME + "')) returning " + LINK_COLUMNS;
+			           and l.created_at <= now() - interval '""" + CODE_LIFETIME + "'))";
+
+	private static final String EXPIRED_SET = """
+			set status = 'REVOKED', revocation_reason = 'EXPIRED', revoked_at = now(), updated_at = now()
+			""";
+
+	/** Liaisons en attente expirées de la boutique. */
+	private static final String EXPIRE_STALE_PENDING = "update platform.integration_link l " + EXPIRED_SET
+			+ "where l.client_id = :client and l.external_shop_id = :shop and " + STALE_PENDING + " returning " + LINK_COLUMNS;
+
+	/**
+	 * Liaisons en attente expirées de toutes les boutiques, les plus anciennes d'abord, au plus {@code :limit} ; une
+	 * liaison verrouillée (échange du code en cours) est laissée au passage suivant, sans attente (décision E2).
+	 */
+	private static final String EXPIRE_ALL_STALE_PENDING = "with picked as materialized (select l.id as picked_id "
+			+ "from platform.integration_link l where " + STALE_PENDING
+			+ " order by l.created_at, l.id limit :limit for update skip locked) "
+			// CTE matérialisée : choix et verrous faits une seule fois (une sous-requête IN pourrait être réévaluée).
+			+ "update platform.integration_link t " + EXPIRED_SET
+			+ "from picked where t.id = picked.picked_id and t.status = 'PENDING' returning " + LINK_COLUMNS;
 
 	private static final String INSERT_PENDING = """
 			insert into platform.integration_link (id, client_id, company_id, external_shop_id, shop_name, status, currency,
@@ -177,8 +197,31 @@ public class LinkRegistry {
 
 	/** Révocation EXPIRED des liaisons en attente expirées de la boutique, chacune tracée (auteur : le système, G12). */
 	private int expireStalePending(UUID clientId, String externalShopId) {
-		List<Link> expired = this.platform.jdbc().sql(EXPIRE_STALE_PENDING).param("client", clientId)
-			.param("shop", externalShopId).query(LinkRegistry::link).list();
+		return traceExpired(this.platform.jdbc().sql(EXPIRE_STALE_PENDING).param("client", clientId)
+			.param("shop", externalShopId).query(LinkRegistry::link).list());
+	}
+
+	/**
+	 * Révocation EXPIRED des liaisons en attente expirées de toutes les boutiques (maintenance, G20d ; plan § 33.8), au
+	 * plus {@code limit}, les plus anciennes d'abord : même règle et même trace que l'expiration par boutique, dans une
+	 * unité d'audit (copie dans le journal de chaque entreprise et drapeau de publication resynchronisé après le
+	 * commit). Une liaison en cours d'échange de son code est laissée au passage suivant. Idempotente.
+	 *
+	 * @return liaisons révoquées
+	 */
+	public int expireStalePending(int limit) {
+		if (limit < 1) {
+			throw new LinkException(LinkException.Reason.INVALID_ARGUMENT);
+		}
+		int expired = this.audit.unit(() -> traceExpired(this.platform.jdbc().sql(EXPIRE_ALL_STALE_PENDING)
+			.param("limit", limit).query(LinkRegistry::link).list()));
+		if (expired > 0) {
+			log.info("Liaison(s) en attente expirée(s) révoquée(s) (EXPIRED) par la maintenance : {}.", expired);
+		}
+		return expired;
+	}
+
+	private int traceExpired(List<Link> expired) {
 		for (Link link : expired) {
 			this.audit.record(LinkAudit.Entry.of(LinkAudit.REVOKED, link, LinkAudit.Actor.system("expiration"))
 				.detail("revocationReason", RevocationReason.EXPIRED.name()));

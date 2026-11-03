@@ -18,7 +18,7 @@ class IntegrationMaintenancePropertiesTest {
 
 	@Test
 	void defaultsAreDisabledWithATwentyFiveSecondBudget() {
-		IntegrationMaintenanceProperties properties = new IntegrationMaintenanceProperties(false, null, null, null, 6, null);
+		IntegrationMaintenanceProperties properties = new IntegrationMaintenanceProperties(false, null, null, null, 6, null, 500);
 		assertThat(properties.enabled()).isFalse();
 		assertThat(properties.budget()).isEqualTo(Duration.ofSeconds(25));
 		assertThat(properties.leaseTtl()).isEqualTo(Duration.ofSeconds(50));
@@ -30,13 +30,13 @@ class IntegrationMaintenancePropertiesTest {
 	@Test
 	void fingerprintsAreHexadecimalSha256InAnyCaseAndBlankMeansAbsent() {
 		IntegrationMaintenanceProperties properties = new IntegrationMaintenanceProperties(true, SHA256.toUpperCase(), " ",
-				Duration.ofSeconds(10), 6, Duration.ofMinutes(1));
+				Duration.ofSeconds(10), 6, Duration.ofMinutes(1), 500);
 		assertThat(properties.tokenSha256()).isEqualTo(SHA256);
 		assertThat(properties.previousTokenSha256()).isNull();
 		assertThat(properties.fingerprints()).hasSize(1).allSatisfy(fingerprint -> assertThat(fingerprint).hasSize(32));
 		assertThat(properties.leaseTtl()).isEqualTo(Duration.ofSeconds(20));
 		assertThat(properties.problems()).isEmpty();
-		assertThat(new IntegrationMaintenanceProperties(true, null, null, null, 6, null).problems())
+		assertThat(new IntegrationMaintenanceProperties(true, null, null, null, 6, null, 500).problems())
 			.singleElement().asString().contains("GESTSTOCK_MAINTENANCE_TOKEN_SHA256");
 	}
 
@@ -44,29 +44,32 @@ class IntegrationMaintenancePropertiesTest {
 	void aMalformedFingerprintIsRejectedWithoutQuotingIt() {
 		for (String value : new String[] { "secret-colle-par-erreur", SHA256.substring(2), SHA256.replace('a', 'g') }) {
 			assertThatIllegalArgumentException()
-				.isThrownBy(() -> new IntegrationMaintenanceProperties(true, value, null, null, 6, null))
+				.isThrownBy(() -> new IntegrationMaintenanceProperties(true, value, null, null, 6, null, 500))
 				.withMessageContaining("token-sha256").withMessageNotContaining(value);
 			assertThatIllegalArgumentException()
-				.isThrownBy(() -> new IntegrationMaintenanceProperties(true, SHA256, value, null, 6, null))
+				.isThrownBy(() -> new IntegrationMaintenanceProperties(true, SHA256, value, null, 6, null, 500))
 				.withMessageContaining("previous-token-sha256").withMessageNotContaining(value);
 		}
 	}
 
 	@Test
-	void budgetCallsAndWindowAreBounded() {
+	void budgetCallsWindowAndCleanupLimitAreBounded() {
 		assertThatIllegalArgumentException()
-			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, Duration.ZERO, 6, null));
+			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, Duration.ZERO, 6, null, 500));
 		assertThatIllegalArgumentException()
-			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, null, 0, null));
+			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, null, 0, null, 500));
 		assertThatIllegalArgumentException()
-			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, null, 6, Duration.ofHours(2)));
+			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, null, 6, Duration.ofHours(2), 500));
 		assertThatIllegalArgumentException()
-			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, null, 6, Duration.ofMillis(500)));
+			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, null, 6, Duration.ofMillis(500), 500));
+		assertThatIllegalArgumentException()
+			.isThrownBy(() -> new IntegrationMaintenanceProperties(false, null, null, null, 6, null, 0))
+			.withMessageContaining("expired-pending-links-per-pass");
 	}
 
 	@Test
 	void toStringNeverShowsAFingerprint() {
-		assertThat(new IntegrationMaintenanceProperties(true, SHA256, SHA256.replace('a', 'b'), null, 6, null).toString())
+		assertThat(new IntegrationMaintenanceProperties(true, SHA256, SHA256.replace('a', 'b'), null, 6, null, 500).toString())
 			.doesNotContain(SHA256).doesNotContain(SHA256.replace('a', 'b'));
 	}
 

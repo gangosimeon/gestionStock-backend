@@ -25,11 +25,13 @@ import com.geststock.integration.link.RateLimiter;
  * @param callsPerWindow      appels <b>authentifiés</b> admis par fenêtre, tous cron confondus (G20-D14) ; un échec
  *                            d'authentification n'est jamais compté en base
  * @param window              fenêtre fixe de cette limite (1 seconde à 1 heure)
+ * @param expiredPendingLinksPerPass liaisons en attente expirées révoquées au plus par passage (G20d) ; le reste au
+ *                            passage suivant
  */
 @ConfigurationProperties(prefix = "geststock.integration.maintenance")
 public record IntegrationMaintenanceProperties(@DefaultValue("false") boolean enabled, String tokenSha256,
 		String previousTokenSha256, @DefaultValue("25s") Duration budget, @DefaultValue("6") int callsPerWindow,
-		@DefaultValue("1m") Duration window) {
+		@DefaultValue("1m") Duration window, @DefaultValue("500") int expiredPendingLinksPerPass) {
 
 	private static final Pattern SHA256_HEX = Pattern.compile("[0-9a-fA-F]{64}");
 
@@ -43,6 +45,10 @@ public record IntegrationMaintenanceProperties(@DefaultValue("false") boolean en
 		}
 		if (callsPerWindow < 1) {
 			throw new IllegalArgumentException("geststock.integration.maintenance.calls-per-window : 1 au moins.");
+		}
+		if (expiredPendingLinksPerPass < 1) {
+			throw new IllegalArgumentException(
+					"geststock.integration.maintenance.expired-pending-links-per-pass : 1 au moins.");
 		}
 		if (window.compareTo(Duration.ofSeconds(1)) < 0 || window.compareTo(RateLimiter.MAX_WINDOW) > 0) {
 			throw new IllegalArgumentException("geststock.integration.maintenance.window : de 1 seconde à 1 heure.");
@@ -92,7 +98,8 @@ public record IntegrationMaintenanceProperties(@DefaultValue("false") boolean en
 		return "IntegrationMaintenanceProperties[enabled=" + this.enabled + ", tokenSha256="
 				+ (this.tokenSha256 != null ? "[masquée]" : "absente") + ", previousTokenSha256="
 				+ (this.previousTokenSha256 != null ? "[masquée]" : "absente") + ", budget=" + this.budget
-				+ ", callsPerWindow=" + this.callsPerWindow + ", window=" + this.window + "]";
+				+ ", callsPerWindow=" + this.callsPerWindow + ", window=" + this.window + ", expiredPendingLinksPerPass="
+				+ this.expiredPendingLinksPerPass + "]";
 	}
 
 }

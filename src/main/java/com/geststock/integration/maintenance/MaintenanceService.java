@@ -21,6 +21,7 @@ import com.geststock.integration.PassControl;
 import com.geststock.integration.PassStop;
 import com.geststock.integration.PurgeReport;
 import com.geststock.integration.SequencingOutcome;
+import com.geststock.integration.link.LinkRegistry;
 import com.geststock.integration.link.LinkStatus;
 import com.geststock.integration.link.RetainedLink;
 import com.geststock.integration.link.RetainedLinks;
@@ -37,7 +38,8 @@ import com.geststock.tenancy.TenantSchemaRegistry;
  * <p>Pour chaque entreprise, tant que le budget global le permet (G20-D3) : bail prolongé (sauf pour la première, il
  * vient d'être pris) ; tentative commencée ; base en migration : sautée ; aucune liaison active ou suspendue :
  * séquencement des événements sans {@code seq} (G20-D9) ; purge dans le mode configuré (simulation par défaut,
- * G20-D5) ; mesures et alertes (G20c) ; tentative terminée avec son résultat. Une entreprise dispose au plus de la
+ * G20-D5) ; mesures et alertes (G20c) ; tentative terminée avec son résultat. Après les entreprises, une fois : liaisons
+ * en attente expirées révoquées (G20d). Une entreprise dispose au plus de la
  * moitié du budget restant, sauf la dernière à visiter (décision D).
  *
  * <p>Mesures et alertes (G20c ; G20-D7, D15, décisions C1 à C8) : liaisons actives ou suspendues lues dans la base
@@ -80,10 +82,12 @@ class MaintenanceService {
 
 	private final MaintenanceAlerts alerts;
 
+	private final LinkRegistry links;
+
 	MaintenanceService(MaintenanceLease lease, MaintenanceCompanies companies, MaintenanceTenants tenants,
 			MaintenanceTicker ticker, MaintenanceAuthFailures failures, IntegrationMaintenanceProperties properties,
 			IntegrationPurgeProperties purge, FeedMaintenance feed, RetainedLinks retainedLinks, TenantSchemaRegistry schemas,
-			MaintenanceAlerts alerts) {
+			MaintenanceAlerts alerts, LinkRegistry links) {
 		this.lease = lease;
 		this.companies = companies;
 		this.tenants = tenants;
@@ -95,6 +99,7 @@ class MaintenanceService {
 		this.retainedLinks = retainedLinks;
 		this.schemas = schemas;
 		this.alerts = alerts;
+		this.links = links;
 	}
 
 	MaintenanceReport run() {
@@ -105,6 +110,7 @@ class MaintenanceService {
 		Pass pass = new Pass(held, deadline);
 		try {
 			pass.visitCompanies();
+			pass.cleanUp();
 		}
 		catch (RuntimeException ex) {
 			pass.failed = true;
@@ -128,7 +134,7 @@ class MaintenanceService {
 				new MaintenanceReport.Companies(pass.active, pass.visited, pass.skippedUpgrade, pass.errors, pass.interrupted,
 						pass.remaining()),
 				new MaintenanceReport.Purge(pass.eligible, pass.deleted, pass.batches, pass.blocked, pass.maxLockWaitMs),
-				new MaintenanceReport.Links(pass.linksActive, pass.linksSuspended), alertCounts,
+				new MaintenanceReport.Links(pass.linksActive, pass.linksSuspended), new MaintenanceReport.Cleanup(pass.expiredPendingLinks), alertCounts,
 				new MaintenanceReport.AuthFailures(this.failures.drain(), "INSTANCE"));
 	}
 
@@ -165,6 +171,8 @@ class MaintenanceService {
 
 		private final Map<Alert, Integer> raised = new HashMap<>();
 
+		private int expiredPendingLinks;
+
 		private boolean partial;
 
 		private boolean leaseLost;
@@ -192,8 +200,9 @@ class MaintenanceService {
 		/** Alerte comptée pour le rapport et journalisée avec ses identifiants techniques, jamais dans le rapport. */
 		private void raise(Alert alert, UUID companyId, UUID linkId, String measures) {
 			this.raised.merge(alert, 1, Integer::sum);
-			log.warn("Maintenance : alerte {} {} ; entreprise {}{} ; passage {} ; {}.", alert.type(), alert.severity(),
-					companyId, linkId != null ? ", liaison " + linkId : "", this.held.generation(), measures);
+			log.warn("Maintenance : alerte {} {} ; {}{} ; passage {} ; {}.", alert.type(), alert.severity(),
+					companyId != null ? "entreprise " + companyId : "base plateforme",
+					linkId != null ? ", liaison " + linkId : "", this.held.generation(), measures);
 		}
 
 		void visitCompanies() {
@@ -222,6 +231,28 @@ class MaintenanceService {
 				if (!visit(turns.get(index).company(), companyDeadline)) {
 					return;
 				}
+			}
+		}
+
+		/**
+		 * Nettoyage de la base plateforme (G20d, décisions E3 et E4), une fois, après les entreprises, même si le budget
+		 * est épuisé ; jamais après la perte du bail (vérifié juste avant). Un échec n'arrête pas le passage : alerte
+		 * {@code CLEANUP_ERROR}, classe de l'erreur seule dans le journal.
+		 */
+		void cleanUp() {
+			if (this.leaseLost) {
+				return;
+			}
+			if (!MaintenanceService.this.lease.isHeld(this.held)) {
+				this.leaseLost = true;
+				return;
+			}
+			try {
+				this.expiredPendingLinks = MaintenanceService.this.links
+					.expireStalePending(MaintenanceService.this.properties.expiredPendingLinksPerPass());
+			}
+			catch (RuntimeException ex) {
+				raise(MaintenanceAlerts.CLEANUP_ERROR, null, null, "erreur " + ex.getClass().getSimpleName());
 			}
 		}
 
