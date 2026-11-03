@@ -107,6 +107,22 @@ class PermissionCatalogIT {
 	}
 
 	@Test
+	void integrationPriceApproveExistsAndIsGrantedToTheAdministrator() {
+		// V053 (lot 3, G21, v14-D7) : approbation des prix proposés par les boutiques en ligne.
+		assertThat(this.permissions.allCodes()).contains(Permissions.INTEGRATION_PRICE_APPROVE);
+		assertThat(this.roles.permissionsOf(Set.of("ADMIN"))).contains(Permissions.INTEGRATION_PRICE_APPROVE);
+	}
+
+	@Test
+	void integrationPriceApproveIsGrantedToNeitherManagerNorCashierByDefault() {
+		// Précondition : sans elle, l'absence chez les autres rôles serait vraie sans rien prouver. Le gestionnaire peut
+		// la recevoir ensuite par la gestion des rôles (plan § 4).
+		assertThat(this.permissions.allCodes()).contains(Permissions.INTEGRATION_PRICE_APPROVE);
+		assertThat(this.roles.permissionsOf(Set.of("GESTIONNAIRE"))).doesNotContain(Permissions.INTEGRATION_PRICE_APPROVE);
+		assertThat(this.roles.permissionsOf(Set.of("CAISSIER"))).doesNotContain(Permissions.INTEGRATION_PRICE_APPROVE);
+	}
+
+	@Test
 	void noRoleMeansNoPermission() {
 		assertThat(this.roles.permissionsOf(Set.of())).isEmpty();
 		assertThat(this.roles.permissionsOf(Set.of("ROLE_INEXISTANT"))).isEmpty();
