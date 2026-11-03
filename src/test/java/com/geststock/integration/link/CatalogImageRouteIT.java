@@ -405,7 +405,8 @@ class CatalogImageRouteIT {
 		UUID product = productWithImage(this.companyA, jpeg);
 		awaitFreshWindow();
 
-		// 119 GET, puis HEAD en 120ᵉ appel : servi, en-têtes du GET, sans corps.
+		// 119 GET, puis HEAD en 120ᵉ appel : servi, en-têtes du GET. Le corps n'est pas vérifié ici : depuis Servlet 6,
+		// c'est le connecteur de Tomcat qui le retire, absent sous MockMvc ; voir CatalogImageHeadIT (vrai serveur).
 		for (int i = 0; i < 119; i++) {
 			image(token, product).andExpect(status().isOk());
 		}
@@ -415,13 +416,11 @@ class CatalogImageRouteIT {
 			.andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, jpeg.length))
 			.andExpect(header().string(HttpHeaders.ETAG, "\"" + sha256(jpeg) + "\""))
 			.andExpect(header().string("X-Content-Type-Options", "nosniff"))
-			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
-			.andExpect(content().bytes(new byte[0]));
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")));
 		// Le HEAD a consommé une unité : le 121ᵉ appel, HEAD ou GET, est refusé.
 		this.mvc.perform(head(IMAGE, product).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
 			.andExpect(status().isTooManyRequests())
-			.andExpect(header().exists(HttpHeaders.RETRY_AFTER))
-			.andExpect(content().bytes(new byte[0]));
+			.andExpect(header().exists(HttpHeaders.RETRY_AFTER));
 		image(token, product)
 			.andExpect(status().isTooManyRequests())
 			.andExpect(header().exists(HttpHeaders.RETRY_AFTER))
