@@ -47,6 +47,8 @@ import com.geststock.integration.ChangeFeedService;
 import com.geststock.integration.ChangePage;
 import com.geststock.integration.IntegrationOperation;
 import com.geststock.integration.LinkRef;
+import com.geststock.integration.SnapshotPage;
+import com.geststock.integration.SnapshotService;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.StreamReadFeature;
@@ -101,16 +103,19 @@ class CatalogChangesController {
 
 	private final LinkAcknowledgements acknowledgements;
 
+	private final SnapshotService snapshots;
+
 	/** Lecture stricte du corps : clés répétées et contenu après l'objet refusés (v17-D12). */
 	private final ObjectReader strictJson;
 
 	CatalogChangesController(ChangeFeedService feed, RateLimiter limiter, IntegrationRateLimitProperties rateLimits,
-			ApiErrorFactory errors, LinkAcknowledgements acknowledgements, JsonMapper json) {
+			ApiErrorFactory errors, LinkAcknowledgements acknowledgements, SnapshotService snapshots, JsonMapper json) {
 		this.feed = feed;
 		this.limiter = limiter;
 		this.rateLimits = rateLimits;
 		this.errors = errors;
 		this.acknowledgements = acknowledgements;
+		this.snapshots = snapshots;
 		this.strictJson = json.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
 			.with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 	}
@@ -160,15 +165,7 @@ class CatalogChangesController {
 	ChangePageView changes(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
 			HttpServletRequest request) {
 		limit("catalog-changes:link:" + principal.linkId(), this.rateLimits.rateLimit().catalogChangesPerLink());
-		Map<String, String[]> parameters;
-		try {
-			parameters = request.getParameterMap();
-		}
-		catch (RequestRejectedException ex) {
-			// Pare-feu de Spring Security : nom ou valeur de paramètre refusé à la lecture. Son message porte la valeur
-			// reçue : ni journalisé ni repris.
-			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre refusé.");
-		}
+		Map<String, String[]> parameters = parameters(request);
 		Long after = integer(parameters, "after");
 		if (after == null) {
 			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre requis : after.");
@@ -184,6 +181,30 @@ class CatalogChangesController {
 		ChangePage page = this.feed.read(new LinkRef(principal.linkId()), after,
 				limit != null ? Math.toIntExact(limit) : null, LinkChangeFilters.of(principal));
 		return ChangePageView.of(page);
+	}
+
+	/** Paramètres de la requête ; un nom ou une valeur refusés par le pare-feu donnent {@code INVALID_PARAMETER}. */
+	private static Map<String, String[]> parameters(HttpServletRequest request) {
+		try {
+			return request.getParameterMap();
+		}
+		catch (RequestRejectedException ex) {
+			// Pare-feu de Spring Security : nom ou valeur de paramètre refusé à la lecture. Son message porte la valeur
+			// reçue : ni journalisé ni repris.
+			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre refusé.");
+		}
+	}
+
+	/** Valeur du paramètre, {@code null} s'il est absent ; refusée si elle est répétée. */
+	private static String text(Map<String, String[]> parameters, String name) {
+		String[] values = parameters.get(name);
+		if (values == null) {
+			return null;
+		}
+		if (values.length != 1) {
+			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre répété : " + name + ".");
+		}
+		return values[0];
 	}
 
 	/** Valeur entière du paramètre, {@code null} s'il est absent ; refusée si elle est vide, non entière ou répétée. */
@@ -204,6 +225,63 @@ class CatalogChangesController {
 			}
 		}
 		throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre invalide : " + name + ".");
+	}
+
+	@GetMapping("/snapshot")
+	@RequiresScope("catalog:read")
+	@Operation(operationId = "getCatalogSnapshot", summary = "Instantané paginé du catalogue lié (réconciliation, reprise)",
+			description = "Sections dans l'ordre categories, products, productImages, availability ; limit compte les objets "
+					+ "toutes sections confondues ; asOfSeq fixé à la première page, puis reprendre le flux avec "
+					+ "after=asOfSeq. Disponibilité seulement avec la portée stock:read : sans elle, le champ availability est "
+					+ "absent de chaque page et l'instantané s'arrête après productImages. Jeton de page opaque, lié à la "
+					+ "liaison, valable 24 h. Limite : 60 appels par minute et par liaison (configurable).",
+			security = @SecurityRequirement(name = OpenApiConfig.INTEGRATION_LINK_SCHEME),
+			parameters = {
+					@Parameter(name = "pageToken", in = ParameterIn.QUERY,
+							description = "Absent pour la première page, puis le nextPageToken reçu",
+							schema = @Schema(type = "string", maxLength = 512)),
+					@Parameter(name = "limit", in = ParameterIn.QUERY,
+							description = "Nombre maximal d'objets de la page, toutes sections confondues (200 par défaut)",
+							schema = @Schema(type = "integer", minimum = "1", maximum = "500", defaultValue = "200")) },
+			responses = { @ApiResponse(responseCode = "200", description = "Page de l'instantané"),
+					@ApiResponse(responseCode = "400", description = "INVALID_PAGE_TOKEN (jeton illisible, altéré, trop long ou "
+							+ "d'une autre liaison), INVALID_PARAMETER (paramètre répété, limit non entier), VALIDATION_FAILED "
+							+ "(limit hors bornes)",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "401", description = "INVALID_TOKEN, LINK_REVOKED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "403",
+							description = "INSUFFICIENT_SCOPE, LINK_SUSPENDED, COMPANY_SUSPENDED, COMPANY_UNAVAILABLE",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "410", description = "SNAPSHOT_EXPIRED : jeton de plus de 24 heures",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "429", description = "RATE_LIMITED : plus de 60 appels par minute pour la "
+							+ "liaison (valeur de départ, configurable) ; en-tête Retry-After",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "503",
+							description = "RATE_LIMIT_UNAVAILABLE, SCHEMA_UPGRADE_IN_PROGRESS, SCHEMA_UPGRADE_FAILED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))) })
+	SnapshotPageView snapshot(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
+			HttpServletRequest request) {
+		limit("catalog-snapshot:link:" + principal.linkId(), this.rateLimits.rateLimit().catalogSnapshotPerLink());
+		Map<String, String[]> parameters = parameters(request);
+		String pageToken = text(parameters, "pageToken");
+		Long limit = integer(parameters, "limit");
+		if (limit != null && (limit < 1 || limit > MAX_LIMIT)) {
+			throw new OutOfBounds("limit", limit < 1 ? "doit être supérieur ou égal à 1"
+					: "doit être inférieur ou égal à " + MAX_LIMIT);
+		}
+		// v17-D1 : la disponibilité seulement avec stock:read ; sinon, champ absent et fin après productImages.
+		boolean withAvailability = principal.hasScope(LinkChangeFilters.STOCK_READ);
+		SnapshotPage page = this.snapshots.read(new LinkRef(principal.linkId()), pageToken,
+				limit != null ? Math.toIntExact(limit) : null, withAvailability);
+		return SnapshotPageView.of(page, withAvailability);
 	}
 
 	@PostMapping("/changes/ack")
@@ -412,6 +490,35 @@ class CatalogChangesController {
 	 */
 	@Schema(name = "IntegrationAcknowledgement")
 	record AcknowledgementView(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) long acknowledgedSeq) {
+	}
+
+	/**
+	 * Réponse {@code 200} de {@code GET /catalog/snapshot} (contrat {@code SnapshotPage}).
+	 *
+	 * @param availability  disponibilités de la page ; <b>absent</b> (champ omis) sans la portée {@code stock:read} : non
+	 *                      autorisé, à ne pas confondre avec une section vide (v17-D1, décision du 2026-11-03)
+	 * @param nextPageToken absent sur la dernière page
+	 */
+	@Schema(name = "IntegrationSnapshotPage")
+	record SnapshotPageView(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) long asOfSeq,
+			@Schema(requiredMode = Schema.RequiredMode.REQUIRED) String currency,
+			@Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<JsonNode> categories,
+			@Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<JsonNode> products,
+			@Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<JsonNode> productImages,
+			@JsonInclude(JsonInclude.Include.NON_NULL) @Schema(description = "Absent sans la portée stock:read")
+			List<JsonNode> availability,
+			@JsonInclude(JsonInclude.Include.NON_NULL) String nextPageToken) {
+
+		static SnapshotPageView of(SnapshotPage page, boolean withAvailability) {
+			return new SnapshotPageView(page.asOfSeq(), page.currency(), page.categories(), page.products(),
+					page.productImages(), withAvailability ? page.availability() : null, page.nextPageToken());
+		}
+
+		@Override
+		public String toString() {
+			return "SnapshotPageView[asOfSeq=" + this.asOfSeq + "]";
+		}
+
 	}
 
 	/** Paramètre hors bornes : {@code VALIDATION_FAILED}, paramètre fautif dans {@code errors}. */

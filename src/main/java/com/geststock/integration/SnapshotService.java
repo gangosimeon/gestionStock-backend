@@ -120,6 +120,18 @@ public class SnapshotService {
 	 * @throws IntegrationFeedStateMissingException ligne d'état du flux absente
 	 */
 	public SnapshotPage read(LinkRef link, String pageToken, Integer limit) {
+		return read(link, pageToken, limit, true);
+	}
+
+	/**
+	 * Page de l'instantané, avec ou sans la section de disponibilité (v17-D1 : seulement avec la portée
+	 * {@code stock:read}). Sans elle, la section {@code availability} n'est ni calculée ni parcourue : l'instantané se
+	 * termine après {@code productImages}, et un jeton placé sur la disponibilité donne une dernière page vide.
+	 *
+	 * @param withAvailability {@code true} : section {@code availability} servie
+	 * @see #read(LinkRef, String, Integer)
+	 */
+	public SnapshotPage read(LinkRef link, String pageToken, Integer limit, boolean withAvailability) {
 		Objects.requireNonNull(link, "link");
 		int effectiveLimit = limit != null ? limit : DEFAULT_LIMIT;
 		if (effectiveLimit < 1 || effectiveLimit > MAX_LIMIT) {
@@ -132,10 +144,11 @@ public class SnapshotService {
 		if (position == null) {
 			this.sequencer.sequence();
 		}
-		return this.transaction.execute(status -> page(link, position, effectiveLimit, isoCurrency));
+		return this.transaction.execute(status -> page(link, position, effectiveLimit, isoCurrency, withAvailability));
 	}
 
-	private SnapshotPage page(LinkRef link, PageToken position, int limit, String isoCurrency) {
+	private SnapshotPage page(LinkRef link, PageToken position, int limit, String isoCurrency,
+			boolean withAvailability) {
 		this.jdbc.sql("set local statement_timeout = " + this.properties.statementTimeout().toMillis()).update();
 		long asOfSeq;
 		Instant issuedAt;
@@ -154,6 +167,10 @@ public class SnapshotService {
 			section = position.section();
 			lastId = position.lastId();
 		}
+		if (section == SnapshotSection.AVAILABILITY && !withAvailability) {
+			// Jeton placé sur la disponibilité, présenté sans stock:read : fin de l'instantané, rien de servi.
+			section = null;
+		}
 
 		Map<SnapshotSection, List<JsonNode>> content = new EnumMap<>(SnapshotSection.class);
 		for (SnapshotSection each : SnapshotSection.values()) {
@@ -165,7 +182,7 @@ public class SnapshotService {
 			List<JsonNode> served = content.get(section);
 			items.forEach(item -> served.add(this.jsonMapper.valueToTree(item.data())));
 			if (items.size() < remaining) {
-				section = next(section);
+				section = next(section, withAvailability);
 				lastId = START;
 			}
 			else {
@@ -201,9 +218,11 @@ public class SnapshotService {
 		};
 	}
 
-	private static SnapshotSection next(SnapshotSection section) {
+	/** Section suivante ; {@code null} après la dernière, ou après {@code productImages} sans la disponibilité. */
+	private static SnapshotSection next(SnapshotSection section, boolean withAvailability) {
 		SnapshotSection[] sections = SnapshotSection.values();
-		return section.ordinal() + 1 < sections.length ? sections[section.ordinal() + 1] : null;
+		SnapshotSection next = section.ordinal() + 1 < sections.length ? sections[section.ordinal() + 1] : null;
+		return next == SnapshotSection.AVAILABILITY && !withAvailability ? null : next;
 	}
 
 }
