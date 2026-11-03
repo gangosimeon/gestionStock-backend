@@ -15,7 +15,11 @@ package com.geststock.integration;
  * @param batches             lots validés (simulation : lots qui seraient faits, dans la limite du passage)
  * @param deletedCount        événements supprimés (toujours 0 en simulation)
  * @param purgedThroughAfter  repère de purge après le passage (inchangé en simulation)
+ * @param stop                raison de l'arrêt : {@link PassStop#LIMIT_REACHED} s'il reste des événements éligibles au-delà
+ *                            des limites du passage (lots, durée, budget) ; {@link PassStop#LEASE_LOST} si le bail de la
+ *                            maintenance a été perdu (G20b)
  */
 public record PurgeReport(PurgeMode mode, long ceilingSeq, AckFloor floor, long purgedThroughBefore,
-		long eligibleThroughSeq, long eligibleCount, int batches, long deletedCount, long purgedThroughAfter) {
+		long eligibleThroughSeq, long eligibleCount, int batches, long deletedCount, long purgedThroughAfter,
+		PassStop stop) {
 }

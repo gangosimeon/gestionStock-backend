@@ -1,15 +1,15 @@
 package com.geststock.integration;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * Planification des jobs d'intégration (métriques, purge), activée seulement si l'un d'eux l'est : par défaut,
- * aucun planificateur n'est démarré.
+ * Planification du job des métriques d'intégration, activée seulement s'il l'est : par défaut, aucun planificateur
+ * n'est démarré. La purge n'est plus planifiée : la maintenance de l'intégration la déclenche (G20-D10).
  */
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
-@ConditionalOnExpression("${geststock.integration.metrics.enabled:false} or ${geststock.integration.purge.enabled:false}")
+@ConditionalOnProperty(prefix = "geststock.integration.metrics", name = "enabled", havingValue = "true")
 class IntegrationScheduling {
 }

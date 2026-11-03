@@ -225,7 +225,10 @@ class MaintenanceRouteIT {
 			.andExpect(header().string(HttpHeaders.CONTENT_TYPE, containsString(MediaType.APPLICATION_JSON_VALUE)))
 			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store"))));
 		assertThat(report.propertyNames()).containsExactlyInAnyOrder("status", "mode", "generation", "durationMs",
-				"authFailures");
+				"companies", "purge", "authFailures");
+		assertThat(report.get("companies").propertyNames()).containsExactlyInAnyOrder("active", "visited", "skippedUpgrade",
+				"errors", "interrupted", "remaining");
+		assertThat(report.get("purge").propertyNames()).containsExactlyInAnyOrder("eligible", "deleted", "batches", "blocked");
 		assertThat(report.get("status").asString()).isEqualTo("COMPLETED");
 		assertThat(report.get("mode").asString()).as("purge en simulation (G20-D5)").isEqualTo("SIMULATION");
 		assertThat(report.get("generation").asLong()).isEqualTo(before + 1);
@@ -251,6 +254,31 @@ class MaintenanceRouteIT {
 			this.lease.release(held);
 		}
 		call(CURRENT).andExpect(status().isOk());
+	}
+
+	// --- Simulation par défaut (G20-D5) ----------------------------------------------------------------------------
+
+	@Test
+	void byDefaultAPassSimulatesThePurgeWithoutDeletingNorMovingTheWatermark() throws Exception {
+		resetLegacyFeed();
+		try {
+			for (int i = 0; i < 5; i++) {
+				this.jdbc.update("""
+						insert into integration_outbox (type, operation, object_id, object_version, created_at)
+						values ('CATEGORY', 'UPSERT', ?, 1, now() - interval '100 days')""", UUID.randomUUID());
+			}
+			JsonNode report = read(call(CURRENT).andExpect(status().isOk()));
+			assertThat(report.get("mode").asString()).isEqualTo("SIMULATION");
+			assertThat(report.get("purge").get("eligible").asLong()).as("événements éligibles comptés").isGreaterThanOrEqualTo(4);
+			assertThat(report.get("purge").get("deleted").asLong()).isZero();
+			assertThat(this.jdbc.queryForObject("select count(*) from integration_outbox", Integer.class))
+				.as("aucune suppression").isEqualTo(5);
+			assertThat(this.jdbc.queryForObject("select purged_through_seq from integration_feed_state", Long.class))
+				.as("repère inchangé").isZero();
+		}
+		finally {
+			resetLegacyFeed();
+		}
 	}
 
 	// --- Échecs d'authentification (G20-D14) ---------------------------------------------------------------------
@@ -292,6 +320,15 @@ class MaintenanceRouteIT {
 	}
 
 	// --- Outils --------------------------------------------------------------------------------------------------
+
+	/** Flux de l'entreprise historique vidé, repère et dernier seq à zéro, acquittements effacés. */
+	private void resetLegacyFeed() {
+		this.jdbc.update("delete from integration_outbox");
+		this.jdbc.update("delete from integration_link_ack");
+		this.jdbc.update("""
+				insert into integration_feed_state (id) values ('00000000-0000-0000-0000-000000000001'::uuid)
+				on conflict (id) do update set last_seq = 0, purged_through_seq = 0""");
+	}
 
 	private ResultActions call(String secret) throws Exception {
 		return this.mvc.perform(post(ROUTE).header(HttpHeaders.AUTHORIZATION, "Bearer " + secret));

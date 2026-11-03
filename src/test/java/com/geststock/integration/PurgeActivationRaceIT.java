@@ -157,8 +157,8 @@ class PurgeActivationRaceIT {
 			return retained;
 		}).when(this.retainedLinks).of(any());
 		OutboxPurge purge = new OutboxPurge(this.dataSource, this.transactionManager, this.acknowledgements,
-				new IntegrationPurgeProperties(true, PurgeMode.DELETE, Duration.ofDays(90), 1000, Duration.ofSeconds(2),
-						Duration.ofHours(1), 100, Duration.ofSeconds(30)));
+				new IntegrationPurgeProperties(PurgeMode.DELETE, Duration.ofDays(90), 1000, Duration.ofSeconds(2), 100,
+						Duration.ofSeconds(30)));
 
 		ExecutorService thread = Executors.newSingleThreadExecutor();
 		try {

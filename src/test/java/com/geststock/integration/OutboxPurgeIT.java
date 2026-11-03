@@ -75,16 +75,17 @@ class OutboxPurgeIT {
 		resetFeed();
 	}
 
-	// --- Livrée désactivée ---------------------------------------------------------------------------------
+	// --- Livrée en simulation -------------------------------------------------------------------------------
 
 	@Test
-	void thePurgeIsDeliveredDisabledInSimulationWithNinetyDaysOfRetention() {
-		assertThat(this.defaults.enabled()).isFalse();
+	void thePurgeIsDeliveredInSimulationWithNinetyDaysOfRetentionAndNoScheduledJob() {
 		assertThat(this.defaults.mode()).isEqualTo(PurgeMode.SIMULATION);
 		assertThat(this.defaults.retention()).isEqualTo(Duration.ofDays(90));
 		assertThat(this.defaults.maxBatches()).isEqualTo(100);
 		assertThat(this.defaults.maxDuration()).isEqualTo(Duration.ofSeconds(30));
-		assertThat(this.context.getBeansOfType(OutboxPurgeJob.class)).isEmpty();
+		// G20-D10 : plus de tâche planifiée ; seule la maintenance de l'intégration déclenche la purge.
+		assertThat(this.context.containsBean("outboxPurgeJob")).isFalse();
+		assertThat(this.context.getBeansOfType(IntegrationScheduling.class)).isEmpty();
 	}
 
 	@Test
@@ -106,7 +107,8 @@ class OutboxPurgeIT {
 		System.out.println("Simulation de purge : " + report);
 
 		// Plafond 10, borne 8, lots de 3 : trois lots seraient faits.
-		assertThat(report).isEqualTo(new PurgeReport(PurgeMode.SIMULATION, 10, AckFloor.acknowledged(8), 0, 8, 8, 3, 0, 0));
+		assertThat(report).isEqualTo(new PurgeReport(PurgeMode.SIMULATION, 10, AckFloor.acknowledged(8), 0, 8, 8, 3, 0, 0,
+				PassStop.COMPLETE));
 		assertThat(outboxCount()).isEqualTo(10);
 		assertThat(purgedThrough()).isZero();
 	}
@@ -122,7 +124,8 @@ class OutboxPurgeIT {
 
 		PurgeReport report = purge(PurgeMode.DELETE, () -> AckFloor.acknowledged(9)).run();
 
-		assertThat(report).isEqualTo(new PurgeReport(PurgeMode.DELETE, 10, AckFloor.acknowledged(9), 0, 6, 6, 2, 6, 6));
+		assertThat(report).isEqualTo(new PurgeReport(PurgeMode.DELETE, 10, AckFloor.acknowledged(9), 0, 6, 6, 2, 6, 6,
+				PassStop.COMPLETE));
 		assertThat(sequencedSeqs()).containsExactly(7L, 8L, 9L, 10L);
 		assertThat(unsequencedCount()).as("événements sans seq conservés").isEqualTo(2);
 		assertThat(purgedThrough()).isEqualTo(6L);
@@ -329,8 +332,8 @@ class OutboxPurgeIT {
 
 	/** Purge en lots de 3, avec ses limites de lots et de durée par passage. */
 	private OutboxPurge purge(PurgeMode mode, AckSource acks, int maxBatches, Duration maxDuration) {
-		return new OutboxPurge(this.dataSource, this.transactionManager, acks, new IntegrationPurgeProperties(true, mode,
-				Duration.ofDays(90), 3, Duration.ofSeconds(2), Duration.ofHours(1), maxBatches, maxDuration));
+		return new OutboxPurge(this.dataSource, this.transactionManager, acks, new IntegrationPurgeProperties(mode,
+				Duration.ofDays(90), 3, Duration.ofSeconds(2), maxBatches, maxDuration));
 	}
 
 	/** {@code count} événements séquencés (seq 1..count), écrits il y a {@code age}. */

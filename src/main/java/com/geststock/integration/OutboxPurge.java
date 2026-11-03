@@ -40,6 +40,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>Simulation : même plafond, même borne, mêmes critères et mêmes limites de lots ; ne supprime rien, n'avance pas
  * le repère et ne prend aucun verrou (elle ne reproduit pas {@code lock_timeout}).
+ *
+ * <p>Maintenance de l'intégration (G20b, décision B) : un passage contrôlé ({@link PassControl}) vérifie, <b>avant
+ * chaque lot</b>, que la maintenance tient toujours son bail (sinon aucun nouveau lot, pas même le premier :
+ * {@link PassStop#LEASE_LOST}) et, à partir du deuxième lot, qu'il lui reste du budget (sinon arrêt propre :
+ * {@link PassStop#LIMIT_REACHED}). Un lot commencé est mené à son terme et validé ; rien n'est vérifié pendant un lot.
+ * Plafond, borne, préfixe contigu et repère sous verrou sont inchangés : la sécurité des données ne dépend pas du bail.
  */
 @Component
 class OutboxPurge {
@@ -103,8 +109,13 @@ class OutboxPurge {
 		this.properties = properties;
 	}
 
-	/** Un passage, dans le mode configuré, sur la base de l'entreprise courante. */
+	/** Un passage, dans le mode configuré, sur la base de l'entreprise courante, sans autre limite que les siennes. */
 	PurgeReport run() {
+		return run(PassControl.UNLIMITED);
+	}
+
+	/** Un passage contrôlé par la maintenance (bail et budget vérifiés avant chaque lot, G20b). */
+	PurgeReport run(PassControl control) {
 		// 1. Plafond P, lu et validé AVANT la liste des liaisons (v17-D11). Hors transaction : instruction distincte.
 		long ceiling = this.jdbc.sql(READ_LAST_SEQ).param("id", FeedSequencer.FEED_STATE_ID).query(Long.class).optional()
 			.orElseThrow(IntegrationFeedStateMissingException::new);
@@ -113,7 +124,7 @@ class OutboxPurge {
 		// 3. Borne du passage, jamais relevée ensuite.
 		Bound bound = this.readOnly.execute(status -> bound(ceiling, floor));
 		if (this.properties.mode() == PurgeMode.DELETE) {
-			return delete(ceiling, floor, bound);
+			return delete(ceiling, floor, bound, control);
 		}
 		int batches = (int) Math.min(this.properties.maxBatches(),
 				(bound.eligible() + this.properties.batchSize() - 1) / this.properties.batchSize());
@@ -121,16 +132,27 @@ class OutboxPurge {
 				+ "{} ; repère inchangé à {}", bound.eligible(), bound.watermark() + 1, bound.through(), batches, ceiling,
 				describe(floor), bound.watermark());
 		return new PurgeReport(PurgeMode.SIMULATION, ceiling, floor, bound.watermark(), bound.through(), bound.eligible(),
-				batches, 0, bound.watermark());
+				batches, 0, bound.watermark(), PassStop.COMPLETE);
 	}
 
-	private PurgeReport delete(long ceiling, AckFloor floor, Bound bound) {
+	private PurgeReport delete(long ceiling, AckFloor floor, Bound bound, PassControl control) {
 		long started = System.nanoTime();
 		int batches = 0;
 		long deleted = 0;
 		long watermark = bound.watermark();
-		while (batches < this.properties.maxBatches()
-				&& (batches == 0 || System.nanoTime() - started < this.properties.maxDuration().toNanos())) {
+		PassStop stop = PassStop.COMPLETE;
+		while (watermark < bound.through()) {
+			// Limites du passage, à partir du deuxième lot seulement : le premier lot a toujours lieu (v17-D16).
+			if (batches >= this.properties.maxBatches() || (batches > 0
+					&& (System.nanoTime() - started >= this.properties.maxDuration().toNanos() || !control.timeLeft()))) {
+				stop = PassStop.LIMIT_REACHED;
+				break;
+			}
+			// Bail de la maintenance, avant chaque lot, le premier compris : perdu, aucun lot de plus.
+			if (!control.leaseHeld()) {
+				stop = PassStop.LEASE_LOST;
+				break;
+			}
 			Batch batch = this.readWrite.execute(status -> batch(bound.through()));
 			if (batch.deleted() == 0) {
 				break;
@@ -139,10 +161,10 @@ class OutboxPurge {
 			deleted += batch.deleted();
 			watermark = batch.watermark();
 		}
-		log.info("Purge du flux d'intégration : {} événement(s) supprimés en {} lot(s) ; repère {} → {} ; borne {}, plafond {}, {}",
-				deleted, batches, bound.watermark(), watermark, bound.through(), ceiling, describe(floor));
+		log.info("Purge du flux d'intégration : {} événement(s) supprimés en {} lot(s) ; repère {} → {} ; borne {}, plafond {}, {} ; {}",
+				deleted, batches, bound.watermark(), watermark, bound.through(), ceiling, describe(floor), stop);
 		return new PurgeReport(PurgeMode.DELETE, ceiling, floor, bound.watermark(), bound.through(), bound.eligible(),
-				batches, deleted, watermark);
+				batches, deleted, watermark, stop);
 	}
 
 	/** Un lot, dans la transaction courante : verrou de la ligne d'état, suppression, repère. */
