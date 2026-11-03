@@ -47,6 +47,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerExecutionChain;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.util.ServletRequestPathUtils;
 
@@ -284,12 +285,21 @@ public class IntegrationSecurityConfig {
 			RouteRule rule = rule(request);
 			ErrorCode denial = denial(link, rule);
 			if (denial != null) {
-				log.info("Liaison {} refusée : {} ({} {}).", link.getName(), denial, request.getMethod(), request.getRequestURI());
+				log.info("Liaison {} refusée : {} ({} {}).", link.getName(), denial, request.getMethod(), route(request));
 				request.setAttribute(DENIAL_ATTRIBUTE, denial);
 				return new AuthorizationDecision(false);
 			}
-			log.debug("Liaison {} autorisée ({} {}).", link.getName(), request.getMethod(), request.getRequestURI());
+			log.debug("Liaison {} autorisée ({} {}).", link.getName(), request.getMethod(), route(request));
 			return new AuthorizationDecision(true);
+		}
+
+		/**
+		 * Modèle de la route servie ({@code /api/integration/v1/catalog/products/{productId}/image}), posé par la recherche
+		 * du gestionnaire : les journaux ne citent jamais un chemin reçu, qui peut porter une valeur du client (G19).
+		 */
+		private static String route(HttpServletRequest request) {
+			return request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String pattern ? pattern
+					: "route inconnue";
 		}
 
 		/**

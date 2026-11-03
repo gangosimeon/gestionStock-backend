@@ -37,7 +37,7 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 		if (!problems.isEmpty()) {
 			throw new IllegalArgumentException(String.join(" ; ", problems));
 		}
-		rateLimit = rateLimit != null ? rateLimit : new RateLimit(null, 10, 10, 30, 30, 5, null, 120, 60, 60);
+		rateLimit = rateLimit != null ? rateLimit : new RateLimit(null, 10, 10, 30, 30, 5, null, 120, 60, 60, 120);
 	}
 
 	/**
@@ -66,7 +66,8 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 
 	/**
 	 * @param window                durée de la fenêtre fixe des limites {@code /oauth/*}, {@code /catalog/changes},
-	 *                              {@code /catalog/changes/ack} et {@code /catalog/snapshot} (1 seconde à 1 heure)
+	 *                              {@code /catalog/changes/ack}, {@code /catalog/snapshot} et de l'image d'un produit
+	 *                              (1 seconde à 1 heure)
 	 * @param oauthTokenPerClient   {@code /oauth/token} : requêtes par fenêtre et par client authentifié
 	 * @param oauthTokenPerIp       {@code /oauth/token} : requêtes par fenêtre et par IP, tentatives échouées comprises
 	 * @param oauthParPerClient     {@code /oauth/par} : requêtes par fenêtre et par client authentifié
@@ -79,12 +80,15 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 	 *                              authentifiée, comptés avant la lecture du corps (v17-D14)
 	 * @param catalogSnapshotPerLink {@code /catalog/snapshot} (G18, v13-D4) : pages par fenêtre et par liaison
 	 *                              authentifiée, paramètres invalides compris
+	 * @param catalogImagePerLink   {@code /catalog/products/{productId}/image} (G19-D6) : images par fenêtre et par
+	 *                              liaison authentifiée, réponses {@code 304} comprises
 	 */
 	public record RateLimit(@DefaultValue("1m") Duration window, @DefaultValue("10") int oauthTokenPerClient,
 			@DefaultValue("10") int oauthTokenPerIp, @DefaultValue("30") int oauthParPerClient,
 			@DefaultValue("30") int oauthParPerIp, @DefaultValue("5") int linkSecretPerLink,
 			@DefaultValue("1h") Duration linkSecretWindow, @DefaultValue("120") int catalogChangesPerLink,
-			@DefaultValue("60") int catalogAckPerLink, @DefaultValue("60") int catalogSnapshotPerLink) {
+			@DefaultValue("60") int catalogAckPerLink, @DefaultValue("60") int catalogSnapshotPerLink,
+			@DefaultValue("120") int catalogImagePerLink) {
 
 		public RateLimit {
 			window = window != null ? window : Duration.ofMinutes(1);
@@ -97,7 +101,7 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 			}
 			if (oauthTokenPerClient < 1 || oauthTokenPerIp < 1 || oauthParPerClient < 1 || oauthParPerIp < 1
 					|| linkSecretPerLink < 1 || catalogChangesPerLink < 1 || catalogAckPerLink < 1
-					|| catalogSnapshotPerLink < 1) {
+					|| catalogSnapshotPerLink < 1 || catalogImagePerLink < 1) {
 				throw new IllegalArgumentException("geststock.integration.rate-limit : chaque limite vaut au moins 1.");
 			}
 		}

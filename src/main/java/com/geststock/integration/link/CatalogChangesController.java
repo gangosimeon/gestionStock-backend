@@ -33,6 +33,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.web.firewall.RequestRejectedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,6 +50,7 @@ import com.geststock.integration.IntegrationOperation;
 import com.geststock.integration.LinkRef;
 import com.geststock.integration.SnapshotPage;
 import com.geststock.integration.SnapshotService;
+import com.geststock.product.ProductImageService;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.StreamReadFeature;
@@ -85,6 +87,10 @@ class CatalogChangesController {
 
 	private static final String API_ERROR = "#/components/schemas/ApiError";
 
+	/** Identifiant de produit sous forme canonique 8-4-4-4-12, hexadécimal sans distinction de casse (G19-D5). */
+	private static final Pattern CANONICAL_UUID = Pattern
+		.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
 	/** Entier décimal signé ; un dépassement de {@code long} est refusé à la conversion. */
 	private static final Pattern INTEGER = Pattern.compile("[+-]?[0-9]{1,19}");
 
@@ -105,17 +111,21 @@ class CatalogChangesController {
 
 	private final SnapshotService snapshots;
 
+	private final ProductImageService images;
+
 	/** Lecture stricte du corps : clés répétées et contenu après l'objet refusés (v17-D12). */
 	private final ObjectReader strictJson;
 
 	CatalogChangesController(ChangeFeedService feed, RateLimiter limiter, IntegrationRateLimitProperties rateLimits,
-			ApiErrorFactory errors, LinkAcknowledgements acknowledgements, SnapshotService snapshots, JsonMapper json) {
+			ApiErrorFactory errors, LinkAcknowledgements acknowledgements, SnapshotService snapshots,
+			ProductImageService images, JsonMapper json) {
 		this.feed = feed;
 		this.limiter = limiter;
 		this.rateLimits = rateLimits;
 		this.errors = errors;
 		this.acknowledgements = acknowledgements;
 		this.snapshots = snapshots;
+		this.images = images;
 		this.strictJson = json.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
 			.with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 	}
@@ -282,6 +292,69 @@ class CatalogChangesController {
 		SnapshotPage page = this.snapshots.read(new LinkRef(principal.linkId()), pageToken,
 				limit != null ? Math.toIntExact(limit) : null, withAvailability);
 		return SnapshotPageView.of(page, withAvailability);
+	}
+
+	@GetMapping("/products/{productId}/image")
+	@RequiresScope("catalog:read")
+	@Operation(operationId = "getCatalogProductImage", summary = "Image principale d'un produit lié (JPEG)",
+			description = "JPEG binaire (512 px de côté au plus), lu dans la base de l'entreprise de la liaison. ETag = "
+					+ "empreinte SHA-256 de l'image, identique à imageSha256 du flux et de l'instantané ; If-None-Match "
+					+ "correspondant : 304 sans corps. Produit inexistant, d'une autre entreprise ou sans image : même 404 "
+					+ "PRODUCT_IMAGE_NOT_FOUND. Image servie aussi pour un produit archivé. Limite : 120 appels par minute "
+					+ "et par liaison (configurable), 304 compris. Erreurs en application/problem+json quel que soit Accept.",
+			security = @SecurityRequirement(name = OpenApiConfig.INTEGRATION_LINK_SCHEME),
+			parameters = {
+					@Parameter(name = "productId", in = ParameterIn.PATH, required = true,
+							description = "Identifiant du produit, forme canonique 8-4-4-4-12",
+							schema = @Schema(type = "string", format = "uuid")),
+					@Parameter(name = "If-None-Match", in = ParameterIn.HEADER,
+							description = "ETag déjà détenu : 304 s'il correspond à l'image courante",
+							schema = @Schema(type = "string")) },
+			responses = { @ApiResponse(responseCode = "200", description = "Image JPEG",
+					content = @Content(mediaType = MediaType.IMAGE_JPEG_VALUE,
+							schema = @Schema(type = "string", format = "binary"))),
+					@ApiResponse(responseCode = "304", description = "Image inchangée (If-None-Match correspondant)"),
+					@ApiResponse(responseCode = "400", description = "INVALID_PARAMETER (identifiant non canonique), "
+							+ "VALIDATION_FAILED (caractère de contrôle)",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "401", description = "INVALID_TOKEN, LINK_REVOKED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "403",
+							description = "INSUFFICIENT_SCOPE, LINK_SUSPENDED, COMPANY_SUSPENDED, COMPANY_UNAVAILABLE",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "404", description = "PRODUCT_IMAGE_NOT_FOUND : produit inexistant, d'une "
+							+ "autre entreprise ou sans image (réponse identique)",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "429", description = "RATE_LIMITED : plus de 120 appels par minute pour la "
+							+ "liaison (valeur de départ, configurable) ; en-tête Retry-After",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "503",
+							description = "RATE_LIMIT_UNAVAILABLE, SCHEMA_UPGRADE_IN_PROGRESS, SCHEMA_UPGRADE_FAILED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))) })
+	ResponseEntity<byte[]> image(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
+			@Parameter(hidden = true) @PathVariable String productId) {
+		limit("catalog-image:link:" + principal.linkId(), this.rateLimits.rateLimit().catalogImagePerLink());
+		// G19-D5 : forme canonique exigée (UUID.fromString accepte « 1-1-1-1-1 ») ; lu ici, et non converti par Spring,
+		// dont la conversion cite la valeur refusée dans ses journaux.
+		if (!CANONICAL_UUID.matcher(productId).matches()) {
+			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre invalide : productId.");
+		}
+		// Base de l'entreprise de la liaison : un produit d'une autre entreprise est introuvable, comme un produit sans
+		// image ou inexistant (G19-D3, 404 PRODUCT_IMAGE_NOT_FOUND).
+		ProductImageService.StoredImage image = this.images.get(UUID.fromString(productId));
+		// L'ETag déclenche le 304 de Spring MVC pour un If-None-Match correspondant (G19-D2) ; Cache-Control: no-store
+		// est posé par la chaîne d'intégration.
+		return ResponseEntity.ok()
+			.contentType(MediaType.parseMediaType(image.contentType()))
+			.eTag(image.sha256())
+			.header("X-Content-Type-Options", "nosniff")
+			.body(image.data());
 	}
 
 	@PostMapping("/changes/ack")

@@ -147,6 +147,19 @@ class IntegrationRateLimitUnavailableIT {
 			.andExpect(jsonPath("$.categories").doesNotExist());
 	}
 
+	@Test
+	void unavailableCountersRefuseTheImage() throws Exception {
+		TestLinks.Client client = this.links.client();
+		Link link = this.links.active(client, this.links.legacyCompany(), "shop-g19-503", Set.of("catalog:read"));
+		String token = this.tokens.issue(link.id(), client.clientId(), Set.of("catalog:read")).value();
+
+		this.mvc.perform(get("/api/integration/v1/catalog/products/{productId}/image", UUID.randomUUID())
+			.header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+			.andExpect(jsonPath("$.code").value("RATE_LIMIT_UNAVAILABLE"));
+	}
+
 	/** Limiteur branché sur une base qui refuse toute connexion. */
 	@TestConfiguration(proxyBeanMethods = false)
 	static class BrokenCounters {
