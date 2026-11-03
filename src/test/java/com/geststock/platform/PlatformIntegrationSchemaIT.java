@@ -34,7 +34,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Registre des liaisons dans la base plateforme (lot 2, étape G2 ; plan § 27, v14-D2, D3, D5, D6, D9, D10,
  * D11, D14 et ajustements v14) : tables, colonnes, conventions de nommage, commentaires, contraintes de
- * cohérence, unicité côté boutique et retour arrière V002 → U002 → V002.
+ * cohérence, unicité côté boutique et retour arrière V002 → U002 → V002. Maintenance de l'intégration (G20a, V004) :
+ * bail unique et état par entreprise, contraintes et retour arrière V004 → U004 → V004.
  *
  * <p>Les contrôles de schéma portent sur la base plateforme de l'application de test, c'est-à-dire le schéma
  * {@code platform} de la base historique (URL plateforme vide en test). Le retour arrière est joué dans des
@@ -51,9 +52,15 @@ class PlatformIntegrationSchemaIT {
 			"integration_link", "integration_rate_limit");
 
 	/** Tables de V002 et de V003 (audit de référence des liaisons, lot 2 G12). */
-	private static final List<String> ALL_TABLES = List.of("integration_audit_log", "integration_authorization_code",
+	private static final List<String> V003_TABLES = List.of("integration_audit_log", "integration_authorization_code",
 			"integration_authorization_request", "integration_client", "integration_client_redirect_uri",
 			"integration_link", "integration_rate_limit");
+
+	/** Tables de V002 à V004 (maintenance de l'intégration, lot 3 G20a). */
+	private static final List<String> ALL_TABLES = List.of("integration_audit_log", "integration_authorization_code",
+			"integration_authorization_request", "integration_client", "integration_client_redirect_uri",
+			"integration_link", "integration_maintenance_company", "integration_maintenance_lease",
+			"integration_rate_limit");
 
 	private static final String SHA_A = "a".repeat(64);
 
@@ -98,6 +105,11 @@ class PlatformIntegrationSchemaIT {
 				"announced_client varchar(64) null", "external_shop_id varchar(64) null", "actor_type varchar(10)",
 				"actor_id uuid null", "actor_name varchar(100) null", "ip_address varchar(45) null",
 				"reason varchar(500) null", "details jsonb null", "trace_id varchar(64) null");
+		column(expected, "integration_maintenance_lease", "id smallint", "generation bigint", "owner uuid null",
+				"acquired_at timestamptz null", "expires_at timestamptz null", "released_at timestamptz null");
+		column(expected, "integration_maintenance_company", "company_id uuid", "last_started_at timestamptz",
+				"last_started_generation bigint", "last_completed_at timestamptz null", "last_outcome varchar(20) null",
+				"consecutive_interruptions integer");
 
 		Map<String, String> actual = new LinkedHashMap<>();
 		this.platform.jdbc().sql("""
@@ -417,8 +429,8 @@ class PlatformIntegrationSchemaIT {
 		try {
 			DataSource scratch = this.provisioner.database(database);
 			JdbcTemplate jdbc = new JdbcTemplate(scratch);
-			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).isEqualTo(3);
-			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(ALL_TABLES);
+			assertThat(platformFlyway(scratch).target("3").load().migrate().migrationsExecuted).isEqualTo(3);
+			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(V003_TABLES);
 
 			try (Connection connection = scratch.getConnection()) {
 				ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/platform-rollback/U003__integration_audit.sql"));
@@ -427,14 +439,100 @@ class PlatformIntegrationSchemaIT {
 			assertThat(jdbc.queryForList("select version from platform.flyway_schema_history where version is not null order by installed_rank",
 					String.class)).as("historique de la plateforme").containsExactly("001", "002");
 
-			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).as("ré-application de V003").isEqualTo(1);
-			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(ALL_TABLES);
+			assertThat(platformFlyway(scratch).target("3").load().migrate().migrationsExecuted).as("ré-application de V003")
+				.isEqualTo(1);
+			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(V003_TABLES);
 		}
 		finally {
 			try (Connection c = this.provisioner.server().getConnection(); Statement s = c.createStatement()) {
 				s.execute("DROP DATABASE IF EXISTS " + database + " WITH (FORCE)");
 			}
 		}
+	}
+
+	// --- Maintenance de l'intégration (lot 3, G20a) ------------------------------------------------------------------
+
+	@Test
+	void theLeaseIsASingleFreeRowWhoseStatesAreCoherent() {
+		assertThat(this.platform.jdbc().sql("select count(*) from platform.integration_maintenance_lease").query(Integer.class)
+			.single()).as("une seule ligne").isEqualTo(1);
+		rejects("ck_integration_maintenance_lease_single",
+				j -> j.sql("insert into platform.integration_maintenance_lease (id) values (2)").update());
+		rejects("ck_integration_maintenance_lease_taken", j -> j.sql("""
+				update platform.integration_maintenance_lease
+				set generation = generation + 1, owner = null, acquired_at = null, expires_at = null, released_at = null""")
+			.update());
+		rejects("ck_integration_maintenance_lease_taken", j -> j.sql("""
+				update platform.integration_maintenance_lease
+				set generation = generation + 1, owner = gen_random_uuid(), acquired_at = now(), expires_at = null,
+				    released_at = null""").update());
+		rejects("ck_integration_maintenance_lease_expiry", j -> j.sql("""
+				update platform.integration_maintenance_lease
+				set generation = generation + 1, owner = gen_random_uuid(), acquired_at = now(),
+				    expires_at = now() - interval '1 second', released_at = null""").update());
+		rejects("ck_integration_maintenance_lease_release", j -> j.sql("""
+				update platform.integration_maintenance_lease
+				set generation = generation + 1, owner = gen_random_uuid(), acquired_at = now(),
+				    expires_at = now() + interval '1 minute', released_at = now() - interval '1 minute'""").update());
+	}
+
+	@Test
+	void companyStateChecksRejectInvalidValuesAndFollowTheCompany() {
+		rejects("ck_integration_maintenance_company_outcome", j -> insertCompanyState(j, "now()", "'TERMINE'"));
+		rejects("ck_integration_maintenance_company_completion", j -> insertCompanyState(j, "now()", "NULL"));
+		rejects("ck_integration_maintenance_company_completion", j -> insertCompanyState(j, "NULL", "'OK'"));
+		rejects("fk_integration_maintenance_company_company", j -> j.sql("""
+				insert into platform.integration_maintenance_company (company_id, last_started_at, last_started_generation)
+				values (gen_random_uuid(), now(), 1)""").update());
+		inRolledBackTransaction(j -> {
+			UUID company = insertCompanyState(j, "now()", "'OK'");
+			j.sql("delete from platform.company where id = :id").param("id", company).update();
+			assertThat(j.sql("select count(*) from platform.integration_maintenance_company where company_id = :id")
+				.param("id", company).query(Integer.class).single()).as("état supprimé avec l'entreprise").isZero();
+		});
+	}
+
+	// --- Retour arrière V004 → U004 → V004 (lot 3, G20a) -------------------------------------------------------------
+
+	@Test
+	void v004IsRolledBackThenReapplied() throws Exception {
+		String database = "gs_platform_rb_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+		try (Connection c = this.provisioner.server().getConnection(); Statement s = c.createStatement()) {
+			s.execute("CREATE DATABASE " + database);
+		}
+		try {
+			DataSource scratch = this.provisioner.database(database);
+			JdbcTemplate jdbc = new JdbcTemplate(scratch);
+			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).isEqualTo(4);
+			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(ALL_TABLES);
+
+			try (Connection connection = scratch.getConnection()) {
+				ScriptUtils.executeSqlScript(connection,
+						new ClassPathResource("db/platform-rollback/U004__integration_maintenance.sql"));
+			}
+			assertThat(integrationTables(jdbc)).as("tables supprimées par U004").containsExactlyElementsOf(V003_TABLES);
+			assertThat(jdbc.queryForList("select version from platform.flyway_schema_history where version is not null order by installed_rank",
+					String.class)).as("historique de la plateforme").containsExactly("001", "002", "003");
+
+			assertThat(platformFlyway(scratch).load().migrate().migrationsExecuted).as("ré-application de V004").isEqualTo(1);
+			assertThat(integrationTables(jdbc)).containsExactlyElementsOf(ALL_TABLES);
+			assertThat(jdbc.queryForObject(
+					"select count(*) from platform.integration_maintenance_lease where generation = 0 and owner is null",
+					Integer.class)).as("bail libre recréé").isEqualTo(1);
+		}
+		finally {
+			try (Connection c = this.provisioner.server().getConnection(); Statement s = c.createStatement()) {
+				s.execute("DROP DATABASE IF EXISTS " + database + " WITH (FORCE)");
+			}
+		}
+	}
+
+	private static UUID insertCompanyState(JdbcClient j, String completedAt, String outcome) {
+		UUID company = fixture(j).company();
+		j.sql("insert into platform.integration_maintenance_company (company_id, last_started_at, last_started_generation, "
+				+ "last_completed_at, last_outcome) values (:id, now(), 1, " + completedAt + ", " + outcome + ")")
+			.param("id", company).update();
+		return company;
 	}
 
 	private static org.flywaydb.core.api.configuration.FluentConfiguration platformFlyway(DataSource dataSource) {

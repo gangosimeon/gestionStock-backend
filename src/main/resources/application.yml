@@ -215,6 +215,14 @@ geststock:
     bootstrap-admin:
       username: ${GESTSTOCK_PLATFORM_ADMIN_USERNAME:}
       password: ${GESTSTOCK_PLATFORM_ADMIN_PASSWORD:}
+  integration:
+    # Maintenance de l'intégration (G20, plan § 33) : route interne POST /internal/integration/maintenance appelée par
+    # le cron. Désactivée par défaut (404). Seule l'empreinte SHA-256 du secret du cron est configurée ici ; la seconde
+    # n'est renseignée que pendant une rotation. Activée sans empreinte : démarrage refusé en production.
+    maintenance:
+      enabled: ${GESTSTOCK_MAINTENANCE_ENABLED:false}
+      token-sha256: ${GESTSTOCK_MAINTENANCE_TOKEN_SHA256:}
+      previous-token-sha256: ${GESTSTOCK_MAINTENANCE_PREVIOUS_TOKEN_SHA256:}
 
 logging:
   pattern:

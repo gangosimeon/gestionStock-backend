@@ -17,6 +17,7 @@ import com.geststock.integration.IntegrationProperties;
 import com.geststock.integration.PageTokenProperties;
 import com.geststock.integration.link.IntegrationLinkProperties;
 import com.geststock.integration.link.IntegrationRateLimitProperties;
+import com.geststock.integration.maintenance.IntegrationMaintenanceProperties;
 import com.geststock.security.GestStockSecurityProperties;
 
 /**
@@ -35,6 +36,8 @@ import com.geststock.security.GestStockSecurityProperties;
  * l'IP du client configuré ({@code geststock.integration.client-ip-header}, v14-D8), jamais {@code X-Forwarded-For} ni
  * {@code Forwarded} : avec {@code forward-headers-strategy: framework}, {@code getRemoteAddr()} reprend la première
  * valeur de {@code X-Forwarded-For}, écrite par le client.</li>
+ * <li>maintenance de l'intégration (G20-D1, D2) : maintenance activée ⇒ empreinte SHA-256 du secret du cron
+ * configurée ; une empreinte mal formée est refusée sans être citée.</li>
  * </ul>
  * Le secret JWT (32 octets minimum) est déjà vérifié par {@code JwtConfig}.
  */
@@ -82,6 +85,10 @@ class ProductionSafetyCheck implements InitializingBean {
 			.bindOrCreate("geststock.integration.links", IntegrationLinkProperties.class);
 		problems.addAll(linkProblems(links, this.security.jwt().secret()));
 		problems.addAll(clientIpProblems(links.enabled(), this.environment.getProperty("geststock.integration.client-ip-header")));
+		// Empreinte mal formée : refus dès la lecture, sans citer la valeur (IntegrationMaintenanceProperties).
+		problems.addAll(Binder.get(this.environment)
+			.bindOrCreate("geststock.integration.maintenance", IntegrationMaintenanceProperties.class)
+			.problems());
 		if (!problems.isEmpty()) {
 			throw new IllegalStateException("Configuration de production refusée :\n - " + String.join("\n - ", problems));
 		}

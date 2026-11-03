@@ -225,15 +225,22 @@ class IntegrationSecurityChainIT {
 	@Test
 	void theIntegrationChainComesFirstAndAlonePerformsIntegrationPaths() {
 		List<SecurityFilterChain> chains = this.filterChainProxy.getFilterChains();
-		assertThat(chains).hasSize(2);
+		// G20a : chaîne des routes internes (/internal/**, maintenance) entre l'intégration et la chaîne principale.
+		assertThat(chains).hasSize(3);
 		MockHttpServletRequest integration = new MockHttpServletRequest("GET", "/api/integration/v1/anything/at/all");
 		integration.setServletPath("/api/integration/v1/anything/at/all");
+		MockHttpServletRequest internal = new MockHttpServletRequest("POST", "/internal/integration/maintenance");
+		internal.setServletPath("/internal/integration/maintenance");
 		MockHttpServletRequest main = new MockHttpServletRequest("GET", "/api/products");
 		main.setServletPath("/api/products");
 
 		assertThat(chains.get(0).matches(integration)).as("chaîne d'intégration en premier").isTrue();
 		assertThat(chains.get(0).matches(main)).as("chaîne d'intégration limitée à son préfixe").isFalse();
-		assertThat(chains.get(1).matches(main)).as("chaîne principale : tout le reste").isTrue();
+		assertThat(chains.get(0).matches(internal)).as("chaîne d'intégration sans les routes internes").isFalse();
+		assertThat(chains.get(1).matches(internal)).as("chaîne des routes internes").isTrue();
+		assertThat(chains.get(1).matches(integration)).isFalse();
+		assertThat(chains.get(1).matches(main)).as("chaîne interne limitée à son préfixe").isFalse();
+		assertThat(chains.get(2).matches(main)).as("chaîne principale : tout le reste").isTrue();
 	}
 
 	@Test

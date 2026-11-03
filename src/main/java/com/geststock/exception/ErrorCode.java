@@ -316,6 +316,8 @@ public enum ErrorCode {
 	CURSOR_AHEAD(HttpStatus.CONFLICT,
 			"Curseur du flux en avance sur ce flux : il ne vient pas de cette entreprise ou le flux a été réinitialisé. "
 					+ "Ne reprenez pas avec ce curseur : vérifiez la liaison."),
+	/** Maintenance de l'intégration : un passage tient déjà le bail (G20-D4) ; le cron ne relance pas. */
+	MAINTENANCE_IN_PROGRESS(HttpStatus.CONFLICT, "Un passage de maintenance est déjà en cours."),
 
 	// 5xx
 	/** Intégration boutique : compteurs de débit inaccessibles, requête refusée (contrat integration/v1, v13-D4). */
