@@ -68,6 +68,9 @@ class ChangeFeedServiceIT {
 	private JsonMapper jsonMapper;
 
 	@Autowired
+	private ChannelPrices channelPrices;
+
+	@Autowired
 	private ChangeFeedProperties properties;
 
 	@Autowired
@@ -428,7 +431,7 @@ class ChangeFeedServiceIT {
 
 	private ChangeFeedService service(FeedSequencer feedSequencer) {
 		return new ChangeFeedService(feedSequencer, this.dataSource, this.transactionManager, this.availability,
-				this.jsonMapper, new ChangeFeedProperties(Duration.ofMillis(3500)));
+				this.channelPrices, this.jsonMapper, new ChangeFeedProperties(Duration.ofMillis(3500)));
 	}
 
 	private void insertRaw(String type, long version, String payload) {

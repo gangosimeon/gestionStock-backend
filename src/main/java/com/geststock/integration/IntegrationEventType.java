@@ -13,7 +13,8 @@ public enum IntegrationEventType {
 
 	PRODUCT_IMAGE(false),
 
-	CHANNEL_PRICE(false),
+	/** Mince (G22b, P2) : le prix est recalculé pour la liaison qui lit, jamais figé pour une autre liaison. */
+	CHANNEL_PRICE(true),
 
 	AVAILABILITY(true),
 

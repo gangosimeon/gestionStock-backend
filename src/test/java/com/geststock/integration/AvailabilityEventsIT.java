@@ -123,6 +123,9 @@ class AvailabilityEventsIT {
 	private JsonMapper jsonMapper;
 
 	@Autowired
+	private ChannelPrices channelPrices;
+
+	@Autowired
 	private JdbcTemplate jdbc;
 
 	@Autowired
@@ -328,7 +331,7 @@ class AvailabilityEventsIT {
 			return this.availability.availability(link, productIds);
 		};
 		ChangeFeedService counted = new ChangeFeedService(this.sequencer, this.dataSource, this.transactionManager,
-				counting, this.jsonMapper, this.feedProperties);
+				counting, this.channelPrices, this.jsonMapper, this.feedProperties);
 
 		ChangePage page = counted.read(LINK, 0, 500, ChangeFilter.ALL);
 

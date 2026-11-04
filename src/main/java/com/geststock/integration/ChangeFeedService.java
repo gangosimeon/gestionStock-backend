@@ -42,9 +42,10 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>Règles de la page : {@code after} sous le repère de purge → {@link CursorExpiredException} (v9-D1,
  * égalité acceptée) ; {@code after} au-delà de {@code last_seq} → {@link CursorAheadException}. Au plus
  * {@code limit} événements de {@code seq > after} sont <b>examinés</b> ; ceux que le filtre écarte font quand
- * même avancer {@code lastSeq} (P1). Les événements minces {@code AVAILABILITY} d'un même produit sont fusionnés
- * en celui de plus grand {@code seq}, dont la valeur est calculée à la lecture et la version est le {@code seq}
- * (P3). {@code hasMore} (P2) : un événement de {@code seq > lastSeq} ou un événement validé sans {@code seq}.
+ * même avancer {@code lastSeq} (P1). Les événements minces d'un même type et d'un même produit ({@code AVAILABILITY},
+ * {@code CHANNEL_PRICE}) sont fusionnés en celui de plus grand {@code seq}, dont la valeur est calculée à la lecture
+ * pour la liaison qui lit et la version est le {@code seq} (P3 ; G22b, P2 : le prix servi est toujours celui de la
+ * liaison qui lit, jamais celui d'une autre liaison). {@code hasMore} (P2) : un événement de {@code seq > lastSeq} ou un événement validé sans {@code seq}.
  *
  * <p>Un type stocké mais inconnu de ce code (écrit par une version plus récente, par exemple) ne bloque jamais
  * le flux : il est servi tel qu'il est stocké, soumis à {@link ChangeFilter#acceptsUnknown}, et journalisé en
@@ -81,18 +82,21 @@ public class ChangeFeedService {
 
 	private final AvailabilityProvider availability;
 
+	private final ChannelPrices prices;
+
 	private final JsonMapper jsonMapper;
 
 	private final ChangeFeedProperties properties;
 
 	ChangeFeedService(FeedSequencer sequencer, DataSource dataSource, PlatformTransactionManager transactionManager,
-			AvailabilityProvider availability, JsonMapper jsonMapper, ChangeFeedProperties properties) {
+			AvailabilityProvider availability, ChannelPrices prices, JsonMapper jsonMapper, ChangeFeedProperties properties) {
 		this.sequencer = sequencer;
 		this.jdbc = JdbcClient.create(dataSource);
 		this.transaction = new TransactionTemplate(transactionManager);
 		this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
 		this.transaction.setReadOnly(true);
 		this.availability = availability;
+		this.prices = prices;
 		this.jsonMapper = jsonMapper;
 		this.properties = properties;
 	}
@@ -150,17 +154,17 @@ public class ChangeFeedService {
 		long lastSeq = examined.isEmpty() ? after : examined.getLast().seq();
 		List<StoredEvent> accepted = examined.stream().filter(e -> e.acceptedBy(filter)).toList();
 
-		// Fusion des événements minces : seul le plus grand seq de chaque objet est servi.
-		Map<UUID, Long> latestThin = new HashMap<>();
-		accepted.stream().filter(StoredEvent::isThin).forEach(e -> latestThin.put(e.objectId(), e.seq()));
-		Map<UUID, JsonNode> thinValues = thinValues(link, accepted, latestThin);
+		// Fusion des événements minces : seul le plus grand seq de chaque (type, objet) est servi.
+		Map<ThinKey, Long> latestThin = new HashMap<>();
+		accepted.stream().filter(StoredEvent::isThin).forEach(e -> latestThin.put(ThinKey.of(e), e.seq()));
+		Map<ThinKey, JsonNode> thinValues = thinValues(link, latestThin);
 		List<ChangeEvent> items = new ArrayList<>();
 		for (StoredEvent event : accepted) {
 			if (!event.isThin()) {
 				items.add(event.toChange(event.objectVersion(), event.payload()));
 			}
-			else if (latestThin.get(event.objectId()) == event.seq()) {
-				items.add(event.toChange(event.seq(), thinValues.get(event.objectId())));
+			else if (latestThin.get(ThinKey.of(event)) == event.seq()) {
+				items.add(event.toChange(event.seq(), thinValues.get(ThinKey.of(event))));
 			}
 		}
 
@@ -168,21 +172,35 @@ public class ChangeFeedService {
 		return new ChangePage(items, hasMore, lastSeq);
 	}
 
-	/** Valeurs des événements minces servis, en <b>un seul appel</b> du fournisseur pour toute la page. */
-	private Map<UUID, JsonNode> thinValues(LinkRef link, List<StoredEvent> accepted, Map<UUID, Long> latestThin) {
-		accepted.stream().filter(StoredEvent::isThin).forEach(event -> {
-			if (event.type() != IntegrationEventType.AVAILABILITY) {
-				throw new IllegalStateException("Événement mince sans calcul à la lecture : " + event.type());
-			}
+	/**
+	 * Valeurs des événements minces servis, pour la liaison qui lit : <b>un seul appel</b> par type pour toute la page
+	 * (disponibilité de ses dépôts ; prix de la liaison, G22b).
+	 */
+	private Map<ThinKey, JsonNode> thinValues(LinkRef link, Map<ThinKey, Long> latestThin) {
+		Map<IntegrationEventType, Set<UUID>> byType = new HashMap<>();
+		latestThin.keySet().forEach(key -> byType.computeIfAbsent(key.type(), type -> new java.util.HashSet<>())
+			.add(key.objectId()));
+		Map<ThinKey, JsonNode> nodes = new HashMap<>();
+		byType.forEach((type, objects) -> {
+			Map<UUID, ?> values = switch (type) {
+				case AVAILABILITY -> this.availability.availability(link, Set.copyOf(objects));
+				case CHANNEL_PRICE -> this.prices.read(link.id(), List.copyOf(objects)).stream()
+					.collect(java.util.stream.Collectors.toMap(ChannelPrice::productId, price -> price));
+				default -> throw new IllegalStateException("Événement mince sans calcul à la lecture : " + type);
+			};
+			objects.forEach(objectId -> nodes.put(new ThinKey(type, objectId), this.jsonMapper.valueToTree(
+					Objects.requireNonNull(values.get(objectId), () -> "valeur " + type + " absente pour " + objectId))));
 		});
-		if (latestThin.isEmpty()) {
-			return Map.of();
-		}
-		Map<UUID, ?> values = this.availability.availability(link, Set.copyOf(latestThin.keySet()));
-		Map<UUID, JsonNode> nodes = new HashMap<>();
-		latestThin.keySet().forEach(productId -> nodes.put(productId, this.jsonMapper.valueToTree(
-				Objects.requireNonNull(values.get(productId), () -> "disponibilité absente pour " + productId))));
 		return nodes;
+	}
+
+	/** Événement mince fusionné : un par (type, objet). */
+	private record ThinKey(IntegrationEventType type, UUID objectId) {
+
+		static ThinKey of(StoredEvent event) {
+			return new ThinKey(event.type(), event.objectId());
+		}
+
 	}
 
 	private StoredEvent storedEvent(ResultSet rs, int row) throws SQLException {

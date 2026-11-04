@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -16,11 +17,16 @@ import java.util.UUID;
 import javax.sql.DataSource;
 
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.geststock.audit.AuditEvent;
+import com.geststock.audit.AuditService;
 import com.geststock.exception.BusinessRuleException;
 import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
@@ -47,6 +53,13 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code price_version} avance et la nouvelle est insérée : la dernière qui obtient le verrou est retenue, jamais
  * déduite d'un horodatage applicatif. L'index unique partiel garantit au plus une {@code PROPOSED}.</li>
  * <li><b>Lecture</b> : seules les propositions de la liaison demandée (jamais celles d'une autre liaison).</li>
+ * <li><b>Décision</b> (G22b ; P9, P10) par un utilisateur GestStock : sous le même verrou de tête que les propositions
+ * (même ordre de verrous), mise à jour conditionnée par {@code status = 'PROPOSED'} ; aucune ligne modifiée :
+ * {@code 409 PRICE_PROPOSAL_NOT_PENDING}, rien n'est approuvé à tort. L'approbation fige le prix de référence courant
+ * ({@code approved_reference_price}, base de {@code referenceChangedSinceApproval}) ; le précédent prix approuvé reste
+ * dans l'historique. Chaque décision avance le rang de la tête, est tracée dans le journal d'audit de l'entreprise
+ * (sans le motif ni la note : seule la trace de la ligne les porte) et publie l'événement mince {@code CHANNEL_PRICE}
+ * (P2), recalculé pour chaque liaison qui lit le flux.</li>
  * </ul>
  * Aucune valeur reçue (prix, note, clé) n'est journalisée, y compris par la trace des paramètres de Spring JDBC
  * ({@link MaskedValue}).
@@ -106,14 +119,54 @@ public class ChannelPrices {
 
 	private final TransactionTemplate readOnly;
 
+	private static final String DECISION_TARGET = """
+			select product_id from channel_price where id = :id and link_id = :link""";
+
+	private static final String APPROVE = """
+			update channel_price set status = 'APPROVED', decided_at = now(), decided_by = :user,
+			  approved_reference_price = (select p.retail_price from product p where p.id = channel_price.product_id)
+			where id = :id and status = 'PROPOSED'""";
+
+	private static final String REJECT = """
+			update channel_price set status = 'REJECTED', decided_at = now(), decided_by = :user,
+			  rejection_reason = :reason
+			where id = :id and status = 'PROPOSED'""";
+
+	private static final String ADVANCE_ON_DECISION = """
+			update channel_price_head set price_version = price_version + 1, updated_at = now()
+			where link_id = :link and product_id = :product""";
+
+	private static final String VIEW_COLUMNS = """
+			select c.id, c.product_id, p.name, p.sku, c.price, c.currency, c.status, c.reference_price,
+			  p.retail_price, c.note, c.proposed_at, c.decided_at, c.rejection_reason
+			from channel_price c join product p on p.id = c.product_id
+			""";
+
+	private static final String VIEW = VIEW_COLUMNS + "where c.id = :id";
+
+	private static final String LIST = VIEW_COLUMNS + """
+			where c.link_id = :link and c.status = :status
+			order by c.proposed_at desc, c.id
+			limit :limit offset :offset""";
+
+	private static final String COUNT = """
+			select count(*) from channel_price where link_id = :link and status = :status""";
+
 	private final JsonMapper json;
 
-	ChannelPrices(DataSource dataSource, PlatformTransactionManager transactionManager, JsonMapper json) {
+	private final IntegrationEvents events;
+
+	private final AuditService audit;
+
+	ChannelPrices(DataSource dataSource, PlatformTransactionManager transactionManager, JsonMapper json,
+			IntegrationEvents events, AuditService audit) {
 		this.jdbc = JdbcClient.create(dataSource);
 		this.readWrite = new TransactionTemplate(transactionManager);
 		this.readOnly = new TransactionTemplate(transactionManager);
 		this.readOnly.setReadOnly(true);
 		this.json = json;
+		this.events = events;
+		this.audit = audit;
 	}
 
 	/**
@@ -152,6 +205,73 @@ public class ChannelPrices {
 			}
 			return prices;
 		});
+	}
+
+	/**
+	 * Propositions de la liaison dans ce statut, les plus récentes d'abord (approbateurs GestStock, G22b). La liaison
+	 * doit appartenir à l'entreprise courante : vérifié par l'appelant (base plateforme).
+	 */
+	public Page<ProposalView> proposals(UUID linkId, String status, Pageable pageable) {
+		return this.readOnly.execute(transaction -> {
+			long total = this.jdbc.sql(COUNT).param("link", linkId).param("status", status).query(Long.class).single();
+			List<ProposalView> items = this.jdbc.sql(LIST).param("link", linkId).param("status", status)
+				.param("limit", pageable.getPageSize()).param("offset", pageable.getOffset()).query(this::view).list();
+			return new PageImpl<>(items, pageable, total);
+		});
+	}
+
+	/**
+	 * Approuve une proposition encore en attente : elle devient le prix approuvé (seul commercialisable) de la liaison.
+	 *
+	 * @throws NotFoundException {@code PRICE_PROPOSAL_NOT_FOUND} : inconnue ou d'une autre liaison
+	 * @throws ConflictException {@code PRICE_PROPOSAL_NOT_PENDING} : déjà décidée ou remplacée (C6)
+	 */
+	public ProposalView approve(UUID linkId, UUID proposalId, UUID userId) {
+		return decide(linkId, proposalId, "PRICE_PROPOSAL_APPROVED", "approuvé",
+				() -> this.jdbc.sql(APPROVE).param("user", userId).param("id", proposalId).update());
+	}
+
+	/**
+	 * Refuse une proposition encore en attente, avec un motif (1 à 500 caractères, déjà nettoyé par l'appelant).
+	 *
+	 * @throws NotFoundException {@code PRICE_PROPOSAL_NOT_FOUND} : inconnue ou d'une autre liaison
+	 * @throws ConflictException {@code PRICE_PROPOSAL_NOT_PENDING} : déjà décidée ou remplacée (C6)
+	 */
+	public ProposalView reject(UUID linkId, UUID proposalId, UUID userId, String reason) {
+		return decide(linkId, proposalId, "PRICE_PROPOSAL_REJECTED", "refusé",
+				() -> this.jdbc.sql(REJECT).param("user", userId).param("reason", MaskedValue.of(reason))
+					.param("id", proposalId).update());
+	}
+
+	/** Décision sous le verrou de la tête du couple, dans l'ordre des verrous des propositions (C6). */
+	private ProposalView decide(UUID linkId, UUID proposalId, String action, String verb,
+			java.util.function.IntSupplier update) {
+		return this.readWrite.execute(transaction -> {
+			UUID productId = this.jdbc.sql(DECISION_TARGET).param("id", proposalId).param("link", linkId).query(UUID.class)
+				.optional()
+				.orElseThrow(() -> new NotFoundException(ErrorCode.PRICE_PROPOSAL_NOT_FOUND, null));
+			this.jdbc.sql(LOCK_HEAD).param("link", linkId).param("product", productId).query(Long.class).single();
+			if (update.getAsInt() == 0) {
+				throw new ConflictException(ErrorCode.PRICE_PROPOSAL_NOT_PENDING, null);
+			}
+			this.jdbc.sql(ADVANCE_ON_DECISION).param("link", linkId).param("product", productId).update();
+			ProposalView view = this.jdbc.sql(VIEW).param("id", proposalId).query(this::view).single();
+			this.audit.record(AuditEvent.of(action, "CHANNEL_PRICE", proposalId, view.productName())
+				.details("Prix proposé par une boutique en ligne " + verb + " : " + view.price() + " " + view.currency()
+						+ " (prix de référence " + view.currentReferencePrice() + ")")
+				.meta("linkId", linkId.toString()).meta("productId", productId.toString()));
+			this.events.publish(IntegrationEventType.CHANNEL_PRICE, productId);
+			return view;
+		});
+	}
+
+	private ProposalView view(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+		OffsetDateTime decidedAt = rs.getObject("decided_at", OffsetDateTime.class);
+		return new ProposalView(rs.getObject("id", UUID.class), rs.getObject("product_id", UUID.class), rs.getString("name"),
+				rs.getString("sku"), decimal(rs.getBigDecimal("price")), rs.getString("currency").trim(),
+				rs.getString("status"), decimal(rs.getBigDecimal("reference_price")), decimal(rs.getBigDecimal("retail_price")),
+				rs.getString("note"), rs.getObject("proposed_at", OffsetDateTime.class).toInstant(),
+				decidedAt != null ? decidedAt.toInstant() : null, rs.getString("rejection_reason"));
 	}
 
 	private Optional<Outcome> replay(UUID linkId, String key, String hash) {
@@ -259,6 +379,34 @@ public class ChannelPrices {
 	 * @param body    réponse {@code ChannelPrice}, telle qu'enregistrée
 	 */
 	public record Outcome(boolean created, JsonNode body) {
+	}
+
+	/**
+	 * Proposition vue par un approbateur GestStock (G22b).
+	 *
+	 * @param proposalId                proposition
+	 * @param productId                 produit
+	 * @param productName               nom du produit
+	 * @param productSku                code (SKU) du produit
+	 * @param price                     prix proposé, deux décimales
+	 * @param currency                  devise de la liaison
+	 * @param status                    statut de la proposition
+	 * @param referencePriceAtProposal  prix de référence au moment de la proposition
+	 * @param currentReferencePrice     prix de référence courant
+	 * @param note                      note de la boutique ({@code null} si absente)
+	 * @param proposedAt                date de la proposition
+	 * @param decidedAt                 date de la décision ({@code null} si en attente)
+	 * @param rejectionReason           motif du refus ({@code null} sinon)
+	 */
+	public record ProposalView(UUID proposalId, UUID productId, String productName, String productSku, String price,
+			String currency, String status, String referencePriceAtProposal, String currentReferencePrice, String note,
+			Instant proposedAt, Instant decidedAt, String rejectionReason) {
+
+		@Override
+		public String toString() {
+			return "ProposalView[proposalId=" + this.proposalId + ", status=" + this.status + "]";
+		}
+
 	}
 
 	private record ProductRow(UUID id, BigDecimal referencePrice, long version, boolean active) {

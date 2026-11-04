@@ -13,6 +13,7 @@ public enum AuditModule {
 			Map.entry("ROLE", SECURITY),
 			Map.entry("PERMISSION", SECURITY),
 			Map.entry("INTEGRATION_LINK", SECURITY),
+			Map.entry("CHANNEL_PRICE", CATALOG),
 			Map.entry("PRODUCT", CATALOG),
 			Map.entry("CATEGORY", CATALOG),
 			Map.entry("BRAND", CATALOG),

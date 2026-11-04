@@ -323,6 +323,11 @@ public enum ErrorCode {
 	PRICE_CURRENCY_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT, "Devise différente de celle de la liaison."),
 	/** Prix proposé (G22a) : produit archivé (désactivé), aucun prix ne peut lui être proposé. */
 	PRODUCT_ARCHIVED(HttpStatus.UNPROCESSABLE_CONTENT, "Produit archivé : aucun prix ne peut lui être proposé."),
+	/** Proposition de prix (G22b) : inconnue, ou d'une autre liaison que celle désignée. */
+	PRICE_PROPOSAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Proposition de prix introuvable."),
+	/** Décision sur une proposition de prix qui n'est plus en attente (déjà décidée ou remplacée, C6). */
+	PRICE_PROPOSAL_NOT_PENDING(HttpStatus.CONFLICT,
+			"Cette proposition de prix n'est plus en attente : elle a été décidée ou remplacée par une plus récente."),
 	/** Écriture idempotente (G22a) : même clé Idempotency-Key, requête différente. */
 	IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT,
 			"Clé d'idempotence déjà utilisée pour une autre requête : utilisez une nouvelle clé."),
