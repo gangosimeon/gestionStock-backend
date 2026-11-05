@@ -77,13 +77,14 @@ class OpenApiDocumentationIT {
 
 	/**
 	 * Routes de la liaison (jeton de liaison, portée et non permission) : ni utilisateur, ni permission (G11, G14,
-	 * G16, G17, G18, G19, G22a).
+	 * G16, G17, G18, G19, G22a, G23).
 	 */
 	private static final Set<String> INTEGRATION_LINK = Set.of("GET /api/integration/v1/link",
 			"POST /api/integration/v1/link/revoke", "POST /api/integration/v1/link/secret",
 			"GET /api/integration/v1/catalog/changes", "POST /api/integration/v1/catalog/changes/ack",
 			"GET /api/integration/v1/catalog/snapshot", "GET /api/integration/v1/catalog/products/{productId}/image",
-			"POST /api/integration/v1/prices/proposals", "GET /api/integration/v1/prices");
+			"POST /api/integration/v1/prices/proposals", "GET /api/integration/v1/prices",
+			"GET /api/integration/v1/catalog/products/search");
 
 	@Autowired
 	private MockMvc mvc;

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -48,6 +49,7 @@ import com.geststock.integration.ChangeFeedService;
 import com.geststock.integration.ChangePage;
 import com.geststock.integration.IntegrationOperation;
 import com.geststock.integration.LinkRef;
+import com.geststock.integration.CatalogProductSearch;
 import com.geststock.integration.SnapshotPage;
 import com.geststock.integration.SnapshotService;
 import com.geststock.product.ProductImageService;
@@ -113,12 +115,14 @@ class CatalogChangesController {
 
 	private final ProductImageService images;
 
+	private final CatalogProductSearch search;
+
 	/** Lecture stricte du corps : clés répétées et contenu après l'objet refusés (v17-D12). */
 	private final ObjectReader strictJson;
 
 	CatalogChangesController(ChangeFeedService feed, RateLimiter limiter, IntegrationRateLimitProperties rateLimits,
 			ApiErrorFactory errors, LinkAcknowledgements acknowledgements, SnapshotService snapshots,
-			ProductImageService images, JsonMapper json) {
+			ProductImageService images, CatalogProductSearch search, JsonMapper json) {
 		this.feed = feed;
 		this.limiter = limiter;
 		this.rateLimits = rateLimits;
@@ -126,6 +130,7 @@ class CatalogChangesController {
 		this.acknowledgements = acknowledgements;
 		this.snapshots = snapshots;
 		this.images = images;
+		this.search = search;
 		this.strictJson = json.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
 			.with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 	}
@@ -205,7 +210,11 @@ class CatalogChangesController {
 		}
 	}
 
-	/** Valeur du paramètre, {@code null} s'il est absent ; refusée si elle est répétée. */
+	/**
+	 * Valeur du paramètre, {@code null} s'il est absent ; refusée si elle est répétée. Un caractère de
+	 * contrôle (U+0000 à U+001F, U+007F) lève {@code 400 VALIDATION_FAILED}, jamais la valeur dans le message
+	 * ni dans les journaux (G15 étendu aux paramètres de requête texte, G23).
+	 */
 	static String text(Map<String, String[]> parameters, String name) {
 		String[] values = parameters.get(name);
 		if (values == null) {
@@ -214,7 +223,11 @@ class CatalogChangesController {
 		if (values.length != 1) {
 			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre répété : " + name + ".");
 		}
-		return values[0];
+		String value = values[0];
+		if (ControlCharacters.present(value, false)) {
+			throw ControlCharacters.refused(name);
+		}
+		return value;
 	}
 
 	/** Valeur entière du paramètre, {@code null} s'il est absent ; refusée si elle est vide, non entière ou répétée. */
@@ -505,6 +518,95 @@ class CatalogChangesController {
 			.header(HttpHeaders.PRAGMA, "no-cache")
 			.contentType(MediaType.APPLICATION_PROBLEM_JSON)
 			.body(this.errors.create(ErrorCode.RATE_LIMIT_UNAVAILABLE, null, request));
+	}
+
+	/**
+	 * Recherche de produits actifs de l'entreprise liée pour le rapprochement assisté (lot 3, étape G23 ;
+	 * contrat {@code GET /catalog/products/search}, portée {@code catalog:match}).
+	 *
+	 * <p>{@code q} obligatoire, 2 à 100 caractères Unicode après suppression des blancs de bord ; un
+	 * caractère de contrôle lève {@code 400 VALIDATION_FAILED} (G15 étendu aux paramètres de requête).
+	 * {@code limit} facultatif, 1 à 50, défaut 20. Produits actifs uniquement ; produits d'une autre
+	 * entreprise absents. Limite : 60 appels par minute et par liaison (configurable).
+	 *
+	 * <p>Contrat : pas de {@code 400} ni de {@code 429} définis pour cette route — écarts documentaires
+	 * relevés à G23, à noter dans la prochaine mise à jour de {@code integration-v1.openapi.yaml}.
+	 */
+	@GetMapping("/products/search")
+	@RequiresScope("catalog:match")
+	@Operation(operationId = "searchCatalogProducts",
+			summary = "Recherche de produits actifs de l'entreprise liée (rapprochement assisté)",
+			description = "Produits actifs dont le sku ou le nom contient q (ILIKE, insensible à la casse), triés par "
+					+ "nom puis par identifiant. Catalogue de l'entreprise de la liaison uniquement ; produits archivés "
+					+ "exclus. Portée catalog:match. Limite : 60 appels par minute et par liaison (configurable). "
+					+ "Écarts documentaires (integration-v1) : 400 et 429 non définis dans le contrat externe.",
+			security = @SecurityRequirement(name = OpenApiConfig.INTEGRATION_LINK_SCHEME),
+			parameters = {
+					@Parameter(name = "q", in = ParameterIn.QUERY, required = true,
+							description = "Terme de recherche, 2 à 100 caractères Unicode après suppression des blancs de bord",
+							schema = @Schema(type = "string", minLength = 2, maxLength = 100)),
+					@Parameter(name = "limit", in = ParameterIn.QUERY,
+							description = "Nombre maximal de résultats (20 par défaut)",
+							schema = @Schema(type = "integer", minimum = "1", maximum = "50", defaultValue = "20")) },
+			responses = { @ApiResponse(responseCode = "200", description = "Résultats de la recherche"),
+					@ApiResponse(responseCode = "400", description = "INVALID_PARAMETER (q absent ou répété, limit non entier), "
+							+ "VALIDATION_FAILED (longueur de q, caractère de contrôle, limit hors bornes)",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "401", description = "INVALID_TOKEN, LINK_REVOKED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "403",
+							description = "INSUFFICIENT_SCOPE, LINK_SUSPENDED, COMPANY_SUSPENDED, COMPANY_UNAVAILABLE",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "429",
+							description = "RATE_LIMITED : plus de 60 appels par minute pour la liaison (valeur de départ, "
+									+ "configurable) ; en-tête Retry-After",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "503", description = "RATE_LIMIT_UNAVAILABLE",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))) })
+	ProductSearchView search(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
+			HttpServletRequest request) {
+		limit("catalog-product-search:link:" + principal.linkId(),
+				this.rateLimits.rateLimit().catalogProductSearchPerLink());
+		Map<String, String[]> parameters = parameters(request);
+		String q = text(parameters, "q");
+		if (q == null) {
+			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre requis : q.");
+		}
+		// Blancs de bord retirés avant le comptage (G23) ; contrôle de caractères déjà fait dans text().
+		q = q.strip();
+		int codePoints = q.codePointCount(0, q.length());
+		if (codePoints < 2) {
+			throw new OutOfBounds("q", "doit contenir au moins 2 caractères");
+		}
+		if (codePoints > 100) {
+			throw new OutOfBounds("q", "doit faire au plus 100 caractères");
+		}
+		Long limitParam = integer(parameters, "limit");
+		if (limitParam != null && (limitParam < 1 || limitParam > 50)) {
+			throw new OutOfBounds("limit", limitParam < 1 ? "doit être supérieur ou égal à 1"
+					: "doit être inférieur ou égal à 50");
+		}
+		int searchLimit = limitParam != null ? Math.toIntExact(limitParam) : 20;
+		// Préparation du motif ILIKE : %, _ et \ échappés ; insensible à la casse (lower()).
+		String pattern = "%" + q.toLowerCase(Locale.ROOT)
+			.replace("\\", "\\\\")
+			.replace("%", "\\%")
+			.replace("_", "\\_") + "%";
+		return new ProductSearchView(this.search.search(pattern, searchLimit));
+	}
+
+	/**
+	 * Réponse {@code 200} (contrat {@code GET /catalog/products/search}).
+	 *
+	 * @param items produits actifs correspondant au critère, au plus {@code limit}
+	 */
+	@io.swagger.v3.oas.annotations.media.Schema(name = "IntegrationProductSearchResult")
+	record ProductSearchView(List<Object> items) {
 	}
 
 	/**

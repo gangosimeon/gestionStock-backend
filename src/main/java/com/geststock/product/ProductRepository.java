@@ -23,6 +23,18 @@ interface ProductRepository extends JpaRepository<Product, UUID>, JpaSpecificati
 			where p.barcode = :barcode and (:excludedId is null or p.id <> :excludedId)""")
 	boolean existsByBarcode(@Param("barcode") String barcode, @Param("excludedId") UUID excludedId);
 
+	/**
+	 * Recherche de rapprochement (G23) : produits actifs dont le sku ou le nom correspond au motif ILIKE
+	 * (insensible à la casse ; {@code %}, {@code _} et {@code \} déjà échappés par l'appelant),
+	 * triés par nom puis par identifiant.
+	 */
+	@Query("""
+			select p from Product p
+			where p.active = true
+			  and (lower(p.sku) like :pattern escape '\\' or lower(p.name) like :pattern escape '\\')
+			order by p.name, p.id""")
+	List<Product> searchActive(@Param("pattern") String pattern, Limit limit);
+
 	/** Pagination par clé de l'instantané d'intégration : archivés compris, par identifiant croissant. */
 	@Query("select p from Product p where p.id > :afterId order by p.id")
 	List<Product> findAfter(@Param("afterId") UUID afterId, Limit limit);

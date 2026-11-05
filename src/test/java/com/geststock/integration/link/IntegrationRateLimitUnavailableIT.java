@@ -160,6 +160,20 @@ class IntegrationRateLimitUnavailableIT {
 			.andExpect(jsonPath("$.code").value("RATE_LIMIT_UNAVAILABLE"));
 	}
 
+	@Test
+	void unavailableCountersRefuseTheSearch() throws Exception {
+		TestLinks.Client client = this.links.client();
+		Link link = this.links.active(client, this.links.legacyCompany(), "shop-g23-503", Set.of("catalog:match"));
+		String token = this.tokens.issue(link.id(), client.clientId(), Set.of("catalog:match")).value();
+
+		this.mvc.perform(get("/api/integration/v1/catalog/products/search").param("q", "ab")
+			.header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+			.andExpect(jsonPath("$.code").value("RATE_LIMIT_UNAVAILABLE"))
+			.andExpect(jsonPath("$.items").doesNotExist());
+	}
+
 	/** Limiteur branché sur une base qui refuse toute connexion. */
 	@TestConfiguration(proxyBeanMethods = false)
 	static class BrokenCounters {
