@@ -51,6 +51,9 @@ public enum ErrorCode {
 	LINK_NOT_FOUND(HttpStatus.NOT_FOUND, "Liaison introuvable."),
 	/** Gestion des liaisons (G10) : action impossible dans le statut courant de la liaison. */
 	LINK_TRANSITION_INVALID(HttpStatus.CONFLICT, "Action impossible dans l'état actuel de la liaison."),
+	/** Décision de prix (G24) : liaison révoquée, ses propositions ne peuvent plus être approuvées ni refusées. */
+	LINK_PROPOSAL_REVOKED(HttpStatus.CONFLICT,
+			"La liaison est révoquée : ses propositions de prix ne peuvent plus être décidées."),
 
 	// 404 / 405 / 406 / 413 / 415
 	RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Ressource introuvable."),

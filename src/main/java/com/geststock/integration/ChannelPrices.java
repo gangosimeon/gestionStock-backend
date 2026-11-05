@@ -11,8 +11,11 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+
+import com.geststock.integration.link.Link;
 
 import javax.sql.DataSource;
 
@@ -152,6 +155,17 @@ public class ChannelPrices {
 	private static final String COUNT = """
 			select count(*) from channel_price where link_id = :link and status = :status""";
 
+	private static final String CROSS_LIST = """
+			select c.id, c.link_id, c.product_id, p.name, p.sku, c.price, c.currency, c.status, c.reference_price,
+			  p.retail_price, c.note, c.proposed_at, c.decided_at, c.rejection_reason
+			from channel_price c join product p on p.id = c.product_id
+			where c.link_id in (:links) and c.status = :status
+			order by c.proposed_at desc, c.id
+			limit :limit offset :offset""";
+
+	private static final String CROSS_COUNT = """
+			select count(*) from channel_price where link_id in (:links) and status = :status""";
+
 	private final JsonMapper json;
 
 	private final IntegrationEvents events;
@@ -221,36 +235,77 @@ public class ChannelPrices {
 	}
 
 	/**
+	 * Propositions dans ce statut, toutes liaisons confondues (approbateurs GestStock, G24). Seul {@code PROPOSED} est
+	 * accepté pour l'instant. Les liaisons sont pré-chargées par l'appelant depuis la base plateforme.
+	 *
+	 * @param linkMap liaisons non révoquées de l'entreprise, indexées par identifiant
+	 */
+	public Page<CrossLinkProposalView> proposalsAcrossLinks(Map<UUID, Link> linkMap, String status, Pageable pageable) {
+		if (linkMap.isEmpty()) {
+			return org.springframework.data.domain.Page.empty(pageable);
+		}
+		List<UUID> linkIds = new ArrayList<>(linkMap.keySet());
+		return this.readOnly.execute(tx -> {
+			long total = this.jdbc.sql(CROSS_COUNT).param("links", linkIds).param("status", status).query(Long.class).single();
+			List<CrossLinkProposalView> items = this.jdbc.sql(CROSS_LIST).param("links", linkIds).param("status", status)
+				.param("limit", pageable.getPageSize()).param("offset", pageable.getOffset())
+				.query((rs, n) -> {
+					UUID linkId = rs.getObject("link_id", UUID.class);
+					Link link = linkMap.get(linkId);
+					OffsetDateTime decidedAt = rs.getObject("decided_at", OffsetDateTime.class);
+					return new CrossLinkProposalView(
+							rs.getObject("id", UUID.class), rs.getObject("product_id", UUID.class),
+							rs.getString("name"), rs.getString("sku"),
+							decimal(rs.getBigDecimal("price")), rs.getString("currency").trim(),
+							rs.getString("status"),
+							decimal(rs.getBigDecimal("reference_price")), decimal(rs.getBigDecimal("retail_price")),
+							rs.getString("note"), rs.getObject("proposed_at", OffsetDateTime.class).toInstant(),
+							decidedAt != null ? decidedAt.toInstant() : null, rs.getString("rejection_reason"),
+							linkId, link.shopName(), link.status().name());
+				}).list();
+			return new PageImpl<>(items, pageable, total);
+		});
+	}
+
+	/**
 	 * Approuve une proposition encore en attente : elle devient le prix approuvé (seul commercialisable) de la liaison.
 	 *
+	 * @param linkGuard vérifié sous le verrou de tête (re-lecture du statut de la liaison, G24)
 	 * @throws NotFoundException {@code PRICE_PROPOSAL_NOT_FOUND} : inconnue ou d'une autre liaison
 	 * @throws ConflictException {@code PRICE_PROPOSAL_NOT_PENDING} : déjà décidée ou remplacée (C6)
 	 */
-	public ProposalView approve(UUID linkId, UUID proposalId, UUID userId) {
+	public ProposalView approve(UUID linkId, UUID proposalId, UUID userId, Runnable linkGuard) {
 		return decide(linkId, proposalId, "PRICE_PROPOSAL_APPROVED", "approuvé",
-				() -> this.jdbc.sql(APPROVE).param("user", userId).param("id", proposalId).update());
+				() -> this.jdbc.sql(APPROVE).param("user", userId).param("id", proposalId).update(), linkGuard);
 	}
 
 	/**
 	 * Refuse une proposition encore en attente, avec un motif (1 à 500 caractères, déjà nettoyé par l'appelant).
 	 *
+	 * @param linkGuard vérifié sous le verrou de tête (re-lecture du statut de la liaison, G24)
 	 * @throws NotFoundException {@code PRICE_PROPOSAL_NOT_FOUND} : inconnue ou d'une autre liaison
 	 * @throws ConflictException {@code PRICE_PROPOSAL_NOT_PENDING} : déjà décidée ou remplacée (C6)
 	 */
-	public ProposalView reject(UUID linkId, UUID proposalId, UUID userId, String reason) {
+	public ProposalView reject(UUID linkId, UUID proposalId, UUID userId, String reason, Runnable linkGuard) {
 		return decide(linkId, proposalId, "PRICE_PROPOSAL_REJECTED", "refusé",
 				() -> this.jdbc.sql(REJECT).param("user", userId).param("reason", MaskedValue.of(reason))
-					.param("id", proposalId).update());
+					.param("id", proposalId).update(),
+				linkGuard);
 	}
 
-	/** Décision sous le verrou de la tête du couple, dans l'ordre des verrous des propositions (C6). */
+	/**
+	 * Décision sous le verrou de la tête du couple, dans l'ordre des verrous des propositions (C6). Le garde
+	 * {@code linkGuard} est invoqué après l'acquisition du verrou pour re-vérifier le statut de la liaison (G24) :
+	 * la fenêtre de course entre le contrôle applicatif et la mise à jour est réduite au minimum.
+	 */
 	private ProposalView decide(UUID linkId, UUID proposalId, String action, String verb,
-			java.util.function.IntSupplier update) {
+			java.util.function.IntSupplier update, Runnable linkGuard) {
 		return this.readWrite.execute(transaction -> {
 			UUID productId = this.jdbc.sql(DECISION_TARGET).param("id", proposalId).param("link", linkId).query(UUID.class)
 				.optional()
 				.orElseThrow(() -> new NotFoundException(ErrorCode.PRICE_PROPOSAL_NOT_FOUND, null));
 			this.jdbc.sql(LOCK_HEAD).param("link", linkId).param("product", productId).query(Long.class).single();
+			linkGuard.run();
 			if (update.getAsInt() == 0) {
 				throw new ConflictException(ErrorCode.PRICE_PROPOSAL_NOT_PENDING, null);
 			}
@@ -405,6 +460,22 @@ public class ChannelPrices {
 		@Override
 		public String toString() {
 			return "ProposalView[proposalId=" + this.proposalId + ", status=" + this.status + "]";
+		}
+
+	}
+
+	/**
+	 * Vue croisée (G24) : champs de {@link ProposalView} enrichis de l'identifiant, du nom et du statut de la liaison.
+	 */
+	public record CrossLinkProposalView(UUID proposalId, UUID productId, String productName, String productSku,
+			String price, String currency, String status, String referencePriceAtProposal,
+			String currentReferencePrice, String note, Instant proposedAt, Instant decidedAt, String rejectionReason,
+			UUID linkId, String shopName, String linkStatus) {
+
+		@Override
+		public String toString() {
+			return "CrossLinkProposalView[proposalId=" + this.proposalId + ", linkId=" + this.linkId + ", status="
+					+ this.status + "]";
 		}
 
 	}

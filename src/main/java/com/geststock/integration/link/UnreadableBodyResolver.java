@@ -32,7 +32,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Configuration(proxyBeanMethods = false)
 class UnreadableBodyResolver implements HandlerExceptionResolver, WebMvcConfigurer {
 
-	private static final Set<Class<?>> CONTROLLERS = Set.of(IntegrationLinkController.class, LinkController.class);
+	private static final Set<Class<?>> CONTROLLERS = Set.of(IntegrationLinkController.class, LinkController.class,
+			PriceProposalController.class);
 
 	private final ApiErrorFactory errors;
 

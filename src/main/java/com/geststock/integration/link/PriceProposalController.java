@@ -26,6 +26,7 @@ import com.geststock.common.api.PageResponse;
 import com.geststock.common.api.SortWhitelist;
 import com.geststock.common.security.Permissions;
 import com.geststock.common.security.RequiresPermission;
+import com.geststock.exception.ConflictException;
 import com.geststock.exception.ErrorCode;
 import com.geststock.exception.InvalidRequestException;
 import com.geststock.integration.ChannelPrices;
@@ -85,33 +86,47 @@ class PriceProposalController {
 	@Operation(operationId = "approvePriceProposal", summary = "Approuver une proposition de prix",
 			description = "La proposition, encore en attente, devient le prix approuvé (seul commercialisable) de la "
 					+ "boutique ; le précédent reste dans l'historique. PRICE_PROPOSAL_NOT_PENDING (409) si elle a déjà été "
-					+ "décidée ou remplacée par une proposition plus récente.")
+					+ "décidée ou remplacée par une proposition plus récente. LINK_PROPOSAL_REVOKED (409) si la liaison est "
+					+ "révoquée (G24).")
 	ChannelPrices.ProposalView approve(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID linkId,
 			@PathVariable UUID proposalId) {
-		own(linkId);
-		return this.prices.approve(linkId, proposalId, user.id());
+		Link link = own(linkId);
+		requireNotRevoked(link);
+		// Le garde re-lit la liaison sous le verrou de tête (ChannelPrices.decide) : fenêtre de course minimisée (G24).
+		return this.prices.approve(linkId, proposalId, user.id(), () -> requireNotRevoked(own(linkId)));
 	}
 
 	@PostMapping("/{proposalId}/reject")
 	@RequiresPermission(Permissions.INTEGRATION_PRICE_APPROVE)
 	@Operation(operationId = "rejectPriceProposal", summary = "Refuser une proposition de prix",
 			description = "Motif obligatoire (1 à 500 caractères), visible de la boutique. PRICE_PROPOSAL_NOT_PENDING "
-					+ "(409) si la proposition a déjà été décidée ou remplacée.")
+					+ "(409) si la proposition a déjà été décidée ou remplacée. LINK_PROPOSAL_REVOKED (409) si la liaison "
+					+ "est révoquée (G24).")
 	ChannelPrices.ProposalView reject(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID linkId,
 			@PathVariable UUID proposalId, @Valid @RequestBody Rejection request) {
-		own(linkId);
-		return this.prices.reject(linkId, proposalId, user.id(), request.reason().strip());
+		Link link = own(linkId);
+		requireNotRevoked(link);
+		// Le garde re-lit la liaison sous le verrou de tête (ChannelPrices.decide) : fenêtre de course minimisée (G24).
+		return this.prices.reject(linkId, proposalId, user.id(), request.reason().strip(),
+				() -> requireNotRevoked(own(linkId)));
 	}
 
 	/** Liaison de l'entreprise courante seulement ; une autre entreprise reçoit la réponse d'une liaison inconnue. */
-	private void own(UUID linkId) {
+	private Link own(UUID linkId) {
 		UUID company = TenantContext.require().companyId();
-		this.links.find(linkId).filter(link -> link.companyId().equals(company))
+		return this.links.find(linkId).filter(link -> link.companyId().equals(company))
 			.orElseThrow(() -> new LinkConsentException(ErrorCode.LINK_NOT_FOUND));
 	}
 
+	/** Liaison révoquée : toute décision de prix est bloquée (G24). */
+	private static void requireNotRevoked(Link link) {
+		if (link.status() == LinkStatus.REVOKED) {
+			throw new ConflictException(ErrorCode.LINK_PROPOSAL_REVOKED, null);
+		}
+	}
+
 	/** Refus : motif obligatoire, masqué dans les journaux. */
-	record Rejection(@NotBlank @Size(max = 500) String reason) {
+	record Rejection(@NotBlank @Size(max = 500) @ControlCharacters.FreeText String reason) {
 
 		@Override
 		public String toString() {
