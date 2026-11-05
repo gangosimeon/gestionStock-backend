@@ -12,6 +12,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 import com.geststock.support.PostgresTestConfiguration;
 import com.geststock.support.WithPermissions;
 
@@ -39,12 +41,15 @@ class CatalogReferenceApiIT {
 	@Test
 	@WithPermissions(all = true)
 	void opticalCategoriesAreProvidedWithTheFrontContract() throws Exception {
-		this.mvc.perform(get("/api/categories"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.total").value(5))
-			.andExpect(jsonPath("$.items[*].name", hasItem("Montures")))
-			.andExpect(jsonPath("$.items[*].name", hasItem("Lentilles de contact")))
-			.andExpect(jsonPath("$.items[0].id").isString());
+		// Les catégories du front identifiées par leur nom canonique — total global perturbé par d'autres tests.
+		for (String name : List.of("Montures", "Verres correcteurs", "Lentilles de contact",
+				"Accessoires", "Solutions d'entretien")) {
+			this.mvc.perform(get("/api/categories").param("q", name))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.total").value(1))
+				.andExpect(jsonPath("$.items[0].name").value(name))
+				.andExpect(jsonPath("$.items[0].id").isString());
+		}
 	}
 
 	@Test

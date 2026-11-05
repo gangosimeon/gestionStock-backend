@@ -290,18 +290,21 @@ class IntegrationAuditIT {
 
 	@Test
 	void aDenialIsTracedWithoutLink() throws Exception {
-		String requestUri = par("shop-g12-deny", verifier());
+		// Marqueur unique par exécution : companyAuditSearch n'a pas de filtre temporel,
+		// les entrées « shop-g12-deny » s'accumuleraient d'une exécution à l'autre.
+		String uniqueShop = "shop-g12-deny-" + UUID.randomUUID().toString().substring(0, 8);
+		String requestUri = par(uniqueShop, verifier());
 		this.mvc.perform(bearer(jsonPost(REQUESTS + "/deny", Map.of("requestUri", requestUri)), token(this.adminA)))
 			.andExpect(status().isOk());
 
-		List<Map<String, Object>> traces = tracesOfShop("shop-g12-deny");
+		List<Map<String, Object>> traces = tracesOfShop(uniqueShop);
 		assertThat(traces).extracting(t -> t.get("action")).containsExactly("LINK_REQUEST_DENIED");
 		assertThat(traces.get(0).get("link_id")).isNull();
 		assertThat(traces.get(0).get("company_id")).isEqualTo(this.companyA.companyId());
 		assertUser(traces.get(0), this.adminA);
-		assertThat(companyAuditSearch(this.adminA, "shop-g12-deny")).extracting(e -> e.get("action").asString())
+		assertThat(companyAuditSearch(this.adminA, uniqueShop)).extracting(e -> e.get("action").asString())
 			.containsExactly("LINK_REQUEST_DENIED");
-		assertThat(companyAuditSearch(this.adminB, "shop-g12-deny")).isEmpty();
+		assertThat(companyAuditSearch(this.adminB, uniqueShop)).isEmpty();
 	}
 
 	@Test
