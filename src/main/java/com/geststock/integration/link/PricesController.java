@@ -12,17 +12,25 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.data.domain.Sort;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.geststock.common.api.PageQuery;
+import com.geststock.common.api.PageResponse;
+import com.geststock.common.api.SortWhitelist;
 
 import com.geststock.config.OpenApiConfig;
 import com.geststock.exception.ApiError;
@@ -50,9 +58,10 @@ import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Prix proposés par la boutique (lot 3, étape G22a ; contrat {@code POST /prices/proposals}, portée
- * {@code price:propose}, et {@code GET /prices}, portée {@code catalog:read} ; plan § 4 D2, C6). Les écritures et
- * lectures ont lieu dans la base de l'entreprise de la liaison ({@link ChannelPrices}), entreprise courante posée par la
+ * Prix proposés par la boutique (lot 3, étapes G22a, G25 et G26 ; contrat {@code POST /prices/proposals} et
+ * {@code GET /prices/proposals}, portée {@code price:propose} ; {@code GET /prices}, portée {@code catalog:read} ; plan §
+ * 4 D2, C6). Les écritures et lectures ont lieu dans la base de l'entreprise de la liaison ({@link ChannelPrices}),
+ * entreprise courante posée par la
  * chaîne d'intégration.
  *
  * <p>Proposition, dans l'ordre : limite de débit (60 par minute et par liaison, comptée avant toute lecture), type de
@@ -93,6 +102,13 @@ class PricesController {
 
 	/** Taille maximale du corps d'une proposition. */
 	static final int MAX_PROPOSAL_BODY = 4096;
+
+	/** Statuts acceptés sur {@code GET /prices/proposals} (G26). */
+	private static final java.util.Set<String> PROPOSAL_STATUSES = java.util.Set.of("PROPOSED", "APPROVED", "REJECTED",
+			"SUPERSEDED", "WITHDRAWN");
+
+	/** Ordre fixe (les plus récentes d'abord) : aucun tri demandé par le client. */
+	private static final SortWhitelist NO_SORT = new SortWhitelist(java.util.Map.of(), Sort.unsorted());
 
 	private final ChannelPrices prices;
 
@@ -196,6 +212,47 @@ class PricesController {
 			.contentType(MediaType.APPLICATION_JSON).body(outcome.body());
 	}
 
+	@DeleteMapping("/proposals/{proposalId}")
+	@RequiresScope("price:propose")
+	@Operation(operationId = "withdrawPriceProposal", summary = "Retirer une proposition de prix en attente (G25)",
+			description = "La proposition, encore en attente (PROPOSED), passe WITHDRAWN. La boutique ne peut retirer que "
+					+ "ses propres propositions. PRICE_PROPOSAL_NOT_FOUND (404) si la proposition est inconnue ou "
+					+ "d'une autre liaison ; PRICE_PROPOSAL_NOT_PENDING (409) si elle a déjà été décidée ou remplacée. "
+					+ "Un événement CHANNEL_PRICE est publié.",
+			security = @SecurityRequirement(name = OpenApiConfig.INTEGRATION_LINK_SCHEME),
+			responses = { @ApiResponse(responseCode = "200", description = "Proposition retirée"),
+					@ApiResponse(responseCode = "400", description = "INVALID_PARAMETER (proposalId invalide)",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "401", description = "INVALID_TOKEN, LINK_REVOKED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "403",
+							description = "INSUFFICIENT_SCOPE, LINK_SUSPENDED, COMPANY_SUSPENDED, COMPANY_UNAVAILABLE",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "404", description = "PRICE_PROPOSAL_NOT_FOUND",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "409", description = "PRICE_PROPOSAL_NOT_PENDING : déjà décidée ou remplacée",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "429", description = "RATE_LIMITED : limite partagée avec les propositions",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "503",
+							description = "RATE_LIMIT_UNAVAILABLE, SCHEMA_UPGRADE_IN_PROGRESS, SCHEMA_UPGRADE_FAILED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))) })
+	ChannelPrices.ProposalView withdraw(@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
+			@PathVariable String proposalId) {
+		limit("price-proposals:link:" + principal.linkId(), this.rateLimits.rateLimit().priceProposalsPerLink());
+		if (!CANONICAL_UUID.matcher(proposalId).matches()) {
+			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER, "Paramètre invalide : proposalId.");
+		}
+		return this.prices.withdraw(principal.linkId(), UUID.fromString(proposalId));
+	}
+
 	@GetMapping
 	@RequiresScope("catalog:read")
 	@Operation(operationId = "listPrices", summary = "Prix de la boutique (référence, proposé, approuvé) par produit lié",
@@ -250,6 +307,48 @@ class PricesController {
 			ids.add(UUID.fromString(part));
 		}
 		return new PricesView(this.prices.read(principal.linkId(), ids));
+	}
+
+	@GetMapping("/proposals")
+	@RequiresScope("price:propose")
+	@Operation(operationId = "listOwnPriceProposals", summary = "Propositions de prix de la liaison (G26)",
+			description = "Propositions de la liaison du jeton dans le statut demandé (PROPOSED par défaut ; APPROVED, "
+					+ "REJECTED, SUPERSEDED, WITHDRAWN), les plus récentes d'abord. Limite : 120 appels par minute et par "
+					+ "liaison (configurable).",
+			security = @SecurityRequirement(name = OpenApiConfig.INTEGRATION_LINK_SCHEME),
+			responses = { @ApiResponse(responseCode = "200", description = "Propositions",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = OwnProposalsView.class))),
+					@ApiResponse(responseCode = "400", description = "INVALID_PARAMETER (statut invalide)",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "401", description = "INVALID_TOKEN, LINK_REVOKED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "403",
+							description = "INSUFFICIENT_SCOPE, LINK_SUSPENDED, COMPANY_SUSPENDED, COMPANY_UNAVAILABLE",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "429", description = "RATE_LIMITED : plus de 120 appels par minute pour la "
+							+ "liaison (valeur de départ, configurable) ; en-tête Retry-After",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))),
+					@ApiResponse(responseCode = "503",
+							description = "RATE_LIMIT_UNAVAILABLE, SCHEMA_UPGRADE_IN_PROGRESS, SCHEMA_UPGRADE_FAILED",
+							content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+									schema = @Schema(ref = API_ERROR))) })
+	ResponseEntity<PageResponse<ChannelPrices.ProposalView>> listProposals(
+			@Parameter(hidden = true) @AuthenticationPrincipal LinkPrincipal principal,
+			@RequestParam(required = false) String status, @RequestParam(required = false) Integer page,
+			@RequestParam(required = false) Integer size) {
+		limit("prices:link:" + principal.linkId(), this.rateLimits.rateLimit().pricesPerLink());
+		String wanted = status != null ? status : "PROPOSED";
+		if (!PROPOSAL_STATUSES.contains(wanted)) {
+			throw new InvalidRequestException(ErrorCode.INVALID_PARAMETER,
+					"Paramètre invalide : status vaut PROPOSED, APPROVED, REJECTED, SUPERSEDED ou WITHDRAWN.");
+		}
+		PageQuery query = new PageQuery(page, size, null);
+		return PageResponse.toResponse(this.prices.proposals(principal.linkId(), wanted, query.toPageable(NO_SORT)), query);
 	}
 
 	/** Compte l'appel sous {@code key} ; au-delà de {@code limit} dans la fenêtre : {@code 429} avec {@code Retry-After}. */
@@ -389,6 +488,13 @@ class PricesController {
 	/** Réponse {@code 200} de {@code GET /prices}. */
 	@Schema(name = "IntegrationPrices")
 	record PricesView(@ArraySchema(schema = @Schema(implementation = ChannelPrice.class)) List<ChannelPrice> items) {
+	}
+
+	/** Réponse {@code 200} de {@code GET /prices/proposals} (G26). */
+	@Schema(name = "IntegrationOwnProposals")
+	record OwnProposalsView(
+			@ArraySchema(schema = @Schema(implementation = ChannelPrices.ProposalView.class)) List<ChannelPrices.ProposalView> items,
+			long total, int page, int size) {
 	}
 
 }

@@ -37,7 +37,7 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 		if (!problems.isEmpty()) {
 			throw new IllegalArgumentException(String.join(" ; ", problems));
 		}
-		rateLimit = rateLimit != null ? rateLimit : new RateLimit(null, 10, 10, 30, 30, 5, null, 120, 60, 60, 120, 60, 120, 60);
+		rateLimit = rateLimit != null ? rateLimit : new RateLimit(null, 10, 10, 30, 30, 5, null, 120, 60, 60, 120, 60, 120, 60, 120);
 	}
 
 	/**
@@ -88,6 +88,8 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 	 *                                   paramètres invalides compris
 	 * @param catalogProductSearchPerLink {@code /catalog/products/search} (G23) : recherches par fenêtre et par liaison
 	 *                                   authentifiée, paramètres invalides compris
+	 * @param availabilityPerLink        {@code /availability} (G27) : lectures par fenêtre et par liaison authentifiée,
+	 *                                   paramètres invalides compris
 	 */
 	public record RateLimit(@DefaultValue("1m") Duration window, @DefaultValue("10") int oauthTokenPerClient,
 			@DefaultValue("10") int oauthTokenPerIp, @DefaultValue("30") int oauthParPerClient,
@@ -95,7 +97,8 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 			@DefaultValue("1h") Duration linkSecretWindow, @DefaultValue("120") int catalogChangesPerLink,
 			@DefaultValue("60") int catalogAckPerLink, @DefaultValue("60") int catalogSnapshotPerLink,
 			@DefaultValue("120") int catalogImagePerLink, @DefaultValue("60") int priceProposalsPerLink,
-			@DefaultValue("120") int pricesPerLink, @DefaultValue("60") int catalogProductSearchPerLink) {
+			@DefaultValue("120") int pricesPerLink, @DefaultValue("60") int catalogProductSearchPerLink,
+			@DefaultValue("120") int availabilityPerLink) {
 
 		public RateLimit {
 			window = window != null ? window : Duration.ofMinutes(1);
@@ -109,7 +112,7 @@ public record IntegrationRateLimitProperties(String clientIpHeader, @DefaultValu
 			if (oauthTokenPerClient < 1 || oauthTokenPerIp < 1 || oauthParPerClient < 1 || oauthParPerIp < 1
 					|| linkSecretPerLink < 1 || catalogChangesPerLink < 1 || catalogAckPerLink < 1
 					|| catalogSnapshotPerLink < 1 || catalogImagePerLink < 1 || priceProposalsPerLink < 1
-					|| pricesPerLink < 1 || catalogProductSearchPerLink < 1) {
+					|| pricesPerLink < 1 || catalogProductSearchPerLink < 1 || availabilityPerLink < 1) {
 				throw new IllegalArgumentException("geststock.integration.rate-limit : chaque limite vaut au moins 1.");
 			}
 		}

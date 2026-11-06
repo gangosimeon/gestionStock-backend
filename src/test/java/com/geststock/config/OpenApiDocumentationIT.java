@@ -84,7 +84,10 @@ class OpenApiDocumentationIT {
 			"GET /api/integration/v1/catalog/changes", "POST /api/integration/v1/catalog/changes/ack",
 			"GET /api/integration/v1/catalog/snapshot", "GET /api/integration/v1/catalog/products/{productId}/image",
 			"POST /api/integration/v1/prices/proposals", "GET /api/integration/v1/prices",
-			"GET /api/integration/v1/catalog/products/search");
+			"GET /api/integration/v1/catalog/products/search",
+			"DELETE /api/integration/v1/prices/proposals/{proposalId}",
+			"GET /api/integration/v1/prices/proposals",
+			"GET /api/integration/v1/availability");
 
 	@Autowired
 	private MockMvc mvc;

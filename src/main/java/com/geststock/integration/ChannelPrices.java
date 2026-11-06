@@ -135,6 +135,11 @@ public class ChannelPrices {
 			  rejection_reason = :reason
 			where id = :id and status = 'PROPOSED'""";
 
+	/** Retrait par la boutique (G25) : PROPOSED → WITHDRAWN. */
+	private static final String WITHDRAW = """
+			update channel_price set status = 'WITHDRAWN', decided_at = now()
+			where id = :id and status = 'PROPOSED'""";
+
 	private static final String ADVANCE_ON_DECISION = """
 			update channel_price_head set price_version = price_version + 1, updated_at = now()
 			where link_id = :link and product_id = :product""";
@@ -291,6 +296,36 @@ public class ChannelPrices {
 				() -> this.jdbc.sql(REJECT).param("user", userId).param("reason", MaskedValue.of(reason))
 					.param("id", proposalId).update(),
 				linkGuard);
+	}
+
+	/**
+	 * Retrait par la boutique d'une proposition encore en attente (G25) : PROPOSED → WITHDRAWN. Avance le rang
+	 * de la tête et publie un événement {@code CHANNEL_PRICE}. La proposition d'une autre liaison reçoit
+	 * {@code 404 PRICE_PROPOSAL_NOT_FOUND} ; déjà décidée ou remplacée : {@code 409 PRICE_PROPOSAL_NOT_PENDING}.
+	 *
+	 * @throws NotFoundException {@code PRICE_PROPOSAL_NOT_FOUND} : inconnue ou d'une autre liaison
+	 * @throws ConflictException {@code PRICE_PROPOSAL_NOT_PENDING} : déjà décidée ou remplacée (C6)
+	 */
+	public ProposalView withdraw(UUID linkId, UUID proposalId) {
+		return this.readWrite.execute(transaction -> {
+			UUID productId = this.jdbc.sql(DECISION_TARGET).param("id", proposalId).param("link", linkId)
+				.query(UUID.class)
+				.optional()
+				.orElseThrow(() -> new NotFoundException(ErrorCode.PRICE_PROPOSAL_NOT_FOUND, null));
+			this.jdbc.sql(LOCK_HEAD).param("link", linkId).param("product", productId).query(Long.class).single();
+			if (this.jdbc.sql(WITHDRAW).param("id", proposalId).update() == 0) {
+				throw new ConflictException(ErrorCode.PRICE_PROPOSAL_NOT_PENDING, null);
+			}
+			this.jdbc.sql(ADVANCE_ON_DECISION).param("link", linkId).param("product", productId).update();
+			ProposalView view = this.jdbc.sql(VIEW).param("id", proposalId).query(this::view).single();
+			this.audit.record(AuditEvent.of("PRICE_PROPOSAL_WITHDRAWN", "CHANNEL_PRICE", proposalId, view.productName())
+				.details("Prix proposé par une boutique en ligne retiré : " + view.price() + " " + view.currency()
+						+ " (prix de référence " + view.currentReferencePrice() + ")")
+				.meta("linkId", linkId.toString())
+				.meta("productId", productId.toString()));
+			this.events.publish(IntegrationEventType.CHANNEL_PRICE, productId);
+			return view;
+		});
 	}
 
 	/**
