@@ -455,6 +455,210 @@ class OnlineOrderRouteIT {
 			.andExpect(jsonPath("$.status").value("CANCELLED"));
 	}
 
+	// --- Expiration paresseuse (lazy expiry) -----------------------------------------------
+
+	@Test
+	void expiredReservationCannotBeCancelled() throws Exception {
+		Linked shop = active(ORDERS_WRITE);
+		UUID product = product("1000.00");
+		approvePrice(shop, product, "900.00");
+		warehouse(shop.id(), product, 10);
+
+		String body = orderBody(shop, product, 1, "900.00", "ext-exp-cancel-" + uuid());
+		JsonNode created = json(this.mvc.perform(post(ORDERS)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body)).andExpect(status().isCreated()));
+		assertThat(created.get("status").asString()).isEqualTo("RESERVED");
+		String orderId = created.get("orderId").asString();
+
+		// Force la reservation a expirer
+		TenantContext.runAs(this.company, () -> this.jdbc.update(
+				"update online_reservation set expires_at = now() - interval '1 minute' where order_id = ?",
+				UUID.fromString(orderId)));
+
+		// Annulation d'une commande expiree : 409 ORDER_NOT_CANCELLABLE
+		this.mvc.perform(post(ORDERS + "/{id}/cancel", orderId)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("ORDER_NOT_CANCELLABLE"));
+	}
+
+	@Test
+	void getOrderByIdLazyExpiresReservation() throws Exception {
+		Linked shop = active(ORDERS_WRITE);
+		UUID product = product("1000.00");
+		approvePrice(shop, product, "900.00");
+		warehouse(shop.id(), product, 10);
+
+		String body = orderBody(shop, product, 1, "900.00", "ext-lazy-exp-" + uuid());
+		JsonNode created = json(this.mvc.perform(post(ORDERS)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body)).andExpect(status().isCreated()));
+		assertThat(created.get("status").asString()).isEqualTo("RESERVED");
+		String orderId = created.get("orderId").asString();
+
+		// Force la reservation a expirer
+		TenantContext.runAs(this.company, () -> this.jdbc.update(
+				"update online_reservation set expires_at = now() - interval '1 minute' where order_id = ?",
+				UUID.fromString(orderId)));
+
+		// Lecture : l'expiration paresseuse passe la commande a EXPIRED
+		JsonNode read = json(this.mvc.perform(get(ORDERS + "/{id}", orderId)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token()))
+			.andExpect(status().isOk()));
+		assertThat(read.get("status").asString()).isEqualTo("EXPIRED");
+	}
+
+	// --- Garde de liaison (linkGuard, G24) -------------------------------------------------
+
+	@Test
+	void createOrderAfterWarehouseRemovalReturnsRejectedStock() throws Exception {
+		Linked shop = active(ORDERS_WRITE);
+		UUID product = product("1000.00");
+		approvePrice(shop, product, "900.00");
+		UUID wh = warehouse(shop.id(), product, 10);
+
+		// Retirer le depot de la liaison
+		TenantContext.runAs(this.company, () -> this.jdbc.update(
+				"delete from integration_link_warehouse where link_id = ? and warehouse_id = ?", shop.id(), wh));
+
+		// Commande sans depot : REJECTED_STOCK
+		String body = orderBody(shop, product, 1, "900.00", "ext-nwh-" + uuid());
+		JsonNode order = json(this.mvc.perform(post(ORDERS)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body)).andExpect(status().isCreated()));
+		assertThat(order.get("status").asString()).isEqualTo("REJECTED_STOCK");
+
+		// Remettre le depot pour le tearDown
+		TenantContext.runAs(this.company, () -> this.jdbc.update(
+				"insert into integration_link_warehouse (link_id, warehouse_id, added_by) values (?, ?, ?)",
+				shop.id(), wh, UUID.randomUUID()));
+	}
+
+	// --- Retrait de depot ne brise pas les reservations existantes (G28) -------------------
+
+	@Test
+	void warehouseRemovalDoesNotInvalidateExistingReservation() throws Exception {
+		Linked shop = active(ORDERS_WRITE);
+		UUID product = product("1000.00");
+		approvePrice(shop, product, "900.00");
+		UUID wh = warehouse(shop.id(), product, 10);
+
+		// Creer une commande RESERVED
+		String body = orderBody(shop, product, 2, "900.00", "ext-wh-rm-" + uuid());
+		JsonNode created = json(this.mvc.perform(post(ORDERS)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body)).andExpect(status().isCreated()));
+		assertThat(created.get("status").asString()).isEqualTo("RESERVED");
+		String orderId = created.get("orderId").asString();
+
+		// Retirer le depot de la liaison
+		TenantContext.runAs(this.company, () -> this.jdbc.update(
+				"delete from integration_link_warehouse where link_id = ? and warehouse_id = ?", shop.id(), wh));
+
+		// La reservation existante est toujours RESERVED et lisible
+		JsonNode read = json(this.mvc.perform(get(ORDERS + "/{id}", orderId)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token()))
+			.andExpect(status().isOk()));
+		assertThat(read.get("status").asString()).isEqualTo("RESERVED");
+		assertThat(read.get("reservation").get("status").asString()).isEqualTo("RESERVED");
+
+		// L'annulation de la reservation existante fonctionne toujours
+		JsonNode cancelled = json(this.mvc.perform(post(ORDERS + "/{id}/cancel", orderId)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token()))
+			.andExpect(status().isOk()));
+		assertThat(cancelled.get("status").asString()).isEqualTo("CANCELLED");
+
+		// Remettre le depot pour le tearDown
+		TenantContext.runAs(this.company, () -> this.jdbc.update(
+				"insert into integration_link_warehouse (link_id, warehouse_id, added_by) values (?, ?, ?)",
+				shop.id(), wh, UUID.randomUUID()));
+	}
+
+	// --- Caracteres de controle (G15) ------------------------------------------------------
+
+	@Test
+	void controlCharacterInCustomerNameIsRejected() throws Exception {
+		Linked shop = active(ORDERS_WRITE);
+		UUID product = product("1000.00");
+		approvePrice(shop, product, "900.00");
+		warehouse(shop.id(), product, 10);
+		long version = approvedPriceVersion(shop, product);
+
+		// Corps avec un caractere de controle dans customer.name
+		String body = """
+				{
+				  "externalOrderId": "ext-%s",
+				  "createdAt": "2026-11-06T10:00:00Z",
+				  "currency": "%s",
+				  "customer": {"name": "Jean\\u0001Dupont", "phone": "+33612345678"},
+				  "delivery": {"mode": "pickup"},
+				  "lines": [{"productId": "%s", "quantity": 1, "unitPrice": "900.00", "priceVersion": %d}]
+				}""".formatted(uuid(), shop.currency(), product, version);
+		this.mvc.perform(post(ORDERS)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
+	void controlCharacterInNoteAllowsTabAndNewline() throws Exception {
+		Linked shop = active(ORDERS_WRITE);
+		UUID product = product("1000.00");
+		approvePrice(shop, product, "900.00");
+		warehouse(shop.id(), product, 10);
+		long version = approvedPriceVersion(shop, product);
+
+		// Corps avec tab et saut de ligne dans note (texte libre : permis)
+		String body = """
+				{
+				  "externalOrderId": "ext-%s",
+				  "createdAt": "2026-11-06T10:00:00Z",
+				  "currency": "%s",
+				  "customer": {"name": "Jean Dupont", "phone": "+33612345678"},
+				  "delivery": {"mode": "pickup"},
+				  "note": "Ligne 1\\nLigne 2\\tSuite",
+				  "lines": [{"productId": "%s", "quantity": 1, "unitPrice": "900.00", "priceVersion": %d}]
+				}""".formatted(uuid(), shop.currency(), product, version);
+		this.mvc.perform(post(ORDERS)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body))
+			.andExpect(status().isCreated());
+	}
+
+	@Test
+	void controlCharacterInNoteRejectsNullByte() throws Exception {
+		Linked shop = active(ORDERS_WRITE);
+		UUID product = product("1000.00");
+		approvePrice(shop, product, "900.00");
+		warehouse(shop.id(), product, 10);
+		long version = approvedPriceVersion(shop, product);
+
+		// Corps avec un octet nul dans note (meme en texte libre : refuse)
+		String body = """
+				{
+				  "externalOrderId": "ext-%s",
+				  "createdAt": "2026-11-06T10:00:00Z",
+				  "currency": "%s",
+				  "customer": {"name": "Jean Dupont"},
+				  "delivery": {"mode": "pickup"},
+				  "note": "Test\\u0000note",
+				  "lines": [{"productId": "%s", "quantity": 1, "unitPrice": "900.00", "priceVersion": %d}]
+				}""".formatted(uuid(), shop.currency(), product, version);
+		this.mvc.perform(post(ORDERS)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body))
+			.andExpect(status().isBadRequest());
+	}
+
 	// --- Portée et authentification --------------------------------------------------------
 
 	@Test

@@ -10,9 +10,11 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,7 +47,18 @@ import com.geststock.exception.NotFoundException;
  * stock dispo = sum(stock_level) − réservations actives ; TTL configurable (30 min par défaut).</li>
  * <li><b>Annulation</b> : CONVERTED → 409 ; RESERVED → réservation CANCELLED + commande CANCELLED ;
  * déjà CANCELLED/EXPIRED → idempotent.</li>
+ * <li><b>Expiration paresseuse</b> : à la lecture ({@link #findById}) ou avant l'annulation, une
+ * réservation dont {@code expires_at <= now()} passe à EXPIRED et publie un événement AVAILABILITY.</li>
+ * <li><b>Événements AVAILABILITY</b> : publiés dans la même transaction que la réservation (create),
+ * l'annulation (cancel) et l'expiration paresseuse, pour chaque produit dont la disponibilité change.</li>
+ * <li><b>Garde de liaison</b> (G24) : dans la transaction de réservation, le statut de la liaison est relu
+ * depuis {@code integration_link_warehouse} ; si la liaison n'a plus de dépôts actifs, la réservation est
+ * refusée.</li>
  * </ul>
+ *
+ * <p>Les réservations restent liées à leur dépôt même si celui-ci est retiré de la liaison après la
+ * réservation : le dépôt était actif au moment de la commande, et le stock y est physiquement présent.
+ * Le retrait d'un dépôt n'invalide pas les réservations existantes.
  */
 @Component
 public class OnlineOrders {
@@ -163,11 +176,40 @@ public class OnlineOrders {
 			where rl.reservation_id = :reservationId
 			order by rl.warehouse_id, rl.product_id""";
 
-	/** SQL — vérification d'idempotence par external_order_id. */
+	/** SQL -- verification d'idempotence par external_order_id. */
 	private static final String FIND_ORDER_ID_BY_EXTERNAL = """
 			select o.id, o.request_hash
 			from online_order o
 			where o.external_order_id = :externalOrderId and o.link_id = :link""";
+
+	/** SQL -- garde de liaison : verifie que la liaison a encore des depots actifs (G24). */
+	private static final String LINK_GUARD = """
+			select count(*) from integration_link_warehouse lw
+			join warehouse w on w.id = lw.warehouse_id and w.active
+			where lw.link_id = :link""";
+
+	/** SQL -- expiration paresseuse : passe une reservation RESERVED expiree a EXPIRED. */
+	private static final String EXPIRE_RESERVATION = """
+			update online_reservation set status = 'EXPIRED', updated_at = now()
+			where order_id = :orderId and status = 'RESERVED' and expires_at <= now()
+			returning id""";
+
+	/** SQL -- expiration paresseuse : passe la commande a EXPIRED. */
+	private static final String EXPIRE_ORDER = """
+			update online_order set status = 'EXPIRED', updated_at = now()
+			where id = :orderId and status = 'RESERVED'""";
+
+	/** SQL -- produits d'une reservation (pour publier les evenements AVAILABILITY). */
+	private static final String RESERVATION_PRODUCTS = """
+			select distinct rl.product_id from online_reservation_line rl
+			join online_reservation r on r.id = rl.reservation_id
+			where r.order_id = :orderId""";
+
+	/** SQL -- reservations expirees en masse (menage de fond). */
+	private static final String STALE_RESERVATIONS = """
+			select r.order_id from online_reservation r
+			where r.status = 'RESERVED' and r.expires_at <= now()
+			limit :limit""";
 
 	private final JdbcClient jdbc;
 
@@ -177,13 +219,16 @@ public class OnlineOrders {
 
 	private final Duration reservationTtl;
 
+	private final IntegrationEvents events;
+
 	OnlineOrders(DataSource dataSource, PlatformTransactionManager transactionManager,
-			IntegrationReservationProperties reservationProperties) {
+			IntegrationReservationProperties reservationProperties, IntegrationEvents events) {
 		this.jdbc = JdbcClient.create(dataSource);
 		this.readWrite = new TransactionTemplate(transactionManager);
 		this.readOnly = new TransactionTemplate(transactionManager);
 		this.readOnly.setReadOnly(true);
 		this.reservationTtl = reservationProperties.ttl();
+		this.events = events;
 	}
 
 	/**
@@ -219,9 +264,17 @@ public class OnlineOrders {
 	/** Résultat d'une tentative de création : flag de création et vue de la commande. */
 	public record CreateResult(boolean created, OnlineOrderView view) {}
 
-	/** Lecture d'une commande par son identifiant interne. */
+	/** Lecture d'une commande par son identifiant interne. Expiration paresseuse si la reservation a expire. */
 	public Optional<OnlineOrderView> findById(LinkRef link, UUID orderId) {
-		return this.readOnly.execute(status -> loadOrder(link, orderId));
+		return this.readWrite.execute(status -> {
+			Optional<OnlineOrderView> view = loadOrder(link, orderId);
+			if (view.isPresent() && "RESERVED".equals(view.get().status())) {
+				if (tryExpire(orderId)) {
+					return loadOrder(link, orderId);
+				}
+			}
+			return view;
+		});
 	}
 
 	/** Lecture d'une commande par son identifiant externe (liaison). */
@@ -338,13 +391,15 @@ public class OnlineOrders {
 				.update();
 		}
 
-		// 3. Réservation de stock.
+		// 3. Garde de liaison (G24) : relire les depots dans la transaction. La lecture des depots
+		// et le verrouillage FOR UPDATE du stock se font dans la meme transaction ; si la liaison
+		// perd ses depots entre la validation et cette lecture, la commande est REJECTED_STOCK.
 		List<UUID> warehouseIds = this.jdbc.sql(LINK_WAREHOUSES)
 			.param("link", link.id())
 			.query(UUID.class)
 			.list();
 
-		Set<UUID> productIds = new HashSet<>();
+		Set<UUID> productIds = new LinkedHashSet<>();
 		for (ValidatedLine vl : validatedLines) {
 			productIds.add(vl.line().productId());
 		}
@@ -358,6 +413,11 @@ public class OnlineOrders {
 		}
 
 		this.jdbc.sql(UPDATE_ORDER_STATUS).param("status", finalStatus).param("id", orderId).update();
+
+		// Publier les evenements AVAILABILITY pour les produits reserves (dans la meme transaction).
+		if ("RESERVED".equals(finalStatus)) {
+			this.events.publishAvailability(productIds);
+		}
 
 		return loadOrder(link, orderId).orElseThrow();
 	}
@@ -459,7 +519,7 @@ public class OnlineOrders {
 	}
 
 	private OnlineOrderView doCancel(LinkRef link, UUID orderId, String reason) {
-		// Lire la commande (vérification liaison incluse).
+		// Lire la commande (verification liaison incluse).
 		OrderRow row = this.jdbc.sql(FIND_ORDER)
 			.param("id", orderId)
 			.param("link", link.id())
@@ -481,22 +541,34 @@ public class OnlineOrders {
 
 		String current = row.status();
 
-		// CONVERTED → 409.
+		// Expiration paresseuse : si RESERVED et expiree, passer a EXPIRED => 409.
+		if ("RESERVED".equals(current) && tryExpire(orderId)) {
+			throw new ConflictException(ErrorCode.ORDER_NOT_CANCELLABLE, null);
+		}
+
+		// CONVERTED => 409.
 		if ("CONVERTED".equals(current)) {
 			throw new ConflictException(ErrorCode.ORDER_NOT_CANCELLABLE, null);
 		}
 
-		// Idempotence : déjà terminal.
-		if ("CANCELLED".equals(current) || "EXPIRED".equals(current)) {
+		// EXPIRED (par expiration paresseuse precedente ou reelle) => 409.
+		if ("EXPIRED".equals(current)) {
+			throw new ConflictException(ErrorCode.ORDER_NOT_CANCELLABLE, null);
+		}
+
+		// Idempotence : deja annulee.
+		if ("CANCELLED".equals(current)) {
 			return loadOrder(link, orderId).orElseThrow();
 		}
 
-		// Annuler la réservation si RESERVED.
+		// Annuler la reservation si RESERVED.
 		if ("RESERVED".equals(current)) {
 			this.jdbc.sql(UPDATE_RESERVATION_STATUS)
 				.param("status", "CANCELLED")
 				.param("orderId", orderId)
 				.update();
+			// Publier les evenements AVAILABILITY pour les produits liberes.
+			publishAvailabilityForOrder(orderId);
 		}
 
 		this.jdbc.sql(UPDATE_ORDER_CANCELLED)
@@ -570,7 +642,97 @@ public class OnlineOrders {
 		return orderIdOpt.flatMap(id -> loadOrder(link, id));
 	}
 
-	// ---- Records de données -----------------------------------------------------------------
+	/**
+	 * Expiration paresseuse : si la reservation de la commande est RESERVED et expiree,
+	 * la passe a EXPIRED et publie un evenement AVAILABILITY. Retourne true si expiree.
+	 */
+	private boolean tryExpire(UUID orderId) {
+		Optional<UUID> expired = this.jdbc.sql(EXPIRE_RESERVATION)
+			.param("orderId", orderId)
+			.query(UUID.class)
+			.optional();
+		if (expired.isPresent()) {
+			this.jdbc.sql(EXPIRE_ORDER).param("orderId", orderId).update();
+			publishAvailabilityForOrder(orderId);
+			return true;
+		}
+		return false;
+	}
+
+	/** Publie un evenement AVAILABILITY pour chaque produit de la commande. */
+	private void publishAvailabilityForOrder(UUID orderId) {
+		List<UUID> productIds = this.jdbc.sql(RESERVATION_PRODUCTS)
+			.param("orderId", orderId)
+			.query(UUID.class)
+			.list();
+		if (!productIds.isEmpty()) {
+			this.events.publishAvailability(productIds);
+		}
+	}
+
+	/**
+	 * Menage de fond : passe a EXPIRED les reservations expirees. Appele par la maintenance
+	 * existante ou par une future tache planifiee. L'expiration en temps reel est faite
+	 * paresseusement par {@link #findById} et {@link #cancel}.
+	 *
+	 * @param limit nombre maximal de reservations a traiter par passage
+	 * @return nombre de reservations expirees
+	 */
+	public int expireStaleReservations(int limit) {
+		List<UUID> stale = this.jdbc.sql(STALE_RESERVATIONS)
+			.param("limit", limit)
+			.query(UUID.class)
+			.list();
+		int expired = 0;
+		for (UUID orderId : stale) {
+			Boolean done = this.readWrite.execute(status -> tryExpire(orderId));
+			if (Boolean.TRUE.equals(done)) {
+				expired++;
+			}
+		}
+		return expired;
+	}
+
+	/**
+	 * Libere les reservations actives d'une liaison (revocation). Passe chaque reservation RESERVED
+	 * a CANCELLED et publie un evenement AVAILABILITY.
+	 *
+	 * @param linkId liaison revoquee
+	 * @return nombre de reservations liberees
+	 */
+	public int releaseReservationsForLink(UUID linkId) {
+		List<UUID> orders = this.jdbc.sql("""
+				select o.id from online_order o
+				join online_reservation r on r.order_id = o.id
+				where o.link_id = :link and r.status = 'RESERVED' and o.status = 'RESERVED'""")
+			.param("link", linkId)
+			.query(UUID.class)
+			.list();
+		int released = 0;
+		for (UUID orderId : orders) {
+			Boolean done = this.readWrite.execute(status -> {
+				int updated = this.jdbc.sql(UPDATE_RESERVATION_STATUS)
+					.param("status", "CANCELLED")
+					.param("orderId", orderId)
+					.update();
+				if (updated > 0) {
+					this.jdbc.sql(UPDATE_ORDER_CANCELLED)
+						.param("id", orderId)
+						.param("reason", MaskedValue.of("Liaison revoquee"))
+						.update();
+					publishAvailabilityForOrder(orderId);
+					return true;
+				}
+				return false;
+			});
+			if (Boolean.TRUE.equals(done)) {
+				released++;
+			}
+		}
+		return released;
+	}
+
+	// ---- Records de donnees -----------------------------------------------------------------
 
 	private record ValidatedLine(OnlineOrderRequest.OrderLine line, BigDecimal approvedPrice) {}
 

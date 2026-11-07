@@ -33,7 +33,7 @@ import tools.jackson.databind.json.JsonMapper;
 class UnreadableBodyResolver implements HandlerExceptionResolver, WebMvcConfigurer {
 
 	private static final Set<Class<?>> CONTROLLERS = Set.of(IntegrationLinkController.class, LinkController.class,
-			PriceProposalController.class);
+			PriceProposalController.class, OnlineOrderController.class);
 
 	private final ApiErrorFactory errors;
 

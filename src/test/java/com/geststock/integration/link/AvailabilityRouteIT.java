@@ -255,6 +255,92 @@ class AvailabilityRouteIT {
 		assertThat(item.get("computedAt")).isNotNull();
 	}
 
+	// --- Disponibilité avec réservation (G27 + G28) ---------------------------------------------------
+
+	@Test
+	void availabilitySubtractsActiveReservations() throws Exception {
+		Linked shop = active();
+		UUID product = product("5000.00");
+		UUID warehouse = warehouse();
+		linkWarehouse(shop.id(), warehouse);
+		setStock(warehouse, product, 10);
+
+		// Créer une réservation active (simulation directe en base)
+		TenantContext.runAs(this.company, () -> this.transactions.executeWithoutResult(status -> {
+			UUID orderId = this.jdbc.queryForObject("""
+					insert into online_order (id, write_id, link_id, external_order_id, request_hash,
+					  status, currency, customer_name, delivery_mode, external_created_at)
+					values (gen_random_uuid(), gen_random_uuid(), ?, 'avail-test-ext', 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
+					  'RESERVED', 'XOF', 'Test Client', 'pickup', now())
+					returning id""", UUID.class, shop.id());
+			UUID reservationId = this.jdbc.queryForObject("""
+					insert into online_reservation (id, order_id, status, expires_at)
+					values (gen_random_uuid(), ?, 'RESERVED', now() + interval '30 minutes')
+					returning id""", UUID.class, orderId);
+			this.jdbc.update("""
+					insert into online_reservation_line (id, reservation_id, warehouse_id, product_id, quantity)
+					values (gen_random_uuid(), ?, ?, ?, 3)""", reservationId, warehouse, product);
+		}));
+
+		// La disponibilité doit être stock (10) - réservation (3) = 7
+		JsonNode response = response(this.mvc.perform(
+				get(AVAILABILITY).param("productIds", product.toString())
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())));
+		JsonNode items = response.get("items");
+		assertThat(items).hasSize(1);
+		assertThat(items.get(0).get("available").intValue()).isEqualTo(7);
+
+		// Nettoyage
+		TenantContext.runAs(this.company, () -> {
+			this.jdbc.update("delete from online_reservation_line");
+			this.jdbc.update("delete from online_reservation");
+			this.jdbc.update("delete from online_order_line");
+			this.jdbc.update("delete from online_order");
+		});
+	}
+
+	@Test
+	void availabilityIgnoresExpiredReservations() throws Exception {
+		Linked shop = active();
+		UUID product = product("5000.00");
+		UUID warehouse = warehouse();
+		linkWarehouse(shop.id(), warehouse);
+		setStock(warehouse, product, 10);
+
+		// Créer une réservation expirée
+		TenantContext.runAs(this.company, () -> this.transactions.executeWithoutResult(status -> {
+			UUID orderId = this.jdbc.queryForObject("""
+					insert into online_order (id, write_id, link_id, external_order_id, request_hash,
+					  status, currency, customer_name, delivery_mode, external_created_at)
+					values (gen_random_uuid(), gen_random_uuid(), ?, 'avail-expired-ext', 'b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3',
+					  'RESERVED', 'XOF', 'Test Client', 'pickup', now())
+					returning id""", UUID.class, shop.id());
+			UUID reservationId = this.jdbc.queryForObject("""
+					insert into online_reservation (id, order_id, status, expires_at)
+					values (gen_random_uuid(), ?, 'RESERVED', now() - interval '1 minute')
+					returning id""", UUID.class, orderId);
+			this.jdbc.update("""
+					insert into online_reservation_line (id, reservation_id, warehouse_id, product_id, quantity)
+					values (gen_random_uuid(), ?, ?, ?, 5)""", reservationId, warehouse, product);
+		}));
+
+		// La disponibilité ne doit PAS soustraire les réservations expirées
+		JsonNode response = response(this.mvc.perform(
+				get(AVAILABILITY).param("productIds", product.toString())
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + shop.token())));
+		JsonNode items = response.get("items");
+		assertThat(items).hasSize(1);
+		assertThat(items.get(0).get("available").intValue()).isEqualTo(10);
+
+		// Nettoyage
+		TenantContext.runAs(this.company, () -> {
+			this.jdbc.update("delete from online_reservation_line");
+			this.jdbc.update("delete from online_reservation");
+			this.jdbc.update("delete from online_order_line");
+			this.jdbc.update("delete from online_order");
+		});
+	}
+
 	// --- Isolation inter-liaisons (G27) -----------------------------------------------------------------------
 
 	@Test

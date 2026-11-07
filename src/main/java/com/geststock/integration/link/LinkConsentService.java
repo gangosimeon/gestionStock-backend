@@ -26,6 +26,7 @@ import com.geststock.exception.ErrorCode;
 import com.geststock.integration.CurrencyCodes;
 import com.geststock.integration.LinkWarehouses;
 import com.geststock.integration.LinkWarehouses.WarehouseChoice;
+import com.geststock.integration.OnlineOrders;
 import com.geststock.integration.UnsupportedCurrencyException;
 import com.geststock.platform.PlatformDb;
 
@@ -98,13 +99,17 @@ class LinkConsentService {
 
 	private final LinkAudit audit;
 
+	private final OnlineOrders orders;
+
 	private final SecureRandom random = new SecureRandom();
 
-	LinkConsentService(PlatformDb platform, LinkRegistry links, LinkWarehouses warehouses, LinkAudit audit) {
+	LinkConsentService(PlatformDb platform, LinkRegistry links, LinkWarehouses warehouses, LinkAudit audit,
+			OnlineOrders orders) {
 		this.platform = platform;
 		this.audit = audit;
 		this.links = links;
 		this.warehouses = warehouses;
+		this.orders = orders;
 	}
 
 	// --- Demandes d'autorisation ----------------------------------------------------------------------------
@@ -266,9 +271,21 @@ class LinkConsentService {
 	}
 
 	ManagedLink revoke(UUID linkId, UUID companyId, Authorizer authorizer) {
-		return manage(linkId, companyId, () -> this.links.revoke(linkId, RevocationReason.GESTSTOCK_ADMIN),
+		ManagedLink result = manage(linkId, companyId, () -> this.links.revoke(linkId, RevocationReason.GESTSTOCK_ADMIN),
 				link -> LinkAudit.Entry.of(LinkAudit.REVOKED, link, LinkAudit.Actor.user(authorizer))
 					.detail("revocationReason", RevocationReason.GESTSTOCK_ADMIN.name()));
+		// Après la révocation : libérer les réservations actives dans la base de l'entreprise.
+		try {
+			int released = this.orders.releaseReservationsForLink(linkId);
+			if (released > 0) {
+				log.info("Révocation admin de la liaison {} : {} réservation(s) libérée(s).", linkId, released);
+			}
+		}
+		catch (Exception ex) {
+			log.warn("Impossible de libérer les réservations de la liaison {} après révocation admin : {}.",
+					linkId, ex.getMessage());
+		}
+		return result;
 	}
 
 	/** Liaison de l'entreprise courante seulement ; une autre entreprise reçoit la réponse d'une liaison inconnue. */

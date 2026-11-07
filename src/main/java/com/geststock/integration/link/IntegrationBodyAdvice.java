@@ -32,7 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestBodyAdviceAd
  * </ol>
  * Un corps valide est encore validé par Spring MVC ensuite ({@code @Valid}), sans effet.
  */
-@ControllerAdvice(assignableTypes = { IntegrationLinkController.class, LinkController.class, PriceProposalController.class })
+@ControllerAdvice(assignableTypes = { IntegrationLinkController.class, LinkController.class, PriceProposalController.class, OnlineOrderController.class })
 class IntegrationBodyAdvice extends RequestBodyAdviceAdapter {
 
 	private final SpringValidatorAdapter validator;

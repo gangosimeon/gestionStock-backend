@@ -335,6 +335,9 @@ class OnlineOrderController {
 
 		// externalOrderId
 		String externalOrderId = requiredText(root, "externalOrderId");
+		if (ControlCharacters.present(externalOrderId, false)) {
+			throw ControlCharacters.refused("externalOrderId");
+		}
 		if (externalOrderId.length() > 64) {
 			throw new CatalogChangesController.OutOfBounds("externalOrderId", "doit faire au plus 64 caractères");
 		}
@@ -357,6 +360,9 @@ class OnlineOrderController {
 
 		// currency
 		String currency = requiredText(root, "currency");
+		if (ControlCharacters.present(currency, false)) {
+			throw ControlCharacters.refused("currency");
+		}
 		if (!CURRENCY.matcher(currency).matches()) {
 			throw new CatalogChangesController.OutOfBounds("currency", "doit être un code ISO 4217 en majuscules");
 		}
@@ -367,6 +373,9 @@ class OnlineOrderController {
 			throw malformed();
 		}
 		String customerName = requiredText(customerNode, "name");
+		if (ControlCharacters.present(customerName, false)) {
+			throw ControlCharacters.refused("customer.name");
+		}
 		if (customerName.length() > 200) {
 			throw new CatalogChangesController.OutOfBounds("customer.name", "doit faire au plus 200 caractères");
 		}
@@ -377,6 +386,9 @@ class OnlineOrderController {
 				throw malformed();
 			}
 			phone = phoneNode.asString();
+			if (ControlCharacters.present(phone, false)) {
+				throw ControlCharacters.refused("customer.phone");
+			}
 			if (phone.length() > 30) {
 				throw new CatalogChangesController.OutOfBounds("customer.phone", "doit faire au plus 30 caractères");
 			}
@@ -388,18 +400,24 @@ class OnlineOrderController {
 			throw malformed();
 		}
 		String deliveryMode = requiredText(deliveryNode, "mode");
+		if (ControlCharacters.present(deliveryMode, false)) {
+			throw ControlCharacters.refused("delivery.mode");
+		}
 		if (!"pickup".equals(deliveryMode) && !"delivery".equals(deliveryMode)) {
 			throw new CatalogChangesController.OutOfBounds("delivery.mode", "doit être pickup ou delivery");
 		}
 		String deliveryAddress = null;
 		if ("delivery".equals(deliveryMode)) {
 			deliveryAddress = requiredText(deliveryNode, "address");
+			if (ControlCharacters.present(deliveryAddress, true)) { // @FreeText : tab/newline permis
+				throw ControlCharacters.refused("delivery.address");
+			}
 			if (deliveryAddress.length() > 500) {
 				throw new CatalogChangesController.OutOfBounds("delivery.address", "doit faire au plus 500 caractères");
 			}
 		}
 
-		// note (optionnel)
+		// note (optionnel, texte libre)
 		String note = null;
 		JsonNode noteNode = root.get("note");
 		if (noteNode != null && !noteNode.isNull()) {
@@ -407,6 +425,9 @@ class OnlineOrderController {
 				throw malformed();
 			}
 			note = noteNode.asString();
+			if (ControlCharacters.present(note, true)) { // @FreeText : tab/newline permis
+				throw ControlCharacters.refused("note");
+			}
 			if (note.length() > 500) {
 				throw new CatalogChangesController.OutOfBounds("note", "doit faire au plus 500 caractères");
 			}
@@ -466,6 +487,9 @@ class OnlineOrderController {
 			if (skuNode != null && !skuNode.isNull()) {
 				if (!skuNode.isString()) throw malformed();
 				sku = skuNode.asString();
+				if (ControlCharacters.present(sku, false)) {
+					throw ControlCharacters.refused("lines[].sku");
+				}
 			}
 
 			String label = null;
@@ -473,6 +497,9 @@ class OnlineOrderController {
 			if (labelNode != null && !labelNode.isNull()) {
 				if (!labelNode.isString()) throw malformed();
 				label = labelNode.asString();
+				if (ControlCharacters.present(label, false)) {
+					throw ControlCharacters.refused("lines[].label");
+				}
 				if (label.length() > 200) {
 					throw new CatalogChangesController.OutOfBounds("lines[].label", "doit faire au plus 200 caractères");
 				}
@@ -513,7 +540,11 @@ class OnlineOrderController {
 			JsonNode reason = root.get("reason");
 			if (reason == null || reason.isNull()) return null;
 			if (!reason.isString()) throw malformed();
-			return reason.asString();
+			String text = reason.asString();
+			if (ControlCharacters.present(text, true)) { // motif libre
+				throw ControlCharacters.refused("reason");
+			}
+			return text;
 		}
 		catch (JacksonException ex) {
 			return null;
@@ -606,7 +637,7 @@ class OnlineOrderController {
 
 	// ---- Vues JSON -------------------------------------------------------------------------
 
-	/** Réponse d'une commande en ligne. */
+	/** Réponse d'une commande en ligne. Données personnelles masquées dans {@code toString()} (G15). */
 	@Schema(name = "OnlineOrder")
 	record OnlineOrderResponse(
 			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uuid") UUID orderId,
@@ -624,6 +655,11 @@ class OnlineOrderController {
 			@Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<OrderLineResponse> lines,
 			@JsonInclude(JsonInclude.Include.NON_NULL) ReservationResponse reservation,
 			@JsonInclude(JsonInclude.Include.NON_NULL) List<UUID> saleIds) {
+
+		@Override
+		public String toString() {
+			return "OnlineOrderResponse[orderId=" + orderId + ", status=" + status + "]";
+		}
 	}
 
 	/** Ligne d'une commande en ligne. */

@@ -6,7 +6,7 @@ import java.util.UUID;
 
 /**
  * Quantités réservées (commandes en ligne non converties), soustraites du stock pour calculer la
- * disponibilité. Aucune réservation avant le lot 5 ({@link NoReservedQuantities}).
+ * disponibilité ({@link OnlineReservedQuantities}).
  */
 @FunctionalInterface
 public interface ReservedQuantities {
