@@ -336,6 +336,17 @@ public enum ErrorCode {
 			"Clé d'idempotence déjà utilisée pour une autre requête : utilisez une nouvelle clé."),
 	/** Maintenance de l'intégration : un passage tient déjà le bail (G20-D4) ; le cron ne relance pas. */
 	MAINTENANCE_IN_PROGRESS(HttpStatus.CONFLICT, "Un passage de maintenance est déjà en cours."),
+	/** Commande en ligne (G28) : produit sans prix approuvé pour cette liaison (pas lié ou prix non approuvé). */
+	PRODUCT_NOT_LINKED(HttpStatus.UNPROCESSABLE_CONTENT,
+			"Ce produit n'est pas rattaché à cette boutique."),
+	/** Commande en ligne (G28) : prix unitaire de la ligne différent du prix approuvé de la liaison. */
+	PRICE_NOT_APPROVED(HttpStatus.UNPROCESSABLE_CONTENT,
+			"Ce produit n'a pas de prix approuvé pour cette boutique."),
+	/** Commande en ligne (G28) : annulation impossible car la commande est déjà convertie en vente. */
+	ORDER_NOT_CANCELLABLE(HttpStatus.CONFLICT,
+			"Cette commande est déjà convertie en vente, elle ne peut plus être annulée."),
+	/** Commande en ligne (G28) : commande introuvable ou d'une autre liaison (même réponse). */
+	ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Commande introuvable."),
 
 	// 5xx
 	/** Intégration boutique : compteurs de débit inaccessibles, requête refusée (contrat integration/v1, v13-D4). */
