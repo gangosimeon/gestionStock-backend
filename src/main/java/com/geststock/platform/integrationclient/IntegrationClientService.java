@@ -112,19 +112,31 @@ class IntegrationClientService {
 				.param("name", request.name())
 				.param("id", id)
 				.update();
-		this.platform.jdbc().sql("""
-				delete from platform.integration_client_redirect_uri where client_id = :id""")
-				.param("id", id)
-				.update();
+		// Ajout des nouvelles URIs (idempotent : ON CONFLICT DO NOTHING évite les doublons).
 		for (String uri : request.redirectUris()) {
 			this.platform.jdbc().sql("""
 					insert into platform.integration_client_redirect_uri (id, client_id, redirect_uri)
-					values (:id, :clientId, :uri)""")
+					values (:id, :clientId, :uri)
+					on conflict (client_id, redirect_uri) do nothing""")
 					.param("id", UUID.randomUUID())
 					.param("clientId", id)
 					.param("uri", uri)
 					.update();
 		}
+		// Suppression des anciennes URIs retirées de la liste, sauf si référencées par une demande
+		// d'autorisation (FK ON DELETE RESTRICT sur integration_authorization_request).
+		this.platform.jdbc().sql("""
+				delete from platform.integration_client_redirect_uri
+				where client_id = :clientId
+				  and not (redirect_uri = any(:uris::text[]))
+				  and not exists (
+				      select 1 from platform.integration_authorization_request r
+				      where r.client_id = :clientId
+				        and r.redirect_uri = platform.integration_client_redirect_uri.redirect_uri
+				  )""")
+				.param("clientId", id)
+				.param("uris", request.redirectUris().toArray(String[]::new))
+				.update();
 		return get(id);
 	}
 
