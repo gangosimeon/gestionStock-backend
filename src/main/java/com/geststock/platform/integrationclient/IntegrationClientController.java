@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,6 +32,7 @@ import com.geststock.platform.integrationclient.IntegrationClientDtos.ClientResp
 import com.geststock.platform.integrationclient.IntegrationClientDtos.CreateClientRequest;
 import com.geststock.platform.integrationclient.IntegrationClientDtos.CreateClientResponse;
 import com.geststock.platform.integrationclient.IntegrationClientDtos.ResetSecretResponse;
+import com.geststock.platform.integrationclient.IntegrationClientDtos.UpdateClientRequest;
 
 /**
  * Administration des clients OAuth d'intégration (Super Admin, lot 2 ; G8) :
@@ -80,6 +82,15 @@ class IntegrationClientController {
 		return ResponseEntity
 				.created(URI.create("/api/platform/integration-clients/" + result.client().id()))
 				.body(new CreateClientResponse(result.client(), result.secret()));
+	}
+
+	@PatchMapping("/{id}")
+	@Operation(summary = "Modifier le nom et les URLs de retour d'un client")
+	@ApiResponse(responseCode = "200", description = "Client mis à jour")
+	@ApiResponse(responseCode = "404", description = "INTEGRATION_CLIENT_NOT_FOUND",
+			content = @Content(schema = @Schema(implementation = ApiError.class)))
+	ClientResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateClientRequest request) {
+		return this.service.update(id, request);
 	}
 
 	@PostMapping("/{id}/reset-secret")

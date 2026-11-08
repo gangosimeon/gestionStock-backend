@@ -53,4 +53,12 @@ class IntegrationClientDtos {
 			@Schema(description = "Nouveau secret client en clair — affiché une seule fois") String secret) {
 	}
 
+	@Schema(name = "UpdateIntegrationClientRequest")
+	record UpdateClientRequest(
+			@NotBlank @Size(max = 100) @Schema(example = "JeCréeMaBoutique") String name,
+			@NotEmpty @Schema(description = "URLs de retour OAuth exactes (https ou http://localhost)")
+			List<@Pattern(regexp = "^(https://[^#]+|http://localhost[^#]*)$",
+					message = "https:// ou http://localhost, sans fragment") String> redirectUris) {
+	}
+
 }

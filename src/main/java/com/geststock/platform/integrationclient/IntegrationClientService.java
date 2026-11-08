@@ -18,6 +18,7 @@ import com.geststock.platform.integrationclient.IntegrationClientDtos.ClientList
 import com.geststock.platform.integrationclient.IntegrationClientDtos.ClientResponse;
 import com.geststock.platform.integrationclient.IntegrationClientDtos.CreateClientRequest;
 import com.geststock.platform.integrationclient.IntegrationClientDtos.ResetSecretResponse;
+import com.geststock.platform.integrationclient.IntegrationClientDtos.UpdateClientRequest;
 
 /**
  * Gestion des clients OAuth d'intégration (Super Admin, lot 2 ; G8) :
@@ -99,6 +100,32 @@ class IntegrationClientService {
 					.update();
 		}
 		return new CreateResult(get(id), secret);
+	}
+
+	/** Met à jour le nom et les URLs de retour d'un client. */
+	ClientResponse update(UUID id, UpdateClientRequest request) {
+		get(id); // vérifie l'existence
+		this.platform.jdbc().sql("""
+				update platform.integration_client
+				set name = :name, updated_at = now()
+				where id = :id""")
+				.param("name", request.name())
+				.param("id", id)
+				.update();
+		this.platform.jdbc().sql("""
+				delete from platform.integration_client_redirect_uri where client_id = :id""")
+				.param("id", id)
+				.update();
+		for (String uri : request.redirectUris()) {
+			this.platform.jdbc().sql("""
+					insert into platform.integration_client_redirect_uri (id, client_id, redirect_uri)
+					values (:id, :clientId, :uri)""")
+					.param("id", UUID.randomUUID())
+					.param("clientId", id)
+					.param("uri", uri)
+					.update();
+		}
+		return get(id);
 	}
 
 	/** Génère un nouveau secret principal et retourne-le en clair. L'ancien est effacé. */
