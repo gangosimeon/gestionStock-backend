@@ -28,7 +28,7 @@ import com.geststock.common.jpa.AuditableEntity;
 @Table(name = "product")
 public class Product extends AuditableEntity {
 
-	@Column(name = "sku", nullable = false, length = 50)
+	@Column(name = "sku", length = 50)
 	private String sku;
 
 	@Column(name = "barcode", length = 14)
@@ -79,7 +79,7 @@ public class Product extends AuditableEntity {
 	}
 
 	public Product(String sku, String name, Category category) {
-		this.sku = Objects.requireNonNull(sku, "sku");
+		this.sku = sku;
 		this.name = Objects.requireNonNull(name, "name");
 		this.category = Objects.requireNonNull(category, "category");
 	}
@@ -141,7 +141,7 @@ public class Product extends AuditableEntity {
 	}
 
 	public void identify(String newSku, String newBarcode) {
-		this.sku = Objects.requireNonNull(newSku, "sku");
+		this.sku = newSku;
 		this.barcode = newBarcode;
 	}
 

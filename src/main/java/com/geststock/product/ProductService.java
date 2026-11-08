@@ -108,7 +108,7 @@ public class ProductService {
 
 	@Transactional
 	public ProductResponse create(ProductRequest request, UUID warehouseId) {
-		String sku = request.sku().trim();
+		String sku = blankToNull(request.sku());
 		String barcode = blankToNull(request.barcode());
 		requireUniqueIdentifiers(sku, barcode, null);
 
@@ -129,7 +129,7 @@ public class ProductService {
 		Product product = load(id);
 		ProductResponse before = toResponse(product, stockOf(List.of(product), warehouseId), imagesOf(List.of(product)));
 		ProductIntegrationEvents.Payload exposedBefore = ProductIntegrationEvents.Payload.of(product).withoutVersion();
-		String sku = request.sku().trim();
+		String sku = blankToNull(request.sku());
 		String barcode = blankToNull(request.barcode());
 		requireUniqueIdentifiers(sku, barcode, id);
 		apply(product, request, sku, barcode, false);
@@ -170,7 +170,7 @@ public class ProductService {
 	}
 
 	private static String label(Product product) {
-		return product.getSku() + " · " + product.getName();
+		return (product.getSku() != null ? product.getSku() + " · " : "") + product.getName();
 	}
 
 	/**
@@ -263,7 +263,7 @@ public class ProductService {
 	}
 
 	private void requireUniqueIdentifiers(String sku, String barcode, UUID excludedId) {
-		if (this.repository.existsBySkuIgnoringCase(sku, excludedId)) {
+		if (sku != null && this.repository.existsBySkuIgnoringCase(sku, excludedId)) {
 			throw new ConflictException(ErrorCode.SKU_ALREADY_USED, ErrorCode.SKU_ALREADY_USED.defaultMessage());
 		}
 		if (barcode != null && this.repository.existsByBarcode(barcode, excludedId)) {

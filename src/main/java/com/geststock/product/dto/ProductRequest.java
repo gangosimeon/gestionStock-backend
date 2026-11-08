@@ -24,7 +24,7 @@ import com.geststock.product.ProductUnit;
  */
 @Schema(name = "ProductRequest")
 public record ProductRequest(
-		@NotBlank @Pattern(regexp = "^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$",
+		@Pattern(regexp = "^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$",
 				message = "1 à 50 caractères : lettres, chiffres, point, tiret ou souligné")
 		@Schema(example = "MON-RB3025") String sku,
 		@Pattern(regexp = "^[0-9]{8,14}$", message = "8 à 14 chiffres (EAN-8, EAN-13, GTIN-14)")
