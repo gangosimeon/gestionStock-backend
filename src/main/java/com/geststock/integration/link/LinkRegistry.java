@@ -556,7 +556,7 @@ public class LinkRegistry {
 		return array != null ? new HashSet<>(Arrays.asList((String[]) array.getArray())) : Set.of();
 	}
 
-	static String sha256Hex(String value) {
+	public static String sha256Hex(String value) {
 		try {
 			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
 		}

@@ -94,6 +94,8 @@ public enum ErrorCode {
 			"Mise à jour de vos données momentanément impossible. L'équipe GestStock est prévenue : réessayez plus tard."),
 	COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "Entreprise introuvable."),
 	COMPANY_CODE_ALREADY_USED(HttpStatus.CONFLICT, "Ce code d'entreprise est déjà utilisé."),
+	INTEGRATION_CLIENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Client d'intégration introuvable."),
+	INTEGRATION_CLIENT_ID_ALREADY_USED(HttpStatus.CONFLICT, "Cet identifiant client est déjà utilisé."),
 	COMPANY_INVALID_TRANSITION(HttpStatus.CONFLICT, "Opération impossible dans l'état actuel de l'entreprise."),
 	PROVISIONING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
 			"Création des bases indisponible : configuration de provisionnement incomplète."),
